@@ -1,5 +1,9 @@
 # agent-harness-aibom
 
+[![CI](https://github.com/Aj7Ay/agent-harness-aibom/actions/workflows/ci.yml/badge.svg)](https://github.com/Aj7Ay/agent-harness-aibom/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/agent-harness-aibom.svg)](https://pypi.org/project/agent-harness-aibom/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 An AIBOM (AI Bill of Materials) generator for AI agent harnesses —
 currently Hermes and [OpenClaw](https://docs.openclaw.ai) — that emits standard CycloneDX 1.6
 JSON extended with harness-specific fields (skill fingerprints, MCP server
@@ -13,10 +17,20 @@ scanner (e.g. Cisco AI BOM), and diff what each one saw.
 ## Install
 
 ```bash
-pip install -e ".[dev]"   # from a checkout, for development
+pip install agent-harness-aibom
 ```
 
-(Not yet published to PyPI.)
+or, with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv pip install agent-harness-aibom
+```
+
+For development, from a checkout:
+
+```bash
+uv sync --extra dev       # or: pip install -e ".[dev]"
+```
 
 ## Usage
 
@@ -79,12 +93,12 @@ src/harness_aibom/
   every push and pull request, on Python 3.10, 3.11, and 3.12.
 - `.github/workflows/publish.yml` builds and publishes the package to PyPI
   when you publish a GitHub Release. It uses PyPI Trusted Publishing, so no
-  password lives in this repo. One-time setup before your first release:
-  1. Go to <https://pypi.org/manage/account/publishing/>.
-  2. Add a new trusted publisher for project `agent-harness-aibom`.
-  3. Set the owner and repo name to match this GitHub repo.
-  4. Set the workflow name to `publish.yml`.
-  5. Set the environment name to `pypi`.
+  password lives in this repo. Trusted publishing is already configured for
+  this project on PyPI.
+
+To ship a new version: bump `version` in `pyproject.toml`, commit, then
+publish a new GitHub Release with a matching tag (e.g. `v0.1.1`). The
+release triggers `publish.yml`, which builds and uploads it automatically.
 
 ## Testing
 
@@ -98,8 +112,8 @@ functions — no real `hermes`/`openclaw`/`ollama` needed to run the suite.
 
 ## Roadmap
 
-This is v0.1 — the spec plus two working collectors. Natural next steps,
-roughly in order:
+v0.1 is live on PyPI — the spec plus two working collectors. Natural next
+steps, roughly in order:
 
 1. Harden hook parsing against a live Hermes box (see `SPEC.md` §5).
 2. Point this at the actual CAASP lab VMs and fix whatever the real output
@@ -107,4 +121,3 @@ roughly in order:
 3. Scan the same harness with Cisco AI BOM and diff the two documents —
    the gap-analysis exercise this package exists to support.
 4. cosign signing/provenance for the emitted AIBOM.
-5. Package for PyPI.
