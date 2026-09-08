@@ -29,13 +29,20 @@ from ..model import Component, HarnessDocument
 from . import mcp as mcp_mod
 from . import ollama as ollama_mod
 from . import secrets as secrets_mod
+from . import skills as skills_mod
 from .base import Collector
 
 RunFn = Callable[[list[str]], str]
 
 
 def default_run(argv: list[str]) -> str:
-    return subprocess.run(argv, capture_output=True, text=True, timeout=10, check=False).stdout
+    # stdin=DEVNULL: if the real binary ever falls through to an
+    # interactive prompt instead of the flag we asked for, it gets an
+    # immediate EOF instead of hanging until `timeout` kills the scan --
+    # confirmed necessary against a live Hermes box (see hermes.py).
+    return subprocess.run(
+        argv, capture_output=True, text=True, timeout=10, check=False, stdin=subprocess.DEVNULL
+    ).stdout
 
 
 class OpenClawCollector(Collector):
@@ -71,6 +78,7 @@ class OpenClawCollector(Collector):
         self._collect_runtime(doc)
         config = self._collect_config(doc)
         self._collect_model(doc, config)
+        self._collect_skills(doc)
         for comp in mcp_mod.extract_mcp_servers(config):
             doc.add(comp, "uses")
         self._collect_secrets(doc)
@@ -78,8 +86,17 @@ class OpenClawCollector(Collector):
     def _collect_runtime(self, doc: HarnessDocument) -> None:
         try:
             output = self.run(["openclaw", "--version"])
-        except (OSError, subprocess.SubprocessError):
+        except FileNotFoundError:
             doc.warn("openclaw binary not found on PATH; runtime component skipped")
+            return
+        except subprocess.TimeoutExpired:
+            doc.warn(
+                "`openclaw --version` did not finish within the timeout; runtime component skipped "
+                "(the binary IS on PATH -- this is a hang or a slow response, not a missing install)"
+            )
+            return
+        except (OSError, subprocess.SubprocessError) as exc:
+            doc.warn(f"`openclaw --version` failed ({exc.__class__.__name__}: {exc}); runtime component skipped")
             return
         if not output.strip():
             doc.warn("`openclaw --version` produced no output; runtime component skipped")
@@ -132,6 +149,14 @@ class OpenClawCollector(Collector):
             comp.version = default_name
             doc.add(comp, "uses")
             doc.warn(f"configured model {default_name!r} not found via Ollama /api/tags; recorded from config only")
+
+    def _collect_skills(self, doc: HarnessDocument) -> None:
+        # Not confirmed from source material that OpenClaw has a skills
+        # directory at all -- discover_skills() returns [] harmlessly if
+        # ~/.openclaw/skills/ doesn't exist, same as any other optional
+        # piece this collector looks for.
+        for comp in skills_mod.discover_skills(self.openclaw_dir / "skills"):
+            doc.add(comp, "loads")
 
     def _collect_secrets(self, doc: HarnessDocument) -> None:
         for comp in secrets_mod.find_secrets_surface(self.env_dir):

@@ -6,8 +6,11 @@ Grounded in ~/pdso/Course/caasp material, not guessed:
     (endpoint-detection-for-hermes-agent/step1.md).
   - `~/.hermes/config.yaml` -> model.{default,provider,base_url,api_mode,
     thinking,context_length,ollama_num_ctx}.
-  - `~/.hermes/skills/<name>/SKILL.md` -> one skill per subdirectory
-    (scanning-agent-skills-with-skill-scanner/intro.md).
+  - `~/.hermes/skills/<category>/<name>/SKILL.md` -> one skill per
+    directory containing a SKILL.md, at any depth (confirmed on a live box:
+    skills are grouped into category folders such as `creative/`,
+    `devops/`, `productivity/`, one level above the actual skill
+    directories -- see collectors/skills.py).
   - `hermes hooks doctor` -> one allowlist line per hook, "[check] allowlisted
     (approved <date>)" / "[x] not allowlisted" (simple-lab-2-hermes-numbat.md).
   - MCP servers: audited from a `hermes.yaml`-shaped mcp_servers list in the
@@ -34,13 +37,19 @@ from ..model import Component, HarnessDocument
 from . import mcp as mcp_mod
 from . import ollama as ollama_mod
 from . import secrets as secrets_mod
+from . import skills as skills_mod
 from .base import Collector
 
 RunFn = Callable[[list[str]], str]
 
 
 def default_run(argv: list[str]) -> str:
-    return subprocess.run(argv, capture_output=True, text=True, timeout=10, check=False).stdout
+    # stdin=DEVNULL: if the real binary ever falls through to an
+    # interactive prompt instead of the flag we asked for, it gets an
+    # immediate EOF instead of hanging until `timeout` kills the scan.
+    return subprocess.run(
+        argv, capture_output=True, text=True, timeout=10, check=False, stdin=subprocess.DEVNULL
+    ).stdout
 
 
 class HermesCollector(Collector):
@@ -81,8 +90,17 @@ class HermesCollector(Collector):
     def _collect_runtime(self, doc: HarnessDocument) -> None:
         try:
             output = self.run(["hermes", "--version"])
-        except (OSError, subprocess.SubprocessError):
+        except FileNotFoundError:
             doc.warn("hermes binary not found on PATH; runtime component skipped")
+            return
+        except subprocess.TimeoutExpired:
+            doc.warn(
+                "`hermes --version` did not finish within the timeout; runtime component skipped "
+                "(the binary IS on PATH -- this is a hang or a slow response, not a missing install)"
+            )
+            return
+        except (OSError, subprocess.SubprocessError) as exc:
+            doc.warn(f"`hermes --version` failed ({exc.__class__.__name__}: {exc}); runtime component skipped")
             return
         if not output.strip():
             doc.warn("`hermes --version` produced no output; runtime component skipped")
@@ -158,20 +176,7 @@ class HermesCollector(Collector):
             doc.warn(f"configured model {default_name!r} not found via Ollama /api/tags; recorded from config only")
 
     def _collect_skills(self, doc: HarnessDocument) -> None:
-        skills_dir = self.hermes_dir / "skills"
-        if not skills_dir.is_dir():
-            return
-        for skill_dir in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
-            skill_md = skill_dir / "SKILL.md"
-            comp = Component(component_class="skill", name=skill_dir.name)
-            comp.set("path", str(skill_dir))
-            if skill_md.is_file():
-                comp.set("sha256", sha256_file(skill_md))
-                lines = skill_md.read_text(errors="replace").splitlines()
-                if lines:
-                    comp.set("description", lines[0].lstrip("# ").strip()[:200])
-            else:
-                doc.warn(f"skill directory {skill_dir} has no SKILL.md")
+        for comp in skills_mod.discover_skills(self.hermes_dir / "skills"):
             doc.add(comp, "loads")
 
     def _collect_hooks(self, doc: HarnessDocument) -> None:

@@ -89,12 +89,21 @@ def test_configuration_component_has_hash():
     assert len(config.properties["sha256"]) == 64
 
 
-def test_skill_component():
+def test_skill_component_flat():
     doc = collect()
-    [skill] = by_class(doc, "skill")
-    assert skill.name == "incident-response"
-    assert len(skill.properties["sha256"]) == 64
-    assert skill.properties["description"] == "Incident Response"
+    skills = by_class(doc, "skill")
+    flat = next(s for s in skills if s.name == "incident-response")
+    assert len(flat.properties["sha256"]) == 64
+    assert flat.properties["description"] == "Incident Response"
+    assert "category" not in flat.properties
+
+
+def test_skill_component_nested_under_a_category():
+    doc = collect()
+    skills = by_class(doc, "skill")
+    nested = next(s for s in skills if s.name == "software-development/dogfood")
+    assert nested.properties["category"] == "software-development"
+    assert len(nested.properties["sha256"]) == 64
 
 
 def test_mcp_servers_from_config():

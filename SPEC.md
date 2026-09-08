@@ -23,6 +23,12 @@ Anywhere a detail wasn't confirmed from that material (e.g. the exact
 `openclaw --version` output format), this doc and the code say so rather
 than inventing specifics.
 
+**v0.1.1 update:** this spec was checked against a real, live Hermes box
+(`devsecops-box-gpu-hm`) on 2026-09-08. Two assumptions from the first draft
+were wrong; both are corrected below (§2, §3) rather than left as
+documented guesses. See §5 for what that run confirmed and what still
+needs a real box to check.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -51,7 +57,7 @@ exotic — still valid CycloneDX, just extra properties.
 | `model_endpoint` | `service` | `provider`, `apiMode` | `config.yaml` / `openclaw.json` |
 | `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest`, `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx` | Ollama `GET /api/tags`, cross-referenced against the configured default model |
 | `configuration` | `file` | `path`, `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
-| `skill` | `library` | `path`, `sha256` (of `SKILL.md`), `description` | `~/.hermes/skills/<name>/SKILL.md` |
+| `skill` | `library` | `path`, `category` (if nested), `sha256` (of the whole skill directory), `description` | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
 | `mcp_server` | `service` | `endpoint`, `tls` (bool), `authConfigured` (bool), `toolCount` | `mcp_servers` list inside either config file |
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine` | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `mode`, `worldReadable`, `note` | filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` near the harness's own config dir |
@@ -61,10 +67,19 @@ rather than a generic one — it's a real ML-BOM component, not just a file.
 
 ## 3. Fingerprinting rules
 
-SHA-256 over file bytes for `configuration` and `skill` (hashing only
-`SKILL.md`, not the full skill directory tree — full-directory Merkle
-hashing is deferred to a later iteration). `model.digest` is taken verbatim
-from Ollama's own manifest digest, never recomputed.
+`configuration` is SHA-256 over the config file's bytes. `skill` is
+SHA-256 over **every file in the skill's directory**, not just `SKILL.md`
+— confirmed against a live box that real skills carry `scripts/`,
+`references/`, and `templates/` alongside `SKILL.md` (e.g.
+`research/arxiv/scripts/`, `productivity/google-workspace/scripts/`), and
+those scripts are exactly where a poisoned skill would carry its payload.
+A `SKILL.md`-only hash would miss any change to them entirely; the first
+draft of this spec hashed only `SKILL.md`, which was wrong for that
+reason. Files are hashed in sorted relative-path order so the digest
+doesn't depend on filesystem ordering.
+
+`model.digest` is taken verbatim from Ollama's own manifest digest, never
+recomputed.
 
 `secrets_surface` is **fingerprint-exempt by design**: hashing or reading
 `.env`/token/SQLite contents would turn the AIBOM itself into a secrets
@@ -82,14 +97,29 @@ two scans of the same harness.
 
 ## 5. Known limitations (v0.1)
 
-- **Hook parsing is best-effort text scraping.** The exact `hermes hooks
-  doctor` output format was only partially confirmed from course material
-  (one hook's allow/deny lines, not a full multi-hook transcript with
-  names). The collector flags this via a scan warning; treat hook data as
-  lower-confidence than the rest until verified against a live box.
+**Confirmed correct against a live Hermes box:** `hermes --version`'s
+output shape (§2's `runtime` fields), `~/.hermes/config.yaml`'s `model.*`
+keys, Ollama model discovery via `/api/tags` (including two models pulled
+side by side, `qwen3:8b` and `llama3.1:8b`), and `.env` secrets-surface
+detection with correct file mode.
+
+**Corrected after that run** (both were wrong in the first draft, now
+fixed above): the skill directory is nested by category, not flat (§2);
+skill fingerprinting must cover the whole directory, not just `SKILL.md`
+(§3).
+
+**Still open:**
+
+- **Hook parsing is best-effort text scraping, and on the live box it
+  found zero hooks** despite `hermes hooks doctor` clearly running (the
+  collector's own diagnostic warning fired). The real output format still
+  isn't confirmed — the assumed `✓`/`✗`-per-line-with-a-script-name shape
+  in `hermes.py` doesn't match whatever that box actually prints. Needs
+  the raw `hermes hooks doctor` output from a live box to fix for real,
+  rather than another guess.
 - **`openclaw --version` isn't parsed into a semantic version** — its exact
   output format wasn't in the source material, so the collector records the
-  first line verbatim.
+  first line verbatim. Not yet checked against a live OpenClaw box.
 - **No remote/SSH scanning.** `harness-aibom scan` reads the filesystem and
   runs subprocesses on whatever machine it's invoked on. Scanning a remote
   lab VM means installing the package there (or SSHing in) — there's no

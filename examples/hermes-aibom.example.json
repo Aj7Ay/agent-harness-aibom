@@ -1,16 +1,16 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:f0be37f3-dd00-41fc-af22-3f7bdecf24a5",
+  "serialNumber": "urn:uuid:bcf3101d-cd79-4cc8-9d49-65f76d207f4c",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-09-08T13:28:58+00:00",
+    "timestamp": "2026-09-08T16:13:03+00:00",
     "tools": {
       "components": [
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.1.0"
+          "version": "0.1.1"
         }
       ]
     },
@@ -46,6 +46,10 @@
         {
           "name": "harness-aibom:relationship",
           "value": "loads:skill:incident-response"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "loads:skill:software-development-dogfood"
         },
         {
           "name": "harness-aibom:relationship",
@@ -136,11 +140,38 @@
         },
         {
           "name": "harness-aibom:sha256",
-          "value": "29e6f14e14706cff8f25cf7097a991ae16fcfcbd9adc39529400a791e869f198"
+          "value": "9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696"
         },
         {
           "name": "harness-aibom:description",
           "value": "Incident Response"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "skill:software-development-dogfood",
+      "name": "software-development/dogfood",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "skill"
+        },
+        {
+          "name": "harness-aibom:path",
+          "value": "tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood"
+        },
+        {
+          "name": "harness-aibom:category",
+          "value": "software-development"
+        },
+        {
+          "name": "harness-aibom:sha256",
+          "value": "20e123dc1ed35f7ab718d089347cac0a10c1c0c314101a9c3b139d20eade9ea2"
+        },
+        {
+          "name": "harness-aibom:description",
+          "value": "Dogfood"
         }
       ]
     },
@@ -203,6 +234,7 @@
         "model_endpoint:http-127.0.0.1-11434-v1",
         "model:qwen3-8b",
         "skill:incident-response",
+        "skill:software-development-dogfood",
         "mcp_server:local-time",
         "mcp_server:corp-docs"
       ]
