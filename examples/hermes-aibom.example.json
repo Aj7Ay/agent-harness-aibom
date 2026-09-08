@@ -1,16 +1,16 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:85a1e8c5-274f-457d-9437-53b2fa538e3e",
+  "serialNumber": "urn:uuid:6dc52c4d-99e8-4bd2-8daf-41cb07a0f243",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-09-08T16:55:25+00:00",
+    "timestamp": "2026-09-08T17:06:30+00:00",
     "tools": {
       "components": [
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.1.4"
+          "version": "0.1.5"
         }
       ]
     },
@@ -77,6 +77,10 @@
           "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/config.yaml"
         },
         {
+          "name": "harness-aibom:relPath",
+          "value": ".hermes/config.yaml"
+        },
+        {
           "name": "harness-aibom:sha256",
           "value": "a96289af83fe74235bdf6a04d679002d476989db575e19023307f29c377cc291"
         }
@@ -120,6 +124,10 @@
           "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/incident-response"
         },
         {
+          "name": "harness-aibom:relPath",
+          "value": ".hermes/skills/incident-response"
+        },
+        {
           "name": "harness-aibom:sha256",
           "value": "9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696"
         },
@@ -141,6 +149,10 @@
         {
           "name": "harness-aibom:path",
           "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood"
+        },
+        {
+          "name": "harness-aibom:relPath",
+          "value": ".hermes/skills/software-development/dogfood"
         },
         {
           "name": "harness-aibom:category",

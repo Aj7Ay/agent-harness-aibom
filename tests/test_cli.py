@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 from harness_aibom.cli import main
@@ -150,3 +151,30 @@ def test_openclaw_env_dir_flag_is_honored(tmp_path, capsys):
         if p["name"] == "harness-aibom:path"
     }
     assert str(env_dir / ".env") in secret_paths
+
+
+def test_diff_across_two_different_home_roots_with_identical_content(tmp_path, capsys):
+    # End-to-end regression test for the cross-host case an independent
+    # reviewer found: scan the exact same tree under two different --home
+    # roots (standing in for two different machines/usernames -- a golden
+    # baseline vs. a lab VM, or one student's box vs. another's), and
+    # confirm identical content produces an empty diff. Before relPath,
+    # this reported everything as both added and removed, since every
+    # `path` property was absolute and the two roots share no path
+    # prefix.
+    home_a = tmp_path / "students" / "alice" / "home"
+    home_b = tmp_path / "students" / "bob" / "home"
+    shutil.copytree(HERMES_HOME, home_a)
+    shutil.copytree(HERMES_HOME, home_b)
+
+    scan_a = tmp_path / "a.json"
+    scan_b = tmp_path / "b.json"
+    main(["scan", "--runtime", "hermes", "--home", str(home_a), "--output", str(scan_a)])
+    main(["scan", "--runtime", "hermes", "--home", str(home_b), "--output", str(scan_b)])
+
+    capsys.readouterr()
+    exit_code = main(["diff", "--exit-code", str(scan_a), str(scan_b)])
+    result = json.loads(capsys.readouterr().out)
+
+    assert result == {"added": [], "removed": [], "changed": []}
+    assert exit_code == 0

@@ -26,6 +26,7 @@ from typing import Callable
 
 from ..fingerprint import sha256_file
 from ..model import Component, HarnessDocument
+from ..paths import relative_to_or_none
 from . import mcp as mcp_mod
 from . import ollama as ollama_mod
 from . import secrets as secrets_mod
@@ -118,6 +119,7 @@ class OpenClawCollector(Collector):
 
         comp = Component(component_class="configuration", name="openclaw.json")
         comp.set("path", str(self.config_path))
+        comp.set("relPath", relative_to_or_none(self.config_path, self.home))
         comp.set("sha256", sha256_file(self.config_path))
         doc.add(comp, "loads")
         return config
@@ -155,17 +157,22 @@ class OpenClawCollector(Collector):
         # directory at all -- discover_skills() returns [] harmlessly if
         # ~/.openclaw/skills/ doesn't exist, same as any other optional
         # piece this collector looks for.
-        for comp in skills_mod.discover_skills(self.openclaw_dir / "skills"):
+        for comp in skills_mod.discover_skills(self.openclaw_dir / "skills", self.home):
             doc.add(comp, "loads")
 
     def _collect_secrets(self, doc: HarnessDocument) -> None:
-        for comp in secrets_mod.find_secrets_surface(self.env_dir):
+        # env_dir defaults to /opt/openclaw, entirely outside self.home --
+        # relative_to_or_none() inside find_secrets_surface() just leaves
+        # relPath unset for these, `path` still identifies them uniquely.
+        for comp in secrets_mod.find_secrets_surface(self.env_dir, self.home):
             doc.add(comp, "accesses")
         # exclude_dirnames={"agents"}: that subtree is scanned explicitly
         # below with richer, OpenClaw-specific metadata (which agent, that
         # it's a credential store) -- scanning it here too via the generic
         # *.sqlite pattern would report the same file as two components.
-        for comp in secrets_mod.find_secrets_surface(self.openclaw_dir, exclude_dirnames=frozenset({"agents"})):
+        for comp in secrets_mod.find_secrets_surface(
+            self.openclaw_dir, self.home, exclude_dirnames=frozenset({"agents"})
+        ):
             doc.add(comp, "accesses")
 
         agents_dir = self.openclaw_dir / "agents"
@@ -173,5 +180,6 @@ class OpenClawCollector(Collector):
             for sqlite_path in sorted(agents_dir.glob("*/agent/*.sqlite")):
                 comp = Component(component_class="secrets_surface", name=sqlite_path.name)
                 comp.set("path", str(sqlite_path))
+                comp.set("relPath", relative_to_or_none(sqlite_path, self.home))
                 comp.set("note", "per-agent provider credential store (SQLite); contents never read")
                 doc.add(comp, "accesses")

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from ..fingerprint import sha256_directory
 from ..model import Component
+from ..paths import relative_to_or_none
 
 
 def _find_skill_md_files(skills_dir: Path) -> list[Path]:
@@ -31,7 +32,11 @@ def _find_skill_md_files(skills_dir: Path) -> list[Path]:
     return sorted(found)
 
 
-def discover_skills(skills_dir: Path) -> list[Component]:
+def discover_skills(skills_dir: Path, home: Path) -> list[Component]:
+    """`home` is the harness's own scan root (e.g. what `--home` resolved
+    to) -- used only to compute `relPath`, a host-independent identity for
+    `diff` (see paths.py). Every real caller has it on hand already.
+    """
     if not skills_dir.is_dir():
         return []
 
@@ -42,6 +47,7 @@ def discover_skills(skills_dir: Path) -> list[Component]:
 
         comp = Component(component_class="skill", name="/".join(rel_parts))
         comp.set("path", str(skill_dir))
+        comp.set("relPath", relative_to_or_none(skill_dir, home))
         if len(rel_parts) > 1:
             comp.set("category", rel_parts[0])
         # Hash the whole skill directory, not just SKILL.md -- scripts/

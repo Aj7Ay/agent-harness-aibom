@@ -51,6 +51,18 @@ second scanned always silently overwrote the first, so a real permission
 change to one of them could vanish from a diff entirely, `--exit-code`
 included. Reproduced and confirmed before fixing (§4).
 
+**v0.1.5 update:** the same reviewer re-tested v0.1.4, confirmed the fix
+and the whole regression suite, then found the v0.1.4 fix traded one
+problem for another: keying on the *absolute* `path` broke comparing two
+different machines with the same layout (a golden baseline vs. a lab VM,
+one student's box vs. another's) — `/home/alice` and `/home/bob` share no
+absolute paths, so an identical harness on two machines diffed as
+everything added and everything removed. Fixed with a `relPath` property
+(path relative to `--home`) that `diff` now prefers over the absolute
+path; also had to stop comparing the absolute `path` field itself once two
+entries are matched, since it's inherently host-specific noise at that
+point. See §4.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -88,10 +100,10 @@ rather than e.g. `runtime` depending on `model_endpoint` depending on
 |---|---|---|---|
 | `runtime` | `application` | `version`, `installDir`, `installMethod`, `upstreamHash`, `pythonVersion`, `sdkVersion` | `hermes --version` / `openclaw --version` |
 | `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest`, `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx` | Ollama `GET /api/tags`, cross-referenced against the configured default model |
-| `configuration` | `file` | `path`, `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
-| `skill` | `library` | `path`, `category` (if nested), `sha256` (of the whole skill directory), `description` | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
+| `configuration` | `file` | `path`, `relPath` (path relative to `--home`; see §4), `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
+| `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description` | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine` | `hermes hooks doctor` (best-effort text parse, see §5) |
-| `secrets_surface` | `data` | `path`, `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
+| `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
 
@@ -136,24 +148,43 @@ has its path folded into the skill's hash, just not its content.
 ## 4. Diffing
 
 `harness-aibom diff before.json after.json` indexes both documents by
-`(componentClass, identity)`, where `identity` is the entry's
-`harness-aibom:path` property when it has one, falling back to `name`
-otherwise (`model`, `runtime`, and the two service classes don't carry a
-path). It reports `added` / `removed` / `changed` keys. A change to
-`harness-aibom:sha256` or `harness-aibom:digest` is flagged with
+`(componentClass, identity)`, where `identity` is, in order of
+preference: the entry's `harness-aibom:relPath` property (its path
+relative to `--home`), then `harness-aibom:path` (the absolute path),
+then `name` (`model`, `runtime`, and the two service classes carry none
+of the above). It reports `added` / `removed` / `changed` keys. A change
+to `harness-aibom:sha256` or `harness-aibom:digest` is flagged with
 `fingerprint_changed: true` — this is the mechanism for catching a
 poisoned skill or a swapped model between two scans of the same harness.
+The absolute `harness-aibom:path` field itself is never compared for a
+matched pair (`diff.IGNORED_FIELDS`) — see the v0.1.5 reasoning below for
+why.
 
-Keying on `name` alone was wrong, and shipped that way in v0.1.0 through
-v0.1.3: `name` isn't unique once the secrets scan recurses into skill
-directories (§3) — two different `.env` files can both be named `.env`,
-collide under one dict key, and the second one scanned silently
-overwrites the first, hiding a real change to whichever file lost that
-collision. Confirmed and fixed in v0.1.4. Deliberately not keyed on
-`bom-ref` either: its numeric `-2` disambiguation suffix (model.py's
-`HarnessDocument.add()`) is insertion-order-dependent, so adding one new
-component earlier in a later scan can shift every following bom-ref and
-make untouched files look renamed.
+This three-tier fallback replaced two narrower, each-wrong-in-turn
+attempts, both confirmed by the same independent reviewer:
+
+- **v0.1.0–v0.1.3 keyed on `name` alone**, which isn't unique once the
+  secrets scan recurses into skill directories (§3) — two different
+  `.env` files can both be named `.env`, collide under one dict key, and
+  the second one scanned silently overwrites the first, hiding a real
+  change to whichever file lost that collision.
+- **v0.1.4 fixed that by keying on the absolute `path` instead**, which
+  fixed the collision but broke comparing two *different* machines with
+  the same layout — a golden baseline vs. a lab VM, one student's box vs.
+  another's. `/home/alice` and `/home/bob` share no absolute paths, so an
+  identical harness scanned on both diffed as everything added and
+  everything removed, and every unchanged file's `path` field itself
+  showed up as "changed" too, purely from the differing home directory.
+- **v0.1.5 adds `relPath`** (path relative to `--home`), preferred over
+  `path`: unique like `path`, but host-independent like `name` was
+  supposed to be. Not every entry has one — OpenClaw's `env_dir` defaults
+  to `/opt/openclaw`, entirely outside `--home` — those fall back to
+  `path`, still unique, just not portable across machines.
+
+Deliberately never keyed on `bom-ref`: its numeric `-2` disambiguation
+suffix (model.py's `HarnessDocument.add()`) is insertion-order-dependent,
+so adding one new component earlier in a later scan can shift every
+following bom-ref and make untouched files look renamed.
 
 `hook` components still have this exposure and aren't yet fixed: the
 current `hermes hooks doctor` text-parsing (§5) only extracts a script

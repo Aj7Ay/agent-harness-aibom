@@ -34,6 +34,7 @@ import yaml
 
 from ..fingerprint import sha256_file
 from ..model import Component, HarnessDocument
+from ..paths import relative_to_or_none
 from . import mcp as mcp_mod
 from . import ollama as ollama_mod
 from . import secrets as secrets_mod
@@ -84,7 +85,7 @@ class HermesCollector(Collector):
         self._collect_hooks(doc)
         for comp in mcp_mod.extract_mcp_servers(config):
             doc.add(comp, "uses")
-        for comp in secrets_mod.find_secrets_surface(self.hermes_dir):
+        for comp in secrets_mod.find_secrets_surface(self.hermes_dir, self.home):
             doc.add(comp, "accesses")
 
     def _collect_runtime(self, doc: HarnessDocument) -> None:
@@ -138,6 +139,7 @@ class HermesCollector(Collector):
 
         comp = Component(component_class="configuration", name="config.yaml")
         comp.set("path", str(self.config_path))
+        comp.set("relPath", relative_to_or_none(self.config_path, self.home))
         comp.set("sha256", sha256_file(self.config_path))
         doc.add(comp, "loads")
         return config
@@ -176,7 +178,7 @@ class HermesCollector(Collector):
             doc.warn(f"configured model {default_name!r} not found via Ollama /api/tags; recorded from config only")
 
     def _collect_skills(self, doc: HarnessDocument) -> None:
-        for comp in skills_mod.discover_skills(self.hermes_dir / "skills"):
+        for comp in skills_mod.discover_skills(self.hermes_dir / "skills", self.home):
             doc.add(comp, "loads")
 
     def _collect_hooks(self, doc: HarnessDocument) -> None:

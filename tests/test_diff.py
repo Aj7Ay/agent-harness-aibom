@@ -77,3 +77,40 @@ def test_same_basename_in_different_directories_does_not_collide_in_diff():
     [change] = result["changed"]
     assert change["component"] == "secrets_surface:/root/.hermes/.env"
     assert change["fields"]["harness-aibom:mode"] == {"before": "0o644", "after": "0o600"}
+
+
+def doc_with_relpath_skill(home_username: str, sha: str) -> dict:
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    skill = Component(component_class="skill", name="incident-response")
+    # Different absolute path (different machine, different username),
+    # same relPath (same layout relative to --home).
+    skill.set("path", f"/home/{home_username}/.hermes/skills/incident-response")
+    skill.set("relPath", ".hermes/skills/incident-response")
+    skill.set("sha256", sha)
+    doc.add(skill, "loads")
+    return to_cyclonedx(doc)
+
+
+def test_cross_host_diff_uses_relpath_not_absolute_path():
+    # Regression test: keying on the absolute `path` alone (v0.1.4's fix
+    # for the previous bug) broke comparing two different machines with
+    # the same layout -- a golden baseline vs. a lab VM, or one student's
+    # box vs. another's. /home/alice and /home/bob share no absolute
+    # paths, so every unchanged file used to read as both added and
+    # removed. relPath fixes this: same layout, same identity, regardless
+    # of whose home directory it is.
+    before = doc_with_relpath_skill("alice", "aaa")
+    after = doc_with_relpath_skill("bob", "aaa")
+
+    assert diff_documents(before, after) == {"added": [], "removed": [], "changed": []}
+
+
+def test_cross_host_diff_still_finds_a_real_change_via_relpath():
+    before = doc_with_relpath_skill("alice", "aaa")
+    after = doc_with_relpath_skill("bob", "bbb")
+
+    result = diff_documents(before, after)
+    assert result["added"] == []
+    assert result["removed"] == []
+    [change] = result["changed"]
+    assert change["fingerprint_changed"] is True

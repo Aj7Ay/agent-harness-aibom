@@ -14,6 +14,18 @@ from __future__ import annotations
 #: everything else still shows up under "changed" but without that flag.
 FINGERPRINT_FIELDS = ("harness-aibom:sha256", "harness-aibom:digest")
 
+#: fields never compared for a matched entry, even though they're real
+#: properties -- "harness-aibom:path" is the absolute filesystem path, and
+#: once relPath exists as the identity two entries were matched *on*, the
+#: absolute path is inherently host-specific: comparing two different
+#: machines (a golden baseline vs. a lab VM, one student's box vs.
+#: another's) would otherwise flag every single unchanged file as
+#: "changed" purely because /home/alice != /home/bob, which isn't a real
+#: finding. Safe to exclude unconditionally: when a pair was matched on
+#: `path` itself (no relPath available), their path values are equal by
+#: construction anyway, so this never hides a real path-only difference.
+IGNORED_FIELDS = frozenset({"harness-aibom:path"})
+
 
 def _index(doc: dict) -> dict[tuple[str, str], dict[str, str]]:
     out: dict[tuple[str, str], dict[str, str]] = {}
@@ -23,17 +35,29 @@ def _index(doc: dict) -> dict[tuple[str, str], dict[str, str]]:
     # a changed MCP server just because of which array it's stored in.
     for entry in doc.get("components", []) + doc.get("services", []):
         props = {p["name"]: p["value"] for p in entry.get("properties", [])}
-        # Key on the full path when there is one, falling back to `name`
-        # only for classes that don't carry a path (model, runtime, ...).
-        # `name` alone isn't unique: the recursive secrets scan means two
-        # different `.env` files in different directories both have
-        # `name == ".env"` -- keying on `name` collapsed them into one
-        # dict entry, silently hiding a real change to whichever one lost
-        # that collision. Deliberately NOT bom-ref: its numeric "-2"
-        # disambiguation suffix is insertion-order-dependent, so a new
-        # component added earlier in a later scan can shift every
-        # following bom-ref and make untouched files look renamed.
-        identity = props.get("harness-aibom:path") or entry.get("name", "")
+        # Prefer relPath (path relative to --home) over the absolute path,
+        # over `name`, in that order:
+        #   - `name` alone isn't unique: the recursive secrets scan means
+        #     two different `.env` files in different directories both
+        #     have `name == ".env"` -- keying on `name` collapsed them
+        #     into one dict entry, silently hiding a real change to
+        #     whichever one lost that collision.
+        #   - the absolute `path` fixes that, but breaks comparing two
+        #     different machines against each other (a golden baseline vs.
+        #     a lab VM, or student A's box vs. student B's) -- `/home/alice`
+        #     and `/home/bob` share no absolute paths, so every entry would
+        #     read as both added and removed.
+        #   - relPath fixes both: unique like `path`, but host-independent.
+        #     Not every entry has one (OpenClaw's env_dir defaults to
+        #     /opt/openclaw, entirely outside --home) -- those fall back to
+        #     `path`, which is still unique, just not portable.
+        # Deliberately NOT bom-ref: its numeric "-2" disambiguation suffix
+        # is insertion-order-dependent, so a new component added earlier in
+        # a later scan can shift every following bom-ref and make
+        # untouched files look renamed.
+        identity = (
+            props.get("harness-aibom:relPath") or props.get("harness-aibom:path") or entry.get("name", "")
+        )
         key = (props.get("harness-aibom:componentClass", "unknown"), identity)
         out[key] = props
     return out
@@ -52,7 +76,7 @@ def diff_documents(before: dict, after: dict) -> dict:
         b, a = before_index[key], after_index[key]
         field_diffs = {
             name: {"before": b.get(name), "after": a.get(name)}
-            for name in set(b) | set(a)
+            for name in (set(b) | set(a)) - IGNORED_FIELDS
             if b.get(name) != a.get(name)
         }
         if not field_diffs:

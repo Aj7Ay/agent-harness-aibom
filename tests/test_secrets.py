@@ -5,7 +5,7 @@ from harness_aibom.collectors.secrets import find_secrets_surface
 
 def test_finds_top_level_secrets(tmp_path):
     (tmp_path / ".env").write_text("SECRET=1\n")
-    [comp] = find_secrets_surface(tmp_path)
+    [comp] = find_secrets_surface(tmp_path, home=tmp_path)
     assert comp.name == ".env"
 
 
@@ -17,13 +17,13 @@ def test_recurses_into_skill_directories(tmp_path):
     skill_dir.mkdir(parents=True)
     (skill_dir / ".env").write_text("EXFIL_TOKEN=1\n")
 
-    found = find_secrets_surface(tmp_path)
+    found = find_secrets_surface(tmp_path, home=tmp_path)
     paths = {c.properties["path"] for c in found}
     assert str(skill_dir / ".env") in paths
 
 
-def test_missing_directory_returns_empty():
-    assert find_secrets_surface(Path("/no/such/directory")) == []
+def test_missing_directory_returns_empty(tmp_path):
+    assert find_secrets_surface(Path("/no/such/directory"), home=tmp_path) == []
 
 
 def test_exclude_dirnames_skips_a_named_subdirectory(tmp_path):
@@ -32,6 +32,30 @@ def test_exclude_dirnames_skips_a_named_subdirectory(tmp_path):
     (excluded / "creds.sqlite").write_text("x")
     (tmp_path / ".env").write_text("SECRET=1\n")
 
-    found = find_secrets_surface(tmp_path, exclude_dirnames=frozenset({"agents"}))
+    found = find_secrets_surface(tmp_path, home=tmp_path, exclude_dirnames=frozenset({"agents"}))
     names = {c.name for c in found}
     assert names == {".env"}
+
+
+def test_relpath_is_set_when_under_home(tmp_path):
+    home = tmp_path / "home"
+    scanned = home / ".hermes" / "skills" / "devops" / "k8s-triage"
+    scanned.mkdir(parents=True)
+    (scanned / ".env").write_text("SECRET=1\n")
+
+    [comp] = find_secrets_surface(scanned, home=home)
+    assert comp.properties["relPath"] == ".hermes/skills/devops/k8s-triage/.env"
+
+
+def test_relpath_is_absent_when_not_under_home(tmp_path):
+    # OpenClaw's env_dir defaults to /opt/openclaw, entirely outside the
+    # scanned harness's --home -- relPath just can't be computed for it.
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "opt-openclaw"
+    outside.mkdir()
+    (outside / ".env").write_text("SECRET=1\n")
+
+    [comp] = find_secrets_surface(outside, home=home)
+    assert "relPath" not in comp.properties
+    assert comp.properties["path"] == str(outside / ".env")

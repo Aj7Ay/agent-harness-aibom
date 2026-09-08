@@ -1,16 +1,16 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:aabc5132-4537-4683-a075-cc43442e70c0",
+  "serialNumber": "urn:uuid:7ebe4c9b-8df5-4e9b-8d99-58c96e94c456",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-09-08T16:55:26+00:00",
+    "timestamp": "2026-09-08T17:06:31+00:00",
     "tools": {
       "components": [
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.1.4"
+          "version": "0.1.5"
         }
       ]
     },
@@ -69,6 +69,10 @@
           "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json"
         },
         {
+          "name": "harness-aibom:relPath",
+          "value": ".openclaw/openclaw.json"
+        },
+        {
           "name": "harness-aibom:sha256",
           "value": "3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"
         }
@@ -98,6 +102,10 @@
         {
           "name": "harness-aibom:path",
           "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite"
+        },
+        {
+          "name": "harness-aibom:relPath",
+          "value": ".openclaw/agents/main/agent/openclaw-agent.sqlite"
         },
         {
           "name": "harness-aibom:note",

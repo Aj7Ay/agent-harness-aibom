@@ -17,12 +17,22 @@ import stat
 from pathlib import Path
 
 from ..model import Component
+from ..paths import relative_to_or_none
 
 SECRET_NAME_PATTERNS = (".env", "*.env", "*credentials*", "*token*", "*.pem", "*.key", "*.sqlite")
 
 
-def find_secrets_surface(directory: Path, exclude_dirnames: frozenset[str] = frozenset()) -> list[Component]:
-    """`exclude_dirnames` skips descending into subdirectories with that
+def find_secrets_surface(
+    directory: Path, home: Path, exclude_dirnames: frozenset[str] = frozenset()
+) -> list[Component]:
+    """`home` is the harness's own scan root (e.g. what `--home` resolved
+    to) -- used only to compute `relPath`, a host-independent identity for
+    `diff` (see paths.py). Not every `directory` scanned here is actually
+    under `home` (OpenClaw's env_dir defaults to /opt/openclaw, entirely
+    outside ~/.openclaw) -- relPath just doesn't get set for those, `path`
+    still does.
+
+    `exclude_dirnames` skips descending into subdirectories with that
     exact name -- for a spot a collector already scans separately with
     richer, harness-specific metadata (e.g. OpenClaw's per-agent SQLite
     store), so it isn't reported twice under two different components.
@@ -50,6 +60,7 @@ def find_secrets_surface(directory: Path, exclude_dirnames: frozenset[str] = fro
             # instead of both just being called ".env".
             comp = Component(component_class="secrets_surface", name=str(file_path.relative_to(directory)))
             comp.set("path", str(file_path))
+            comp.set("relPath", relative_to_or_none(file_path, home))
             comp.set("mode", oct(mode))
             comp.set("worldReadable", bool(mode & stat.S_IROTH))
             found.append(comp)
