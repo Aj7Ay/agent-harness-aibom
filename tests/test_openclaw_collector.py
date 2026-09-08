@@ -89,3 +89,13 @@ def test_secrets_surface_finds_sqlite_store():
     assert "credential store" in sqlite_comp.properties["note"]
     # never the token value, only that a config file with a token key exists
     assert all("REDACTED" not in v for v in sqlite_comp.properties.values())
+
+
+def test_sqlite_store_is_not_reported_twice():
+    # The generic recursive secrets scan over ~/.openclaw and the dedicated
+    # agents/*/agent/*.sqlite loop both know how to find this file --
+    # exclude_dirnames={"agents"} on the generic scan is what keeps it
+    # from showing up as two separate components.
+    doc = collect()
+    sqlite_matches = [s for s in by_class(doc, "secrets_surface") if s.name == "openclaw-agent.sqlite"]
+    assert len(sqlite_matches) == 1

@@ -17,9 +17,13 @@ FINGERPRINT_FIELDS = ("harness-aibom:sha256", "harness-aibom:digest")
 
 def _index(doc: dict) -> dict[tuple[str, str], dict[str, str]]:
     out: dict[tuple[str, str], dict[str, str]] = {}
-    for comp in doc.get("components", []):
-        props = {p["name"]: p["value"] for p in comp.get("properties", [])}
-        key = (props.get("harness-aibom:componentClass", "unknown"), comp.get("name", ""))
+    # model_endpoint and mcp_server live in "services", not "components"
+    # (see model.py SERVICE_CLASSES) -- both arrays get indexed the same
+    # way, keyed by componentClass, so a diff doesn't silently go blind to
+    # a changed MCP server just because of which array it's stored in.
+    for entry in doc.get("components", []) + doc.get("services", []):
+        props = {p["name"]: p["value"] for p in entry.get("properties", [])}
+        key = (props.get("harness-aibom:componentClass", "unknown"), entry.get("name", ""))
         out[key] = props
     return out
 

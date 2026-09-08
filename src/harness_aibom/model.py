@@ -13,18 +13,30 @@ from dataclasses import dataclass, field
 #: harness-aibom:relationship properties in the JSON output.
 RELATIONSHIP_VERBS = {"uses", "loads", "invokes", "executes", "accesses", "approves", "pulls"}
 
+#: componentClass values that belong in CycloneDX's top-level `services[]`
+#: array instead of `components[]`. CycloneDX has no "service" *component*
+#: type -- confirmed against the real 1.6 JSON Schema, whose `type` enum is
+#: application/framework/library/container/platform/operating-system/
+#: device/device-driver/firmware/file/machine-learning-model/data/
+#: cryptographic-asset. A network-reachable thing like a model endpoint or
+#: an MCP server is a *service* in CycloneDX's own vocabulary, and belongs
+#: in `bom.services[]`, which has no `type` field at all. See SPEC.md §2.
+SERVICE_CLASSES = frozenset({"model_endpoint", "mcp_server"})
+
 #: harness-aibom componentClass -> CycloneDX 1.6 native `type`.
+#: Only meaningful for classes NOT in SERVICE_CLASSES.
 #: See SPEC.md section 2 for the reasoning behind each mapping.
 CDX_TYPE_FOR_CLASS = {
     "runtime": "application",
-    "model_endpoint": "service",
     "model": "machine-learning-model",
     "configuration": "file",
     "skill": "library",
-    "mcp_server": "service",
     "hook": "file",
     "secrets_surface": "data",
 }
+
+#: every componentClass this package knows how to emit, service or not.
+ALL_COMPONENT_CLASSES = SERVICE_CLASSES | frozenset(CDX_TYPE_FOR_CLASS)
 
 
 def make_bom_ref(component_class: str, name: str) -> str:
@@ -48,13 +60,23 @@ class Component:
     relationships: list[tuple[str, str]] = field(default_factory=list)  # (verb, target_bom_ref)
 
     def __post_init__(self) -> None:
-        if self.component_class not in CDX_TYPE_FOR_CLASS:
+        if self.component_class not in ALL_COMPONENT_CLASSES:
             raise ValueError(f"unknown component_class {self.component_class!r}")
         if not self.bom_ref:
             self.bom_ref = make_bom_ref(self.component_class, self.name)
 
     @property
+    def is_service(self) -> bool:
+        """True for a CycloneDX *service* (belongs in bom.services[]),
+        False for a CycloneDX *component* (belongs in bom.components[])."""
+        return self.component_class in SERVICE_CLASSES
+
+    @property
     def cdx_type(self) -> str:
+        """The CycloneDX component `type`. Services have no `type` field at
+        all, so this is only meaningful when `is_service` is False."""
+        if self.is_service:
+            raise ValueError(f"{self.component_class!r} is a CycloneDX service, not a component -- it has no `type`")
         return CDX_TYPE_FOR_CLASS[self.component_class]
 
     def set(self, name: str, value) -> Component:

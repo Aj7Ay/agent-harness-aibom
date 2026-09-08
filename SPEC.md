@@ -29,38 +29,66 @@ were wrong; both are corrected below (§2, §3) rather than left as
 documented guesses. See §5 for what that run confirmed and what still
 needs a real box to check.
 
+**v0.1.3 update:** an independent sandbox test (synthetic Hermes + OpenClaw
+homes, fake CLIs, a mock Ollama server) found that the v0.1.2 output was
+**not actually valid CycloneDX 1.6** — `model_endpoint` and `mcp_server`
+used component `type: "service"`, which isn't in CycloneDX's `type` enum
+at all; `service` is a distinct top-level concept in CycloneDX
+(`bom.services[]`), not a component type. Verified directly against
+`cyclonedx-python-lib`'s strict JSON Schema validator, which rejected every
+v0.1.2 example document on that one field. Fixed in §1/§2 below: those two
+classes now serialize into `bom.services[]`. The same test also found a
+crash on an unreadable skill file, a secrets scan that missed anything
+inside a skill directory, and several CLI rough edges — all fixed, see §5.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
 (`type: application`, name `<runtime>@<hostname>`). Every discovered thing
-becomes a CycloneDX `component`, mapped to the closest native `type` (§2).
-Fields CycloneDX has no slot for go in that component's `properties[]`
-under a `harness-aibom:` namespace (e.g. `harness-aibom:componentClass`,
-`harness-aibom:sha256`). A CycloneDX-aware tool that ignores unknown
-property names still gets a valid, useful BOM; `harness-aibom`'s own
-`diff`/`validate` commands are the only consumers that need to understand
-them.
+becomes either a CycloneDX **component** (`bom.components[]`) or a
+CycloneDX **service** (`bom.services[]`), whichever CycloneDX itself
+distinguishes them as — a config file or a skill is a component; a
+network-reachable thing like a model endpoint or an MCP server is a
+service (§2 says which is which; `model.py`'s `SERVICE_CLASSES` is the
+source of truth). Fields CycloneDX has no slot for go in that entry's
+`properties[]` under a `harness-aibom:` namespace (e.g.
+`harness-aibom:componentClass`, `harness-aibom:sha256`) — components and
+services both support `properties[]`, so this works identically for both.
+A CycloneDX-aware tool that ignores unknown property names still gets a
+valid, useful BOM either way; `harness-aibom`'s own `diff`/`validate`
+commands are the only consumers that need to understand them.
 
 **Relationships.** CycloneDX's native `dependencies[]` only expresses
-untyped "depends-on" edges — every component the harness touches is listed
-under `dependsOn` for the root. The *verb* (`uses`, `loads`, `invokes`,
-`executes`, `accesses`, `approves`, `pulls`) is layered on top as repeated
+untyped "depends-on" edges, referencing bom-refs from either array — every
+component or service the harness touches is listed under `dependsOn` for
+the root. The *verb* (`uses`, `loads`, `invokes`, `executes`, `accesses`,
+`approves`, `pulls`) is layered on top as repeated
 `harness-aibom:relationship` properties (`"<verb>:<bom-ref>"`) on the
-source component (the harness root, for top-level relationships). Nothing
-exotic — still valid CycloneDX, just extra properties.
+source entry (the harness root, for top-level relationships). Nothing
+exotic — still valid CycloneDX, just extra properties. This does mean the
+dependency graph itself is flat (root depends on everything directly,
+rather than e.g. `runtime` depending on `model_endpoint` depending on
+`model`) — a deliberate v1 trade-off, not an oversight; see §5.
 
 ## 2. Component taxonomy (v1)
+
+**Components** (`bom.components[]`, each with a CycloneDX `type`):
 
 | `componentClass` | CDX `type` | Key properties | Source |
 |---|---|---|---|
 | `runtime` | `application` | `version`, `installDir`, `installMethod`, `upstreamHash`, `pythonVersion`, `sdkVersion` | `hermes --version` / `openclaw --version` |
-| `model_endpoint` | `service` | `provider`, `apiMode` | `config.yaml` / `openclaw.json` |
 | `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest`, `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx` | Ollama `GET /api/tags`, cross-referenced against the configured default model |
 | `configuration` | `file` | `path`, `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
 | `skill` | `library` | `path`, `category` (if nested), `sha256` (of the whole skill directory), `description` | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
-| `mcp_server` | `service` | `endpoint`, `tls` (bool), `authConfigured` (bool), `toolCount` | `mcp_servers` list inside either config file |
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine` | `hermes hooks doctor` (best-effort text parse, see §5) |
-| `secrets_surface` | `data` | `path`, `mode`, `worldReadable`, `note` | filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` near the harness's own config dir |
+| `secrets_surface` | `data` | `path`, `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included |
+
+**Services** (`bom.services[]`, no `type` field — see §1):
+
+| `componentClass` | Key properties | Source |
+|---|---|---|
+| `model_endpoint` | `provider`, `apiMode`, `endpoints[]` (native CDX field) | `config.yaml` / `openclaw.json` |
+| `mcp_server` | `endpoint`, `endpoints[]` (native CDX field), `tls` (bool), `authConfigured` (bool), `toolCount` | `mcp_servers` list inside either config file |
 
 `model` deliberately uses CycloneDX's native `machine-learning-model` type
 rather than a generic one — it's a real ML-BOM component, not just a file.
@@ -84,7 +112,16 @@ recomputed.
 `secrets_surface` is **fingerprint-exempt by design**: hashing or reading
 `.env`/token/SQLite contents would turn the AIBOM itself into a secrets
 leak. It records path, POSIX mode, and world-readability only — never file
-contents, never a hash derived from contents.
+contents, never a hash derived from contents. The scan recurses through the
+whole harness directory, skill directories included — a `.env` dropped
+inside a skill is exactly where a poisoned skill would keep a payload's
+configuration, and a top-level-only scan would never see it.
+
+Both `sha256_directory` and secrets-surface discovery tolerate permission
+errors rather than crashing the scan: a subdirectory that can't be listed
+(root-owned skills, scanned as a non-root user — a realistic lab condition)
+is skipped, not fatal, and a file that's found but can't be opened still
+has its path folded into the skill's hash, just not its content.
 
 ## 4. Diffing
 
@@ -117,6 +154,33 @@ registered, but per-hook script-name extraction inside that format still
 isn't checked against a live box that actually has one — that box would
 need `numbat hook install` run on it first.
 
+**Fixed in v0.1.3**, from an independent sandbox test:
+
+- Output wasn't valid CycloneDX 1.6 (`service` isn't a component `type`,
+  see the update note above) — the most important of these, since
+  `validate`'s hand-rolled checks didn't catch it either (they checked
+  structure, not the CycloneDX type enum), so the defect was invisible
+  until checked against a real validator. `tests/test_cyclonedx_schema.py`
+  now does that on every test run, specifically to keep this class of bug
+  from going unnoticed again.
+- A `PermissionError` reading an unreadable `SKILL.md` (or listing an
+  unreadable skill subdirectory) crashed the whole scan instead of
+  producing a `warning[...]` and continuing.
+- The secrets scan only looked at the harness's top-level directory, never
+  inside skill directories (§3).
+- `validate`/`diff` printed a raw Python traceback for a missing or
+  malformed input file instead of a clean error message.
+- `diff` always exited 0, even when it found changes, making it unusable
+  as a CI gate — added `diff --exit-code`.
+- `--home relative/path` vs. `--home /abs/relative/path` for the same
+  directory produced different `path` property values, showing up as
+  false changes in a diff — `scan` now resolves `--home` to an absolute
+  path before recording anything.
+- `--pretty` had no way to turn it off — switched to
+  `argparse.BooleanOptionalAction` (`--no-pretty` now exists).
+- OpenClaw's `.env` directory (`/opt/openclaw` by default) had no CLI
+  override — added `scan --openclaw-env-dir`.
+
 **Still open:**
 
 - **`openclaw --version` isn't parsed into a semantic version** — its exact
@@ -126,11 +190,21 @@ need `numbat hook install` run on it first.
   runs subprocesses on whatever machine it's invoked on. Scanning a remote
   lab VM means installing the package there (or SSHing in) — there's no
   built-in remote transport in v0.1.
-- **No JSON Schema file.** `validate` is hand-rolled structural checking
-  (envelope + componentClass/type consistency), not a full CycloneDX 1.6
-  schema validator — reproducing that schema exactly would be its own
-  maintenance burden and is better left to a dedicated CycloneDX validator
-  run alongside this tool.
+- **No JSON Schema file of our own.** `validate` is hand-rolled structural
+  checking (envelope + componentClass/array/type consistency), not a full
+  CycloneDX 1.6 schema validator — reproducing that schema exactly would be
+  its own maintenance burden. `tests/test_cyclonedx_schema.py` covers real
+  CycloneDX-schema validity instead, via `cyclonedx-python-lib`, but that
+  check runs in this package's own test suite, not in `harness-aibom
+  validate` itself — a document could still drift from schema validity
+  between test runs and releases without `validate` catching it.
+- **The dependency graph is flat by design** (§1) — every component and
+  service hangs directly off the harness root, rather than e.g. `runtime`
+  depending on `model_endpoint` depending on `model`. A general SBOM tool
+  sees relationship *existence* but not relationship *shape*; the verbs are
+  only in `harness-aibom:relationship` properties. Modeling a real topology
+  per componentClass is a bigger change than this release's scope covers,
+  deliberately deferred rather than attempted piecemeal.
 - **Skill/secrets-surface bom-refs can collide by name** (e.g. two `.env`
   files in different directories). `HarnessDocument.add()` disambiguates
   with a numeric suffix so the document stays valid, but the disambiguation

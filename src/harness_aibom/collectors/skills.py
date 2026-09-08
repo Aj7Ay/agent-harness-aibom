@@ -11,10 +11,24 @@ nested layout and for a flat one-level layout alike.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ..fingerprint import sha256_directory
 from ..model import Component
+
+
+def _find_skill_md_files(skills_dir: Path) -> list[Path]:
+    # os.walk(onerror=...) skips a subdirectory it can't list instead of
+    # raising -- confirmed necessary scanning root-owned skills as a
+    # non-root user, a realistic lab condition. Path.rglob() would instead
+    # propagate that PermissionError and abort discovery of every skill
+    # after the unreadable one, not just that one skill.
+    found = []
+    for root, _dirs, files in os.walk(skills_dir, onerror=lambda exc: None):
+        if "SKILL.md" in files:
+            found.append(Path(root) / "SKILL.md")
+    return sorted(found)
 
 
 def discover_skills(skills_dir: Path) -> list[Component]:
@@ -22,7 +36,7 @@ def discover_skills(skills_dir: Path) -> list[Component]:
         return []
 
     out = []
-    for skill_md in sorted(skills_dir.rglob("SKILL.md")):
+    for skill_md in _find_skill_md_files(skills_dir):
         skill_dir = skill_md.parent
         rel_parts = skill_dir.relative_to(skills_dir).parts
 
@@ -36,7 +50,13 @@ def discover_skills(skills_dir: Path) -> list[Component]:
         # miss any change to them entirely.
         comp.set("sha256", sha256_directory(skill_dir))
 
-        lines = skill_md.read_text(errors="replace").splitlines()
+        try:
+            lines = skill_md.read_text(errors="replace").splitlines()
+        except OSError:
+            # Found the file (it's in `files` above) but can't open it --
+            # e.g. root-owned, scanning as non-root. Record the skill
+            # without a description rather than crashing the scan.
+            lines = []
         if lines:
             comp.set("description", lines[0].lstrip("# ").strip()[:200])
 

@@ -161,7 +161,11 @@ class OpenClawCollector(Collector):
     def _collect_secrets(self, doc: HarnessDocument) -> None:
         for comp in secrets_mod.find_secrets_surface(self.env_dir):
             doc.add(comp, "accesses")
-        for comp in secrets_mod.find_secrets_surface(self.openclaw_dir):
+        # exclude_dirnames={"agents"}: that subtree is scanned explicitly
+        # below with richer, OpenClaw-specific metadata (which agent, that
+        # it's a credential store) -- scanning it here too via the generic
+        # *.sqlite pattern would report the same file as two components.
+        for comp in secrets_mod.find_secrets_surface(self.openclaw_dir, exclude_dirnames=frozenset({"agents"})):
             doc.add(comp, "accesses")
 
         agents_dir = self.openclaw_dir / "agents"

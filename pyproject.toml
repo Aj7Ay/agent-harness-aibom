@@ -1,6 +1,6 @@
 [project]
 name = "agent-harness-aibom"
-version = "0.1.2"
+version = "0.1.3"
 description = "AIBOM generator for AI agent harnesses (Hermes, OpenClaw) and their model/skill/MCP/hook surface"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    # Real CycloneDX 1.6 schema validation for tests/test_cyclonedx_schema.py
+    # -- catches an invalid `type`/array-placement bug that this package's
+    # own hand-rolled validate.py can't, since validate.py checks structure
+    # against SPEC.md, not the actual CycloneDX schema.
+    "cyclonedx-python-lib[json-validation]>=8.0",
 ]
 
 [project.scripts]
