@@ -23,7 +23,9 @@ pip install agent-harness-aibom
 or, with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv pip install agent-harness-aibom
+uv venv && source .venv/bin/activate && uv pip install agent-harness-aibom
+# or, to match plain `pip install` above and skip the venv:
+uv pip install --system agent-harness-aibom
 ```
 
 For development, from a checkout:
