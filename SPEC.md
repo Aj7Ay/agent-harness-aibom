@@ -438,3 +438,14 @@ need `numbat hook install` run on it first.
 
 Cisco AI BOM comparison, cosign signing/provenance, and the full course lab
 sequence are downstream work built *on* this package, not part of it.
+
+## 7. Regression test matrices
+
+`tests/test_hook_parsing_matrix.py` and `tests/test_diff_identity_matrix.py`
+exist specifically so a change to hook parsing or `diff` identity gets
+checked against *every* known real or reported shape at once, not one
+report at a time. This project shipped a real regression (v0.1.9) where a
+fix for one hook-output shape silently broke a different, already-working
+one — a gap these two files exist to close going forward. Add a new row
+to the relevant table (never a one-off test elsewhere) whenever a new
+hook-output shape or diff-identity edge case is found.
