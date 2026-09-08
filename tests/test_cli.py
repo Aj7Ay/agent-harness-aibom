@@ -178,3 +178,15 @@ def test_diff_across_two_different_home_roots_with_identical_content(tmp_path, c
 
     assert result == {"added": [], "removed": [], "changed": []}
     assert exit_code == 0
+
+
+def test_deterministic_scan_is_byte_identical_across_runs(tmp_path):
+    out_a = tmp_path / "a.json"
+    out_b = tmp_path / "b.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out_a), "--deterministic"])
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out_b), "--deterministic"])
+    assert out_a.read_text() == out_b.read_text()
+
+    data = json.loads(out_a.read_text())
+    assert "serialNumber" not in data
+    assert "timestamp" not in data["metadata"]

@@ -42,3 +42,25 @@ def test_duplicate_names_get_disambiguated_bom_refs():
     bom = to_cyclonedx(doc)
     refs = [c["bom-ref"] for c in bom["components"]]
     assert len(refs) == len(set(refs))
+
+
+def test_default_output_has_serial_number_and_timestamp():
+    bom = to_cyclonedx(build_doc())
+    assert "serialNumber" in bom
+    assert "timestamp" in bom["metadata"]
+
+
+def test_deterministic_output_omits_serial_number_and_timestamp():
+    bom = to_cyclonedx(build_doc(), deterministic=True)
+    assert "serialNumber" not in bom
+    assert "timestamp" not in bom["metadata"]
+
+
+def test_deterministic_output_is_byte_identical_across_calls():
+    # The whole point: two scans of the same unchanged state must produce
+    # the same document, so it can be hashed/signed as a stable baseline.
+    import json
+
+    first = json.dumps(to_cyclonedx(build_doc(), deterministic=True), sort_keys=True)
+    second = json.dumps(to_cyclonedx(build_doc(), deterministic=True), sort_keys=True)
+    assert first == second

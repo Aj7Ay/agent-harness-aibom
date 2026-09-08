@@ -54,3 +54,14 @@ def test_document_with_no_services_is_still_valid():
     # at all must not emit an empty or malformed "services" key.
     doc = HarnessDocument(harness_name="empty@test", runtime_kind="hermes", hostname="test")
     _assert_schema_valid(to_cyclonedx(doc))
+
+
+def test_deterministic_output_is_still_valid_cyclonedx():
+    # serialNumber and metadata.timestamp are both optional in the real
+    # schema -- confirmed here rather than assumed, since getting this
+    # wrong would silently break every document once --deterministic is
+    # used for the cosign work on the roadmap.
+    collector = HermesCollector(home=HERMES_HOME, run=lambda argv: "", fetch=lambda url: {"models": []})
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    collector.collect(doc)
+    _assert_schema_valid(to_cyclonedx(doc, deterministic=True))

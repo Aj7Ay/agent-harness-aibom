@@ -1,16 +1,15 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:34fb303a-80e9-477a-811f-bf4eeedae148",
+  "serialNumber": "urn:uuid:81952b19-5dc6-454b-87d9-459660f69628",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-09-08T17:11:23+00:00",
     "tools": {
       "components": [
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.1.6"
+          "version": "0.1.7"
         }
       ]
     },
@@ -52,7 +51,8 @@
           "value": "accesses:secrets_surface:openclaw-agent.sqlite"
         }
       ]
-    }
+    },
+    "timestamp": "2026-09-08T17:19:29+00:00"
   },
   "components": [
     {
@@ -114,18 +114,6 @@
       ]
     }
   ],
-  "dependencies": [
-    {
-      "ref": "harness-root",
-      "dependsOn": [
-        "configuration:openclaw.json",
-        "model_endpoint:http-127.0.0.1-11434",
-        "model:qwen3-8b",
-        "mcp_server:local-fs",
-        "secrets_surface:openclaw-agent.sqlite"
-      ]
-    }
-  ],
   "services": [
     {
       "bom-ref": "model_endpoint:http-127.0.0.1-11434",
@@ -171,6 +159,18 @@
           "name": "harness-aibom:authConfigured",
           "value": "False"
         }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "harness-root",
+      "dependsOn": [
+        "configuration:openclaw.json",
+        "model_endpoint:http-127.0.0.1-11434",
+        "model:qwen3-8b",
+        "mcp_server:local-fs",
+        "secrets_surface:openclaw-agent.sqlite"
       ]
     }
   ]

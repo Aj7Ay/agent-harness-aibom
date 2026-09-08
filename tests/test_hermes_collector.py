@@ -143,6 +143,44 @@ def test_hooks():
     assert any("best-effort" in w for w in doc.warnings)
 
 
+def test_hook_status_line_records_content_changed_since_approval():
+    # "✓ script unchanged since approval" (confirmed real text from course
+    # material) follows the numbat-pre-tool.sh line in HOOKS_OUTPUT and
+    # describes *that* hook -- the highest-severity finding a hook scan
+    # can produce is an allowlisted hook whose body changed since then.
+    doc = collect()
+    allowed = next(h for h in by_class(doc, "hook") if h.name == "numbat-pre-tool.sh")
+    assert allowed.properties["contentChangedSinceApproval"] == "False"
+
+    # stray-hook.sh has no follow-up status line in the fixture output --
+    # nothing to report, not a false "unchanged".
+    denied = next(h for h in by_class(doc, "hook") if h.name == "stray-hook.sh")
+    assert "contentChangedSinceApproval" not in denied.properties
+
+
+def test_hook_script_is_hashed_when_found_at_a_guessed_location():
+    # Opportunistic: tests/fixtures/hermes_home/.hermes/hooks/numbat-pre-tool.sh
+    # exists, matching one of _attach_script_fingerprint's guessed
+    # candidate locations -- hermes_dir/"hooks"/<name>. Uses the same
+    # property names as configuration/skill (path/relPath/sha256), not a
+    # hook-specific name, so diff.py picks it up with no extra logic.
+    doc = collect()
+    allowed = next(h for h in by_class(doc, "hook") if h.name == "numbat-pre-tool.sh")
+    assert len(allowed.properties["sha256"]) == 64
+    assert allowed.properties["path"].endswith(".hermes/hooks/numbat-pre-tool.sh")
+    assert allowed.properties["relPath"] == ".hermes/hooks/numbat-pre-tool.sh"
+
+
+def test_hook_script_fingerprint_absent_when_not_found_anywhere():
+    # stray-hook.sh has no file at any guessed location in the fixture --
+    # must not raise, and must not fabricate a fingerprint for a file that
+    # was never actually found.
+    doc = collect()
+    denied = next(h for h in by_class(doc, "hook") if h.name == "stray-hook.sh")
+    assert "sha256" not in denied.properties
+    assert "path" not in denied.properties
+
+
 def test_no_hooks_configured_is_not_treated_as_a_parsing_failure():
     # Confirmed real output on a live box with zero hooks registered.
     no_hooks_output = "No shell hooks configured — nothing to check.\n"

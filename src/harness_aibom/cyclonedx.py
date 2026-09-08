@@ -73,10 +73,18 @@ def current_hostname() -> str:
         return "unknown-host"
 
 
-def to_cyclonedx(doc: HarnessDocument) -> dict:
+def to_cyclonedx(doc: HarnessDocument, deterministic: bool = False) -> dict:
     """Build the full CycloneDX 1.6 document dict for `doc`. Callers decide
-    how to serialize it (json.dumps, write to a file, ...)."""
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    how to serialize it (json.dumps, write to a file, ...).
+
+    `deterministic=True` omits `serialNumber` (a fresh random UUID on
+    every call) and `metadata.timestamp` (wall-clock time of the scan).
+    Without it, two scans of an *unchanged* box produce two different
+    files byte-for-byte, which rules out hashing or signing the AIBOM
+    itself as a stable baseline -- everything else already only reflects
+    what was actually found on disk, so with both omitted, the same
+    harness state always produces the same document.
+    """
     root_properties = [
         {"name": "harness-aibom:componentClass", "value": "harness"},
         {"name": "harness-aibom:runtimeKind", "value": doc.runtime_kind},
@@ -86,33 +94,32 @@ def to_cyclonedx(doc: HarnessDocument) -> dict:
     components = [c for c in doc.components if not c.is_service]
     services = [c for c in doc.components if c.is_service]
 
-    result = {
-        "bomFormat": "CycloneDX",
-        "specVersion": SPEC_VERSION,
-        "serialNumber": f"urn:uuid:{uuid.uuid4()}",
-        "version": 1,
-        "metadata": {
-            "timestamp": now,
-            "tools": {
-                "components": [
-                    {"type": "application", "name": "agent-harness-aibom", "version": __version__},
-                ],
-            },
-            "component": {
-                "type": "application",
-                "bom-ref": ROOT_BOM_REF,
-                "name": doc.harness_name,
-                "properties": root_properties,
-            },
+    metadata: dict = {
+        "tools": {
+            "components": [
+                {"type": "application", "name": "agent-harness-aibom", "version": __version__},
+            ],
         },
-        "components": [_component_dict(c) for c in components],
-        # dependencies[].dependsOn references bom-refs from *either* array
-        # (CycloneDX's dependency graph isn't components-only), so services
-        # stay listed here alongside components with no special handling.
-        "dependencies": [
-            {"ref": ROOT_BOM_REF, "dependsOn": [c.bom_ref for c in doc.components]},
-        ],
+        "component": {
+            "type": "application",
+            "bom-ref": ROOT_BOM_REF,
+            "name": doc.harness_name,
+            "properties": root_properties,
+        },
     }
+    if not deterministic:
+        metadata["timestamp"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    result: dict = {"bomFormat": "CycloneDX", "specVersion": SPEC_VERSION}
+    if not deterministic:
+        result["serialNumber"] = f"urn:uuid:{uuid.uuid4()}"
+    result["version"] = 1
+    result["metadata"] = metadata
+    result["components"] = [_component_dict(c) for c in components]
     if services:
         result["services"] = [_service_dict(c) for c in services]
+    # dependencies[].dependsOn references bom-refs from *either* array
+    # (CycloneDX's dependency graph isn't components-only), so services
+    # stay listed here alongside components with no special handling.
+    result["dependencies"] = [{"ref": ROOT_BOM_REF, "dependsOn": [c.bom_ref for c in doc.components]}]
     return result

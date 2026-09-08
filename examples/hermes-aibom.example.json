@@ -1,16 +1,15 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:e1d9cc37-08ea-4d82-a618-e7ce01faf352",
+  "serialNumber": "urn:uuid:5b3042bc-5dc5-473f-80df-39e545b558f9",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-09-08T17:11:22+00:00",
     "tools": {
       "components": [
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.1.6"
+          "version": "0.1.7"
         }
       ]
     },
@@ -64,7 +63,8 @@
           "value": "uses:mcp_server:local-fs"
         }
       ]
-    }
+    },
+    "timestamp": "2026-09-08T17:19:29+00:00"
   },
   "components": [
     {
@@ -170,21 +170,6 @@
           "name": "harness-aibom:description",
           "value": "Dogfood"
         }
-      ]
-    }
-  ],
-  "dependencies": [
-    {
-      "ref": "harness-root",
-      "dependsOn": [
-        "configuration:config.yaml",
-        "model_endpoint:http-127.0.0.1-11434-v1",
-        "model:qwen3-8b",
-        "skill:incident-response",
-        "skill:software-development-dogfood",
-        "mcp_server:local-time",
-        "mcp_server:corp-docs",
-        "mcp_server:local-fs"
       ]
     }
   ],
@@ -308,6 +293,21 @@
           "name": "harness-aibom:toolCount",
           "value": "3"
         }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "harness-root",
+      "dependsOn": [
+        "configuration:config.yaml",
+        "model_endpoint:http-127.0.0.1-11434-v1",
+        "model:qwen3-8b",
+        "skill:incident-response",
+        "skill:software-development-dogfood",
+        "mcp_server:local-time",
+        "mcp_server:corp-docs",
+        "mcp_server:local-fs"
       ]
     }
   ]

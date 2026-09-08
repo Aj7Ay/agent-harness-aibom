@@ -26,6 +26,7 @@ output, and worth hardening against a live box once one is reachable.
 from __future__ import annotations
 
 import re
+import stat
 import subprocess
 from pathlib import Path
 from typing import Callable
@@ -194,15 +195,22 @@ class HermesCollector(Collector):
         # that's a clean, correct answer, not a parsing failure, so it gets
         # no warning at all.
         found_any = False
+        current: Component | None = None
         for line in output.splitlines():
             line = line.strip()
             if not (line.startswith("✓") or line.startswith("✗")):
                 continue
             name_match = re.search(r"([\w./-]+\.(?:sh|py))", line)
             if not name_match:
-                # Status lines with no script name of their own (e.g. "script
-                # unchanged since approval") describe the previous hook, not
-                # a new one -- skip rather than inventing a phantom component.
+                # A status line with no script name of its own -- e.g.
+                # "script unchanged since approval", confirmed real text
+                # from course material -- describes the *previous* hook,
+                # not a new one. This is exactly the highest-severity
+                # finding a hook scan can produce (an allowlisted hook
+                # whose body changed after approval), so it's worth
+                # capturing rather than discarding.
+                if current is not None and "since approval" in line.lower():
+                    current.set("contentChangedSinceApproval", "unchanged" not in line.lower())
                 continue
 
             if not found_any:
@@ -223,4 +231,39 @@ class HermesCollector(Collector):
             if date_match := re.search(r"approved ([0-9-]+)", line):
                 comp.set("approvedAt", date_match.group(1))
             comp.set("rawLine", line)
+            self._attach_script_fingerprint(comp, name_match.group(1))
             doc.add(comp, "approves" if approved else "executes")
+            current = comp
+
+    def _attach_script_fingerprint(self, comp: Component, captured_name: str) -> None:
+        """Opportunistic, not authoritative: `hermes hooks doctor`'s text
+        output doesn't confirm where hook scripts actually live on disk
+        (unlike skills, which have a documented `~/.hermes/skills/` home),
+        so this just tries a couple of plausible locations for whatever
+        name/path the doctor output printed, and sets nothing if none of
+        them exist. See SPEC.md §5 -- do not treat a missing `sha256` as
+        "no hook exists here", only as "this collector couldn't find the
+        file at a location it guessed."
+
+        Deliberately named `path`/`relPath`/`sha256` -- the same
+        properties `configuration` and `skill` use, not `scriptPath`/
+        `scriptSha256` -- so `diff.py` picks a hook's script up as its
+        identity (§4) and flags a changed one as `fingerprint_changed`
+        for free, with no hook-specific logic in diff.py at all. A
+        `scriptXxx`-prefixed name would silently miss both.
+        """
+        candidates = [Path(captured_name)]
+        if not Path(captured_name).is_absolute():
+            candidates += [self.hermes_dir / "hooks" / captured_name, self.home / captured_name]
+
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            comp.set("path", str(candidate))
+            comp.set("relPath", relative_to_or_none(candidate, self.home))
+            comp.set("sha256", sha256_file(candidate))
+            try:
+                comp.set("mode", oct(stat.S_IMODE(candidate.stat().st_mode)))
+            except OSError:
+                pass
+            return

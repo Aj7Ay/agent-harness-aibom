@@ -114,3 +114,30 @@ def test_cross_host_diff_still_finds_a_real_change_via_relpath():
     assert result["removed"] == []
     [change] = result["changed"]
     assert change["fingerprint_changed"] is True
+
+
+def doc_with_hook(sha: str) -> dict:
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    hook = Component(component_class="hook", name="pre-commit.sh")
+    hook.set("approvalStatus", "allowlisted")
+    hook.set("path", "/root/.hermes/hooks/pre-commit.sh")
+    hook.set("relPath", ".hermes/hooks/pre-commit.sh")
+    hook.set("sha256", sha)
+    doc.add(hook, "approves")
+    return to_cyclonedx(doc)
+
+
+def test_a_changed_allowlisted_hook_body_is_flagged_as_fingerprint_changed():
+    # The highest-severity finding a hook scan can produce: a hook that
+    # was allowlisted, then had its script content changed afterward.
+    # Confirms path/relPath/sha256 naming (not scriptPath/scriptSha256)
+    # was the right call -- diff needs zero hook-specific code for this.
+    before = doc_with_hook("aaa")
+    after = doc_with_hook("bbb")
+
+    result = diff_documents(before, after)
+    assert result["added"] == []
+    assert result["removed"] == []
+    [change] = result["changed"]
+    assert change["component"] == "hook:.hermes/hooks/pre-commit.sh"
+    assert change["fingerprint_changed"] is True

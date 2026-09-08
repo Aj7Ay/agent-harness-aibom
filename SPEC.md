@@ -74,6 +74,30 @@ recorded at all. Fixed with a `transport` field, `tls: "n/a"` for stdio,
 `env`'s *names* (never values) counted toward `authConfigured`, and
 `command`/`args` recorded verbatim. See §2's `mcp_server` row.
 
+**v0.1.7 update:** the same reviewer proposed a large roadmap (tool-level
+hashing, prompt-surface tracking, memory-store inventory, a policy
+command, CycloneDX 1.7, a Python dependency inventory, and more) alongside
+two smaller, low-risk items. The larger items are real product decisions,
+not bug fixes, and are intentionally *not* in this release — see the
+project's own tracking for that discussion. The two small items shipped
+here:
+- **Hook script fingerprinting**, best-effort like the rest of hook
+  parsing (§5): `contentChangedSinceApproval` is now parsed from the
+  "script unchanged since approval" status line (confirmed real text from
+  course material) instead of being discarded, and `path`/`relPath`/
+  `sha256` are set opportunistically when the collector's guess at the
+  script's location on disk happens to be right — it doesn't know the
+  real location for certain, so a missing `sha256` means "not found at a
+  guessed path," not "no script exists." Deliberately the *same*
+  property names `configuration` and `skill` already use, not a
+  hook-specific `scriptSha256`/`scriptPath` — `diff` (§4) picks a found
+  hook script up as its identity and flags a changed one as
+  `fingerprint_changed` with no hook-specific code at all.
+- **`scan --deterministic`**: omits `serialNumber` and
+  `metadata.timestamp` so two scans of an unchanged box produce
+  byte-identical output — a prerequisite for hashing or signing the AIBOM
+  itself as a baseline, which the roadmap already calls for (cosign).
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -113,7 +137,7 @@ rather than e.g. `runtime` depending on `model_endpoint` depending on
 | `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest`, `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx` | Ollama `GET /api/tags`, cross-referenced against the configured default model |
 | `configuration` | `file` | `path`, `relPath` (path relative to `--home`; see §4), `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
 | `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description` | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
-| `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine` | `hermes hooks doctor` (best-effort text parse, see §5) |
+| `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "script unchanged/changed since approval" status line), `path`/`relPath`/`sha256`/`mode` (opportunistic, same property names as `configuration`/`skill` — set only when a guessed file location happens to exist; absence means "not found," not "no script") | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
@@ -197,11 +221,14 @@ suffix (model.py's `HarnessDocument.add()`) is insertion-order-dependent,
 so adding one new component earlier in a later scan can shift every
 following bom-ref and make untouched files look renamed.
 
-`hook` components still have this exposure and aren't yet fixed: the
-current `hermes hooks doctor` text-parsing (§5) only extracts a script
-*name*, not a full path, so there's no `path` property to key on if two
-hook scripts share a basename in different directories. Fixing this needs
-a real path in the hook data itself, which isn't available yet.
+`hook` components have this exposure only partially closed as of v0.1.7:
+when `_attach_script_fingerprint` (hermes.py) actually finds the script
+file at one of its guessed locations, the hook gets `path`/`relPath` and
+diffs correctly like everything else. When it doesn't find the file —
+still the common case, since the real storage location isn't confirmed
+(§5) — there's nothing to key on but the bare script *name* parsed from
+`hermes hooks doctor` text, and two hook scripts sharing a basename in
+different directories would still collide.
 
 ## 5. Known limitations (v0.1)
 

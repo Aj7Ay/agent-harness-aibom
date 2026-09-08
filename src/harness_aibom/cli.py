@@ -57,7 +57,7 @@ def _run_scan(args: argparse.Namespace) -> int:
         for w in doc.warnings:
             print(f"warning[{collector.runtime_kind}]: {w}", file=sys.stderr)
 
-        bom = to_cyclonedx(doc)
+        bom = to_cyclonedx(doc, deterministic=args.deterministic)
         text = json.dumps(bom, indent=2 if args.pretty else None)
 
         if args.output:
@@ -135,6 +135,14 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument(
         "--openclaw-env-dir",
         help="override the OpenClaw gateway .env directory (default: /opt/openclaw)",
+    )
+    scan.add_argument(
+        "--deterministic",
+        action="store_true",
+        help=(
+            "omit serialNumber and metadata.timestamp so two scans of an unchanged box "
+            "produce byte-identical output -- for hashing/signing the AIBOM as a baseline"
+        ),
     )
     scan.set_defaults(func=_run_scan)
 
