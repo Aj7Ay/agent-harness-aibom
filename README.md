@@ -73,6 +73,19 @@ src/harness_aibom/
     └── openclaw.py          # OpenClaw collector
 ```
 
+## CI and publishing
+
+- `.github/workflows/ci.yml` runs the test suite and a CLI smoke test on
+  every push and pull request, on Python 3.10, 3.11, and 3.12.
+- `.github/workflows/publish.yml` builds and publishes the package to PyPI
+  when you publish a GitHub Release. It uses PyPI Trusted Publishing, so no
+  password lives in this repo. One-time setup before your first release:
+  1. Go to <https://pypi.org/manage/account/publishing/>.
+  2. Add a new trusted publisher for project `agent-harness-aibom`.
+  3. Set the owner and repo name to match this GitHub repo.
+  4. Set the workflow name to `publish.yml`.
+  5. Set the environment name to `pypi`.
+
 ## Testing
 
 ```bash

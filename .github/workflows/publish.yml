@@ -1,0 +1,28 @@
+name: Publish to PyPI
+
+# This workflow runs when you publish a GitHub Release.
+# It needs no stored password. It uses PyPI Trusted Publishing (OIDC).
+# See the one-time setup step in README.md before your first release.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  id-token: write  # required for Trusted Publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build the package
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
