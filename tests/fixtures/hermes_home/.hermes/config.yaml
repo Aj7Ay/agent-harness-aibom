@@ -1,0 +1,17 @@
+model:
+  default: qwen3:8b
+  provider: custom
+  base_url: http://127.0.0.1:11434/v1
+  api_mode: chat_completions
+  thinking: true
+  context_length: 65536
+  ollama_num_ctx: 65536
+
+mcp_servers:
+  - name: local-time
+    url: http://127.0.0.1:8001
+  - name: corp-docs
+    url: https://mcp.corp.lab:8443
+    auth:
+      token: placeholder-not-a-real-token
+    tools: [search, fetch]

@@ -1,0 +1,50 @@
+"""Compare two harness-aibom CycloneDX documents by (componentClass, name),
+surfacing what was added, removed, or changed between them.
+
+This is the mechanism behind supply-chain drift detection: scan a harness,
+scan it again later (or after a suspected compromise), and diff the two
+documents to see exactly what changed -- a skill's SHA-256, a model's
+digest, a newly-registered MCP server, a hook that lost its allowlist
+approval.
+"""
+
+from __future__ import annotations
+
+#: properties whose change gets flagged with `fingerprint_changed: true`;
+#: everything else still shows up under "changed" but without that flag.
+FINGERPRINT_FIELDS = ("harness-aibom:sha256", "harness-aibom:digest")
+
+
+def _index(doc: dict) -> dict[tuple[str, str], dict[str, str]]:
+    out: dict[tuple[str, str], dict[str, str]] = {}
+    for comp in doc.get("components", []):
+        props = {p["name"]: p["value"] for p in comp.get("properties", [])}
+        key = (props.get("harness-aibom:componentClass", "unknown"), comp.get("name", ""))
+        out[key] = props
+    return out
+
+
+def diff_documents(before: dict, after: dict) -> dict:
+    before_index = _index(before)
+    after_index = _index(after)
+    before_keys, after_keys = set(before_index), set(after_index)
+
+    added = sorted(f"{k[0]}:{k[1]}" for k in after_keys - before_keys)
+    removed = sorted(f"{k[0]}:{k[1]}" for k in before_keys - after_keys)
+
+    changed = []
+    for key in sorted(before_keys & after_keys):
+        b, a = before_index[key], after_index[key]
+        field_diffs = {
+            name: {"before": b.get(name), "after": a.get(name)}
+            for name in set(b) | set(a)
+            if b.get(name) != a.get(name)
+        }
+        if not field_diffs:
+            continue
+        entry = {"component": f"{key[0]}:{key[1]}", "fields": field_diffs}
+        if any(f in field_diffs for f in FINGERPRINT_FIELDS):
+            entry["fingerprint_changed"] = True
+        changed.append(entry)
+
+    return {"added": added, "removed": removed, "changed": changed}

@@ -1,0 +1,159 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:cae07323-d722-4a45-b483-534137bfaa12",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-09-08T13:28:58+00:00",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "agent-harness-aibom",
+          "version": "0.1.0"
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "harness-root",
+      "name": "openclaw@Ajays-MacBook-Pro.local",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "harness"
+        },
+        {
+          "name": "harness-aibom:runtimeKind",
+          "value": "openclaw"
+        },
+        {
+          "name": "harness-aibom:hostname",
+          "value": "Ajays-MacBook-Pro.local"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "loads:configuration:openclaw.json"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:model_endpoint:http-127.0.0.1-11434"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:model:qwen3-8b"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:mcp_server:local-fs"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "accesses:secrets_surface:openclaw-agent.sqlite"
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "file",
+      "bom-ref": "configuration:openclaw.json",
+      "name": "openclaw.json",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "configuration"
+        },
+        {
+          "name": "harness-aibom:path",
+          "value": "tests/fixtures/openclaw_home/.openclaw/openclaw.json"
+        },
+        {
+          "name": "harness-aibom:sha256",
+          "value": "3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"
+        }
+      ]
+    },
+    {
+      "type": "service",
+      "bom-ref": "model_endpoint:http-127.0.0.1-11434",
+      "name": "http://127.0.0.1:11434",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "model_endpoint"
+        },
+        {
+          "name": "harness-aibom:provider",
+          "value": "ollama"
+        }
+      ]
+    },
+    {
+      "type": "machine-learning-model",
+      "bom-ref": "model:qwen3-8b",
+      "name": "qwen3:8b",
+      "version": "qwen3:8b",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "model"
+        }
+      ]
+    },
+    {
+      "type": "service",
+      "bom-ref": "mcp_server:local-fs",
+      "name": "local-fs",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "mcp_server"
+        },
+        {
+          "name": "harness-aibom:endpoint",
+          "value": "http://127.0.0.1:9001"
+        },
+        {
+          "name": "harness-aibom:tls",
+          "value": "False"
+        },
+        {
+          "name": "harness-aibom:authConfigured",
+          "value": "False"
+        }
+      ]
+    },
+    {
+      "type": "data",
+      "bom-ref": "secrets_surface:openclaw-agent.sqlite",
+      "name": "openclaw-agent.sqlite",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "secrets_surface"
+        },
+        {
+          "name": "harness-aibom:path",
+          "value": "tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite"
+        },
+        {
+          "name": "harness-aibom:note",
+          "value": "per-agent provider credential store (SQLite); contents never read"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "harness-root",
+      "dependsOn": [
+        "configuration:openclaw.json",
+        "model_endpoint:http-127.0.0.1-11434",
+        "model:qwen3-8b",
+        "mcp_server:local-fs",
+        "secrets_surface:openclaw-agent.sqlite"
+      ]
+    }
+  ]
+}

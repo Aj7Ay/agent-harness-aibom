@@ -1,0 +1,211 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:f0be37f3-dd00-41fc-af22-3f7bdecf24a5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-09-08T13:28:58+00:00",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "agent-harness-aibom",
+          "version": "0.1.0"
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "harness-root",
+      "name": "hermes@Ajays-MacBook-Pro.local",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "harness"
+        },
+        {
+          "name": "harness-aibom:runtimeKind",
+          "value": "hermes"
+        },
+        {
+          "name": "harness-aibom:hostname",
+          "value": "Ajays-MacBook-Pro.local"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "loads:configuration:config.yaml"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:model_endpoint:http-127.0.0.1-11434-v1"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:model:qwen3-8b"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "loads:skill:incident-response"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:mcp_server:local-time"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:mcp_server:corp-docs"
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "file",
+      "bom-ref": "configuration:config.yaml",
+      "name": "config.yaml",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "configuration"
+        },
+        {
+          "name": "harness-aibom:path",
+          "value": "tests/fixtures/hermes_home/.hermes/config.yaml"
+        },
+        {
+          "name": "harness-aibom:sha256",
+          "value": "a96289af83fe74235bdf6a04d679002d476989db575e19023307f29c377cc291"
+        }
+      ]
+    },
+    {
+      "type": "service",
+      "bom-ref": "model_endpoint:http-127.0.0.1-11434-v1",
+      "name": "http://127.0.0.1:11434/v1",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "model_endpoint"
+        },
+        {
+          "name": "harness-aibom:provider",
+          "value": "custom"
+        },
+        {
+          "name": "harness-aibom:apiMode",
+          "value": "chat_completions"
+        }
+      ]
+    },
+    {
+      "type": "machine-learning-model",
+      "bom-ref": "model:qwen3-8b",
+      "name": "qwen3:8b",
+      "version": "qwen3:8b",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "model"
+        },
+        {
+          "name": "harness-aibom:contextLength",
+          "value": "65536"
+        },
+        {
+          "name": "harness-aibom:thinking",
+          "value": "True"
+        },
+        {
+          "name": "harness-aibom:ollamaNumCtx",
+          "value": "65536"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "skill:incident-response",
+      "name": "incident-response",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "skill"
+        },
+        {
+          "name": "harness-aibom:path",
+          "value": "tests/fixtures/hermes_home/.hermes/skills/incident-response"
+        },
+        {
+          "name": "harness-aibom:sha256",
+          "value": "29e6f14e14706cff8f25cf7097a991ae16fcfcbd9adc39529400a791e869f198"
+        },
+        {
+          "name": "harness-aibom:description",
+          "value": "Incident Response"
+        }
+      ]
+    },
+    {
+      "type": "service",
+      "bom-ref": "mcp_server:local-time",
+      "name": "local-time",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "mcp_server"
+        },
+        {
+          "name": "harness-aibom:endpoint",
+          "value": "http://127.0.0.1:8001"
+        },
+        {
+          "name": "harness-aibom:tls",
+          "value": "False"
+        },
+        {
+          "name": "harness-aibom:authConfigured",
+          "value": "False"
+        }
+      ]
+    },
+    {
+      "type": "service",
+      "bom-ref": "mcp_server:corp-docs",
+      "name": "corp-docs",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "mcp_server"
+        },
+        {
+          "name": "harness-aibom:endpoint",
+          "value": "https://mcp.corp.lab:8443"
+        },
+        {
+          "name": "harness-aibom:tls",
+          "value": "True"
+        },
+        {
+          "name": "harness-aibom:authConfigured",
+          "value": "True"
+        },
+        {
+          "name": "harness-aibom:toolCount",
+          "value": "2"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "harness-root",
+      "dependsOn": [
+        "configuration:config.yaml",
+        "model_endpoint:http-127.0.0.1-11434-v1",
+        "model:qwen3-8b",
+        "skill:incident-response",
+        "mcp_server:local-time",
+        "mcp_server:corp-docs"
+      ]
+    }
+  ]
+}

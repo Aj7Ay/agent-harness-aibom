@@ -1,0 +1,8 @@
+stages: [test]
+
+test:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install -e ".[dev]"
+    - pytest -q
