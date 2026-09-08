@@ -73,3 +73,45 @@ def test_explicit_transport_overrides_inference():
 
 def test_no_mcp_servers_key_returns_empty():
     assert extract_mcp_servers({}) == []
+
+
+def test_non_credential_env_names_do_not_set_authconfigured():
+    # Regression test: an independent reviewer found `authConfigured` was
+    # true for *any* non-empty env dict -- a stdio server with only
+    # NODE_ENV/LOG_LEVEL read as credential-bearing, a false positive
+    # hiding the real question.
+    config = {
+        "mcp_servers": [
+            {"name": "no-secret-env", "command": "x", "env": {"NODE_ENV": "production", "LOG_LEVEL": "debug"}}
+        ]
+    }
+    [server] = extract_mcp_servers(config)
+    assert server.properties["authConfigured"] == "False"
+    assert server.properties["envKeys"] == "LOG_LEVEL,NODE_ENV"
+    assert "authEnvKeys" not in server.properties
+
+
+def test_credential_shaped_env_names_do_set_authconfigured():
+    config = {
+        "mcp_servers": [
+            {"name": "with-secret", "command": "x", "env": {"NODE_ENV": "production", "GITHUB_TOKEN": "x"}}
+        ]
+    }
+    [server] = extract_mcp_servers(config)
+    assert server.properties["authConfigured"] == "True"
+    assert server.properties["authEnvKeys"] == "GITHUB_TOKEN"
+
+
+def test_sse_substring_in_hostname_does_not_misdetect_transport():
+    # Regression test: an independent reviewer found "sse" in endpoint
+    # (a plain substring test) misread "https://assets.example.com/mcp"
+    # as an SSE transport, because "assets" contains "sse".
+    config = {"mcp_servers": [{"name": "assets-host", "url": "https://assets.example.com/mcp"}]}
+    [server] = extract_mcp_servers(config)
+    assert server.properties["transport"] == "http"
+
+
+def test_sse_path_suffix_is_still_detected():
+    config = {"mcp_servers": [{"name": "streamed", "url": "https://mcp.example/events/sse"}]}
+    [server] = extract_mcp_servers(config)
+    assert server.properties["transport"] == "sse"

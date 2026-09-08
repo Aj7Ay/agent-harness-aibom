@@ -196,21 +196,31 @@ class HermesCollector(Collector):
         # no warning at all.
         found_any = False
         current: Component | None = None
-        for line in output.splitlines():
-            line = line.strip()
-            if not (line.startswith("✓") or line.startswith("✗")):
+        for raw_line in output.splitlines():
+            line = raw_line.strip()
+            if not line:
                 continue
+
+            # Check for a script name *before* the ✓/✗ marker gate below.
+            # Confirmed bug: the marker gate used to run first, so a
+            # status line like "script unchanged since approval" (real
+            # text from course material) was silently dropped whenever it
+            # didn't carry its own leading ✓/✗ -- and whether it does on a
+            # real box isn't actually confirmed either way, so checking
+            # for a name first handles both possible real formats instead
+            # of assuming one.
             name_match = re.search(r"([\w./-]+\.(?:sh|py))", line)
             if not name_match:
                 # A status line with no script name of its own -- e.g.
-                # "script unchanged since approval", confirmed real text
-                # from course material -- describes the *previous* hook,
-                # not a new one. This is exactly the highest-severity
-                # finding a hook scan can produce (an allowlisted hook
-                # whose body changed after approval), so it's worth
-                # capturing rather than discarding.
+                # "script unchanged since approval" -- describes the
+                # *previous* hook, not a new one. This is exactly the
+                # highest-severity finding a hook scan can produce (an
+                # allowlisted hook whose body changed after approval), so
+                # it's worth capturing rather than discarding.
                 if current is not None and "since approval" in line.lower():
                     current.set("contentChangedSinceApproval", "unchanged" not in line.lower())
+                continue
+            if not (line.startswith("✓") or line.startswith("✗")):
                 continue
 
             if not found_any:
@@ -251,16 +261,36 @@ class HermesCollector(Collector):
         identity (§4) and flags a changed one as `fingerprint_changed`
         for free, with no hook-specific logic in diff.py at all. A
         `scriptXxx`-prefixed name would silently miss both.
+
+        Confirmed real vulnerability, fixed here: a relative
+        `captured_name` is never resolved against the process's current
+        working directory. It used to be -- `Path("pre-commit.sh")` was
+        tried as-is first -- so an unrelated file merely sitting in
+        whatever directory `harness-aibom scan` happened to be run from
+        could get hashed and reported as *the hook's own fingerprint*,
+        wrong `path`/no `relPath` included, worse than reporting no
+        fingerprint at all for a tool whose whole purpose is integrity.
+        A relative name is only ever tried joined onto a known root
+        (`hermes_dir/"hooks"`, `home`) -- never bare.
         """
-        candidates = [Path(captured_name)]
-        if not Path(captured_name).is_absolute():
-            candidates += [self.hermes_dir / "hooks" / captured_name, self.home / captured_name]
+        name_path = Path(captured_name)
+        candidates = (
+            [name_path]
+            if name_path.is_absolute()
+            else [self.hermes_dir / "hooks" / captured_name, self.home / captured_name]
+        )
 
         for candidate in candidates:
+            candidate = candidate.resolve()
             if not candidate.is_file():
                 continue
             comp.set("path", str(candidate))
-            comp.set("relPath", relative_to_or_none(candidate, self.home))
+            rel_path = relative_to_or_none(candidate, self.home)
+            comp.set("relPath", rel_path)
+            if name_path.is_absolute() and rel_path is None:
+                # A hook script living entirely outside --home is itself
+                # worth flagging, not just silently missing a relPath.
+                comp.set("pathOutsideHome", True)
             comp.set("sha256", sha256_file(candidate))
             try:
                 comp.set("mode", oct(stat.S_IMODE(candidate.stat().st_mode)))

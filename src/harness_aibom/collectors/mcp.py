@@ -18,11 +18,31 @@ This is the shape audited in the CAASP "auditing-hermes-mcp-connections"
 lab, generalized across both config layouts and both transport shapes.
 Returns [] rather than raising when the key is absent -- not every
 harness/config version has MCP configured.
+
+Two more defects an independent reviewer found and confirmed:
+  - `authConfigured` used to be true for *any* non-empty `env`, so a
+    stdio server with only e.g. `NODE_ENV`/`LOG_LEVEL` read as
+    credential-bearing -- a false positive that hides the real question.
+    Now only env var *names* matching a credential-shaped pattern count;
+    `envKeys` still records every name as raw evidence either way,
+    `authEnvKeys` the matched subset.
+  - transport inference used to test `"sse" in endpoint` as a plain
+    substring anywhere in the URL, so e.g. `https://assets.example.com/mcp`
+    (which merely contains "sse" inside "assets") misread as an SSE
+    transport. Now checks the URL's actual path.
 """
 
 from __future__ import annotations
 
+import re
+from urllib.parse import urlsplit
+
 from ..model import Component
+
+#: env var *names* (never values) that look like they hold a credential --
+#: matched case-insensitively against the whole name, not required to be
+#: the whole name (e.g. "GITHUB_TOKEN" matches on "TOKEN").
+_CREDENTIAL_ENV_PATTERN = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)", re.IGNORECASE)
 
 
 def _servers_list(config: dict) -> list[dict]:
@@ -30,6 +50,13 @@ def _servers_list(config: dict) -> list[dict]:
         return config["mcp_servers"] or []
     mcp = config.get("mcp") or {}
     return mcp.get("servers") or []
+
+
+def _looks_like_sse(endpoint: str) -> bool:
+    # The URL's path, not a substring test on the whole string -- a host
+    # or query string merely containing "sse" (e.g. "assets.example.com")
+    # isn't an SSE transport.
+    return urlsplit(endpoint).path.rstrip("/").endswith("/sse")
 
 
 def extract_mcp_servers(config: dict) -> list[Component]:
@@ -42,7 +69,7 @@ def extract_mcp_servers(config: dict) -> list[Component]:
         comp = Component(component_class="mcp_server", name=name)
 
         transport = entry.get("transport") or (
-            "stdio" if command and not endpoint else ("sse" if "sse" in endpoint else "http")
+            "stdio" if command and not endpoint else ("sse" if _looks_like_sse(endpoint) else "http")
         )
         comp.set("transport", transport)
 
@@ -66,10 +93,13 @@ def extract_mcp_servers(config: dict) -> list[Component]:
             comp.set("args", " ".join(str(a) for a in args))
 
         env = entry.get("env") or {}
+        auth_env_keys = sorted(k for k in env if _CREDENTIAL_ENV_PATTERN.search(k))
         has_declared_auth = bool(entry.get("auth") or entry.get("token") or entry.get("apiKey"))
-        comp.set("authConfigured", has_declared_auth or bool(env))
+        comp.set("authConfigured", has_declared_auth or bool(auth_env_keys))
         if env:
             comp.set("envKeys", ",".join(sorted(env)))
+        if auth_env_keys:
+            comp.set("authEnvKeys", ",".join(auth_env_keys))
 
         tools = entry.get("tools")
         if tools is not None:

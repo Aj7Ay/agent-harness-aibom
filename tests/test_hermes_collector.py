@@ -181,6 +181,50 @@ def test_hook_script_fingerprint_absent_when_not_found_anywhere():
     assert "path" not in denied.properties
 
 
+def test_content_changed_since_approval_fires_even_without_its_own_marker():
+    # Regression test: an independent reviewer found the status line
+    # ("script unchanged since approval") was silently dropped whenever
+    # it didn't carry its own leading ✓/✗ -- confirmed real course-
+    # material text has the marker, but whether every real box's output
+    # does too isn't actually confirmed, so this must work either way.
+    def run(argv):
+        if argv == ["hermes", "--version"]:
+            return VERSION_OUTPUT
+        if argv == ["hermes", "hooks", "doctor"]:
+            return "✓ allowlisted (approved 2026-08-03) numbat-pre-tool.sh\n  script unchanged since approval\n"
+        raise AssertionError(f"unexpected command {argv}")
+
+    collector = HermesCollector(home=FIXTURE_HOME, run=run, fetch=fake_fetch)
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    collector.collect(doc)
+
+    [hook] = by_class(doc, "hook")
+    assert hook.properties["contentChangedSinceApproval"] == "False"
+
+
+def test_hook_fingerprint_never_resolves_a_relative_name_against_cwd(tmp_path, monkeypatch):
+    # Regression test: an independent reviewer found that a bare relative
+    # captured name (e.g. "pre-commit.sh") got hashed against whatever
+    # the *process's current working directory* happened to be -- so an
+    # unrelated file placed there could be reported as the hook's own
+    # fingerprint, worse than reporting no fingerprint for a tool whose
+    # purpose is integrity. Confirmed here: a decoy file in cwd must
+    # never be picked over the real hook under --home, or over nothing.
+    fixture_home = FIXTURE_HOME.resolve()
+    decoy_dir = tmp_path / "wherever-scan-happens-to-run-from"
+    decoy_dir.mkdir()
+    (decoy_dir / "numbat-pre-tool.sh").write_text("echo this is not the real hook\n")
+
+    monkeypatch.chdir(decoy_dir)
+    collector = HermesCollector(home=fixture_home, run=fake_run, fetch=fake_fetch)
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    collector.collect(doc)
+
+    [hook] = [h for h in by_class(doc, "hook") if h.name == "numbat-pre-tool.sh"]
+    assert hook.properties["path"] == str(fixture_home / ".hermes" / "hooks" / "numbat-pre-tool.sh")
+    assert hook.properties["relPath"] == ".hermes/hooks/numbat-pre-tool.sh"
+
+
 def test_no_hooks_configured_is_not_treated_as_a_parsing_failure():
     # Confirmed real output on a live box with zero hooks registered.
     no_hooks_output = "No shell hooks configured — nothing to check.\n"

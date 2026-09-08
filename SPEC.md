@@ -98,6 +98,36 @@ here:
   byte-identical output — a prerequisite for hashing or signing the AIBOM
   itself as a baseline, which the roadmap already calls for (cosign).
 
+**v0.1.8 update:** the same reviewer re-tested v0.1.5–v0.1.7, confirmed
+every fix, then found four real defects in the two v0.1.7 additions,
+ranked by severity:
+- **A (high).** `contentChangedSinceApproval` never actually fired: the
+  code checked for the ✓/✗ marker *before* checking for a script name, so
+  the no-name status line describing the previous hook was dropped before
+  ever reaching the new branch — a shipped feature that was dead code
+  against the confirmed real text. Fixed by checking for a name first.
+- **B (high).** `_attach_script_fingerprint` could hash the wrong file
+  entirely: a relative captured name was tried as-is first, which
+  resolves against the process's *current working directory* — an
+  unrelated file merely sitting wherever `harness-aibom scan` happened to
+  be run from could get reported as the hook's own fingerprint. Fixed by
+  only ever trying a relative name joined onto a known root
+  (`hermes_dir/"hooks"`, `home`), never bare. Reproduced exactly as
+  reported (a decoy script in cwd) before and after fixing.
+- **C (medium).** `authConfigured` was true for *any* non-empty `env` on
+  a stdio MCP server, so e.g. `NODE_ENV`/`LOG_LEVEL` alone read as
+  credential-bearing — a false positive. Fixed: only env var *names*
+  matching a credential-shaped pattern (`KEY`/`TOKEN`/`SECRET`/
+  `PASSWORD`/`CREDENTIAL`/`AUTH`) count, recorded separately in
+  `authEnvKeys`; `envKeys` still records every name as raw evidence.
+- **D (low).** SSE-transport detection tested `"sse" in endpoint` as a
+  plain substring anywhere in the URL, so `assets.example.com` (containing
+  "sse" inside "assets") misread as SSE. Fixed: parses the URL and checks
+  the actual path.
+
+All four confirmed against the reviewer's exact reproductions, both
+before and after fixing. See §2 (`hook`, `mcp_server` rows) and §4.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -137,7 +167,7 @@ rather than e.g. `runtime` depending on `model_endpoint` depending on
 | `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest`, `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx` | Ollama `GET /api/tags`, cross-referenced against the configured default model |
 | `configuration` | `file` | `path`, `relPath` (path relative to `--home`; see §4), `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
 | `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description` | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
-| `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "script unchanged/changed since approval" status line), `path`/`relPath`/`sha256`/`mode` (opportunistic, same property names as `configuration`/`skill` — set only when a guessed file location happens to exist; absence means "not found," not "no script") | `hermes hooks doctor` (best-effort text parse, see §5) |
+| `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "script unchanged/changed since approval" status line, checked regardless of whether that line carries its own ✓/✗), `path`/`relPath`/`sha256`/`mode` (opportunistic, same property names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, only when an absolute hook path is found entirely outside `--home`) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
@@ -145,7 +175,7 @@ rather than e.g. `runtime` depending on `model_endpoint` depending on
 | `componentClass` | Key properties | Source |
 |---|---|---|
 | `model_endpoint` | `provider`, `apiMode`, `endpoints[]` (native CDX field) | `config.yaml` / `openclaw.json` |
-| `mcp_server` | `transport` (`stdio`/`http`/`sse`), `endpoint`, `endpoints[]` (native CDX field, URL-based transports only), `tls` (bool, or `"n/a"` for stdio), `authConfigured` (bool — declared auth *or* a non-empty `env`), `envKeys` (env var names, never values), `command`, `args`, `toolCount` | `mcp_servers` list inside either config file |
+| `mcp_server` | `transport` (`stdio`/`http`/`sse`, SSE detected from the URL's actual path, not a substring test), `endpoint`, `endpoints[]` (native CDX field, URL-based transports only), `tls` (bool, or `"n/a"` for stdio), `authConfigured` (bool — declared auth *or* a credential-shaped `env` var name), `envKeys` (every env var name, raw evidence), `authEnvKeys` (only the names that look credential-shaped), `command`, `args`, `toolCount` | `mcp_servers` list inside either config file |
 
 `model` deliberately uses CycloneDX's native `machine-learning-model` type
 rather than a generic one — it's a real ML-BOM component, not just a file.
@@ -281,6 +311,14 @@ need `numbat hook install` run on it first.
 
 **Still open:**
 
+- **A component entirely outside `--home` breaks cross-host diffing.**
+  `relPath` (§4) fixes cross-host comparison for everything actually
+  under the scanned home directory, but OpenClaw's `env_dir` defaults to
+  `/opt/openclaw`, outside `--home` by definition — those components
+  still only have the absolute `path` to fall back to, and two different
+  machines' `/opt/openclaw/.env` will never share that. Not a bug to fix
+  so much as an inherent limit of what `relPath` can mean for a location
+  that was never inside the harness's own home in the first place.
 - **A stdio MCP server's `command` isn't fingerprinted.** It's recorded
   verbatim, but not hashed: `command` is very often `npx`/`uvx` resolving
   a package name at invocation time, not a single static file that
