@@ -201,24 +201,24 @@ class HermesCollector(Collector):
             if not line:
                 continue
 
-            # Check for a script name *before* the ✓/✗ marker gate below.
-            # Confirmed bug: the marker gate used to run first, so a
-            # status line like "script unchanged since approval" (real
-            # text from course material) was silently dropped whenever it
-            # didn't carry its own leading ✓/✗ -- and whether it does on a
-            # real box isn't actually confirmed either way, so checking
-            # for a name first handles both possible real formats instead
-            # of assuming one.
+            # A status line describing the *previous* hook -- e.g. "script
+            # unchanged since approval" -- is never itself a new hook
+            # entry. Checked unconditionally, before anything else: not
+            # gated on whether the line carries its own ✓/✗, and not
+            # gated on whether it happens to also repeat that hook's own
+            # script name -- none of "has a marker", "repeats the name",
+            # or "neither" is actually confirmed for a real multi-hook
+            # box, so this can't assume any of them. This is exactly the
+            # highest-severity finding a hook scan can produce (an
+            # allowlisted hook whose body changed after approval), so
+            # it's worth capturing rather than discarding.
+            if "since approval" in line.lower():
+                if current is not None:
+                    current.set("contentChangedSinceApproval", "unchanged" not in line.lower())
+                continue
+
             name_match = re.search(r"([\w./-]+\.(?:sh|py))", line)
             if not name_match:
-                # A status line with no script name of its own -- e.g.
-                # "script unchanged since approval" -- describes the
-                # *previous* hook, not a new one. This is exactly the
-                # highest-severity finding a hook scan can produce (an
-                # allowlisted hook whose body changed after approval), so
-                # it's worth capturing rather than discarding.
-                if current is not None and "since approval" in line.lower():
-                    current.set("contentChangedSinceApproval", "unchanged" not in line.lower())
                 continue
             if not (line.startswith("✓") or line.startswith("✗")):
                 continue
@@ -272,6 +272,14 @@ class HermesCollector(Collector):
         fingerprint at all for a tool whose whole purpose is integrity.
         A relative name is only ever tried joined onto a known root
         (`hermes_dir/"hooks"`, `home`) -- never bare.
+
+        `symlink` records whether the guessed location was itself a
+        symlink; `path` already carries the *resolved* target (no
+        separate `symlinkTarget` -- that would just repeat `path`).
+        `pathOutsideHome` is set whenever the resolved target lands
+        outside `--home`, symlink or not -- an allowlisted hook that
+        looks like it lives inside the harness but actually points
+        somewhere else entirely is exactly the case this exists to catch.
         """
         name_path = Path(captured_name)
         candidates = (
@@ -281,15 +289,24 @@ class HermesCollector(Collector):
         )
 
         for candidate in candidates:
+            is_symlink = candidate.is_symlink()
             candidate = candidate.resolve()
             if not candidate.is_file():
                 continue
             comp.set("path", str(candidate))
+            comp.set("symlink", is_symlink)
             rel_path = relative_to_or_none(candidate, self.home)
             comp.set("relPath", rel_path)
-            if name_path.is_absolute() and rel_path is None:
+            if rel_path is None:
                 # A hook script living entirely outside --home is itself
                 # worth flagging, not just silently missing a relPath.
+                # Driven off the *resolved* candidate, not off whether
+                # the captured name itself was absolute: a relative name
+                # under a known root can still be a symlink that resolves
+                # somewhere else entirely (~/.hermes/hooks/audit.sh ->
+                # /tmp/evil/payload.sh) -- confirmed the previous
+                # is_absolute()-gated version missed exactly that case,
+                # the one this flag exists to catch.
                 comp.set("pathOutsideHome", True)
             comp.set("sha256", sha256_file(candidate))
             try:

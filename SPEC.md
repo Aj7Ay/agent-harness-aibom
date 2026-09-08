@@ -128,6 +128,32 @@ ranked by severity:
 All four confirmed against the reviewer's exact reproductions, both
 before and after fixing. See §2 (`hook`, `mcp_server` rows) and §4.
 
+**v0.1.9 update:** the same reviewer re-tested v0.1.8, confirmed all four
+fixes, then found two more real defects in the same hook-fingerprint code
+— both edge cases the v0.1.8 fixes hadn't fully closed:
+- **Medium.** `pathOutsideHome` only fired when the *captured name
+  itself* was written as an absolute path — missing exactly the case the
+  flag exists to catch: a hook that sits inside `--home` on the surface
+  but is actually a symlink resolving somewhere else entirely
+  (`~/.hermes/hooks/audit.sh -> /tmp/evil/payload.sh`). Fixed by driving
+  the flag off the *resolved* candidate instead — `rel_path is None`,
+  regardless of whether the input name looked absolute. Also added a
+  `symlink` property recording whether the guessed location was itself a
+  symlink (`path` already carries the resolved target, so there's no
+  separate `symlinkTarget` — that would just repeat `path`).
+- **Low.** A status line that repeats the hook's own script name (e.g.
+  `"pre-commit.sh CHANGED since approval"`) matched the name regex,
+  skipped the no-name branch entirely, then failed the marker check and
+  was silently dropped — one of three plausible real formats for that
+  line still lost the signal. Fixed by checking for the "since approval"
+  phrase completely unconditionally, before any name or marker logic —
+  simpler than trying to enumerate which combinations of "has a marker"
+  and "repeats the name" are and aren't real, none of which is actually
+  confirmed either way.
+
+Both confirmed against the reviewer's exact reproductions, both before
+and after fixing.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -167,7 +193,7 @@ rather than e.g. `runtime` depending on `model_endpoint` depending on
 | `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest`, `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx` | Ollama `GET /api/tags`, cross-referenced against the configured default model |
 | `configuration` | `file` | `path`, `relPath` (path relative to `--home`; see §4), `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
 | `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description` | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
-| `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "script unchanged/changed since approval" status line, checked regardless of whether that line carries its own ✓/✗), `path`/`relPath`/`sha256`/`mode` (opportunistic, same property names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, only when an absolute hook path is found entirely outside `--home`) | `hermes hooks doctor` (best-effort text parse, see §5) |
+| `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 
 **Services** (`bom.services[]`, no `type` field — see §1):

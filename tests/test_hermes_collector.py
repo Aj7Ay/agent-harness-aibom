@@ -169,6 +169,8 @@ def test_hook_script_is_hashed_when_found_at_a_guessed_location():
     assert len(allowed.properties["sha256"]) == 64
     assert allowed.properties["path"].endswith(".hermes/hooks/numbat-pre-tool.sh")
     assert allowed.properties["relPath"] == ".hermes/hooks/numbat-pre-tool.sh"
+    assert allowed.properties["symlink"] == "False"
+    assert "pathOutsideHome" not in allowed.properties
 
 
 def test_hook_script_fingerprint_absent_when_not_found_anywhere():
@@ -248,3 +250,57 @@ def test_relationships_recorded_on_document_root():
     doc = collect()
     verbs = {v for v, _ in doc.root_relationships}
     assert {"uses", "loads", "approves", "executes"} <= verbs
+
+
+def test_status_line_that_repeats_the_script_name_still_sets_content_changed(tmp_path):
+    # Regression test: an independent reviewer found a status line that
+    # repeats the hook's script name (e.g. "pre-commit.sh CHANGED since
+    # approval") matched the name regex, skipped the no-name branch
+    # entirely, then failed the marker check and was dropped -- silently
+    # losing the content-changed signal for a plausible real format.
+    def run(argv):
+        if argv == ["hermes", "--version"]:
+            return VERSION_OUTPUT
+        if argv == ["hermes", "hooks", "doctor"]:
+            return "✓ pre-commit.sh allowlisted (approved 2026-08-14)\n  pre-commit.sh CHANGED since approval\n"
+        raise AssertionError(f"unexpected command {argv}")
+
+    collector = HermesCollector(home=FIXTURE_HOME, run=run, fetch=fake_fetch)
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    collector.collect(doc)
+
+    hooks = by_class(doc, "hook")
+    assert len(hooks) == 1  # no phantom second hook from the status line
+    assert hooks[0].properties["contentChangedSinceApproval"] == "True"
+
+
+def test_hook_symlink_pointing_outside_home_sets_path_outside_home(tmp_path):
+    # Regression test: an independent reviewer found pathOutsideHome only
+    # fired when the *captured name itself* was absolute -- missing
+    # exactly the case the flag exists to catch, a hook that sits inside
+    # the harness directory but is a symlink resolving somewhere else
+    # entirely (~/.hermes/hooks/audit.sh -> /tmp/evil/payload.sh).
+    home = tmp_path / "home"
+    hooks_dir = home / ".hermes" / "hooks"
+    hooks_dir.mkdir(parents=True)
+    evil_dir = tmp_path / "evil"
+    evil_dir.mkdir()
+    (evil_dir / "payload.sh").write_text("echo payload\n")
+    (hooks_dir / "audit.sh").symlink_to(evil_dir / "payload.sh")
+
+    def run(argv):
+        if argv == ["hermes", "--version"]:
+            return VERSION_OUTPUT
+        if argv == ["hermes", "hooks", "doctor"]:
+            return "✓ allowlisted (approved 2026-08-03) audit.sh\n"
+        raise AssertionError(f"unexpected command {argv}")
+
+    collector = HermesCollector(home=home, run=run, fetch=fake_fetch)
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    collector.collect(doc)
+
+    [hook] = by_class(doc, "hook")
+    assert hook.properties["path"] == str((evil_dir / "payload.sh").resolve())
+    assert "relPath" not in hook.properties
+    assert hook.properties["pathOutsideHome"] == "True"
+    assert hook.properties["symlink"] == "True"
