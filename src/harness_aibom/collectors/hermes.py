@@ -187,10 +187,11 @@ class HermesCollector(Collector):
         if not output.strip():
             return
 
-        doc.warn(
-            "hook parsing from `hermes hooks doctor` text output is best-effort; "
-            "verify field extraction against a live box before relying on it"
-        )
+        # A box with no hooks registered says so plainly (confirmed on a
+        # live box: "No shell hooks configured — nothing to check.") --
+        # that's a clean, correct answer, not a parsing failure, so it gets
+        # no warning at all.
+        found_any = False
         for line in output.splitlines():
             line = line.strip()
             if not (line.startswith("✓") or line.startswith("✗")):
@@ -201,8 +202,20 @@ class HermesCollector(Collector):
                 # unchanged since approval") describe the previous hook, not
                 # a new one -- skip rather than inventing a phantom component.
                 continue
-            approved = line.startswith("✓")
 
+            if not found_any:
+                # Only warn once we know there's actually hook data to be
+                # uncertain about -- this line format is confirmed from
+                # course material, but per-hook script-name extraction
+                # inside it is not yet checked against a live box that has
+                # hooks configured.
+                doc.warn(
+                    "hook parsing from `hermes hooks doctor` text output is best-effort; "
+                    "verify field extraction against a live box with hooks configured"
+                )
+                found_any = True
+
+            approved = line.startswith("✓")
             comp = Component(component_class="hook", name=name_match.group(1))
             comp.set("approvalStatus", "allowlisted" if approved else "not_allowlisted")
             if date_match := re.search(r"approved ([0-9-]+)", line):

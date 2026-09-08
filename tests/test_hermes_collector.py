@@ -134,6 +134,27 @@ def test_hooks():
     denied = next(h for h in hooks if h.name == "stray-hook.sh")
     assert denied.properties["approvalStatus"] == "not_allowlisted"
 
+    assert any("best-effort" in w for w in doc.warnings)
+
+
+def test_no_hooks_configured_is_not_treated_as_a_parsing_failure():
+    # Confirmed real output on a live box with zero hooks registered.
+    no_hooks_output = "No shell hooks configured — nothing to check.\n"
+
+    def run(argv):
+        if argv == ["hermes", "--version"]:
+            return VERSION_OUTPUT
+        if argv == ["hermes", "hooks", "doctor"]:
+            return no_hooks_output
+        raise AssertionError(f"unexpected command {argv}")
+
+    collector = HermesCollector(home=FIXTURE_HOME, run=run, fetch=fake_fetch)
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    collector.collect(doc)
+
+    assert by_class(doc, "hook") == []
+    assert not any("best-effort" in w for w in doc.warnings)
+
 
 def test_relationships_recorded_on_document_root():
     doc = collect()

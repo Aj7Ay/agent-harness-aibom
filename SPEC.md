@@ -108,15 +108,17 @@ fixed above): the skill directory is nested by category, not flat (§2);
 skill fingerprinting must cover the whole directory, not just `SKILL.md`
 (§3).
 
+**Also confirmed:** the live box had zero hooks registered, and
+`hermes hooks doctor` says so plainly ("No shell hooks configured —
+nothing to check."). That's a correct, clean result, not a parsing
+failure — the collector no longer warns in that case. The `✓`/`✗`-per-line
+format itself is confirmed from course material for a box *with* hooks
+registered, but per-hook script-name extraction inside that format still
+isn't checked against a live box that actually has one — that box would
+need `numbat hook install` run on it first.
+
 **Still open:**
 
-- **Hook parsing is best-effort text scraping, and on the live box it
-  found zero hooks** despite `hermes hooks doctor` clearly running (the
-  collector's own diagnostic warning fired). The real output format still
-  isn't confirmed — the assumed `✓`/`✗`-per-line-with-a-script-name shape
-  in `hermes.py` doesn't match whatever that box actually prints. Needs
-  the raw `hermes hooks doctor` output from a live box to fix for real,
-  rather than another guess.
 - **`openclaw --version` isn't parsed into a semantic version** — its exact
   output format wasn't in the source material, so the collector records the
   first line verbatim. Not yet checked against a live OpenClaw box.
