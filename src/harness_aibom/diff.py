@@ -23,7 +23,18 @@ def _index(doc: dict) -> dict[tuple[str, str], dict[str, str]]:
     # a changed MCP server just because of which array it's stored in.
     for entry in doc.get("components", []) + doc.get("services", []):
         props = {p["name"]: p["value"] for p in entry.get("properties", [])}
-        key = (props.get("harness-aibom:componentClass", "unknown"), entry.get("name", ""))
+        # Key on the full path when there is one, falling back to `name`
+        # only for classes that don't carry a path (model, runtime, ...).
+        # `name` alone isn't unique: the recursive secrets scan means two
+        # different `.env` files in different directories both have
+        # `name == ".env"` -- keying on `name` collapsed them into one
+        # dict entry, silently hiding a real change to whichever one lost
+        # that collision. Deliberately NOT bom-ref: its numeric "-2"
+        # disambiguation suffix is insertion-order-dependent, so a new
+        # component added earlier in a later scan can shift every
+        # following bom-ref and make untouched files look renamed.
+        identity = props.get("harness-aibom:path") or entry.get("name", "")
+        key = (props.get("harness-aibom:componentClass", "unknown"), identity)
         out[key] = props
     return out
 

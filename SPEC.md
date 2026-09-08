@@ -41,6 +41,16 @@ classes now serialize into `bom.services[]`. The same test also found a
 crash on an unreadable skill file, a secrets scan that missed anything
 inside a skill directory, and several CLI rough edges — all fixed, see §5.
 
+**v0.1.4 update:** the same reviewer re-tested v0.1.3 and confirmed every
+fix above, then found one more real defect the recursive secrets scan
+(from the previous fix) had exposed: `diff` indexed components by
+`(componentClass, name)`, and `name` was just a file's basename, so two
+different `.env` files in different directories — now common, since the
+scan recurses into skill directories — collided under one dict key. The
+second scanned always silently overwrote the first, so a real permission
+change to one of them could vanish from a diff entirely, `--exit-code`
+included. Reproduced and confirmed before fixing (§4).
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -81,7 +91,7 @@ rather than e.g. `runtime` depending on `model_endpoint` depending on
 | `configuration` | `file` | `path`, `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
 | `skill` | `library` | `path`, `category` (if nested), `sha256` (of the whole skill directory), `description` | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine` | `hermes hooks doctor` (best-effort text parse, see §5) |
-| `secrets_surface` | `data` | `path`, `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included |
+| `secrets_surface` | `data` | `path`, `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
 
@@ -126,11 +136,30 @@ has its path folded into the skill's hash, just not its content.
 ## 4. Diffing
 
 `harness-aibom diff before.json after.json` indexes both documents by
-`(componentClass, name)` and reports `added` / `removed` / `changed`
-component keys. A change to `harness-aibom:sha256` or
-`harness-aibom:digest` is flagged with `fingerprint_changed: true` — this
-is the mechanism for catching a poisoned skill or a swapped model between
-two scans of the same harness.
+`(componentClass, identity)`, where `identity` is the entry's
+`harness-aibom:path` property when it has one, falling back to `name`
+otherwise (`model`, `runtime`, and the two service classes don't carry a
+path). It reports `added` / `removed` / `changed` keys. A change to
+`harness-aibom:sha256` or `harness-aibom:digest` is flagged with
+`fingerprint_changed: true` — this is the mechanism for catching a
+poisoned skill or a swapped model between two scans of the same harness.
+
+Keying on `name` alone was wrong, and shipped that way in v0.1.0 through
+v0.1.3: `name` isn't unique once the secrets scan recurses into skill
+directories (§3) — two different `.env` files can both be named `.env`,
+collide under one dict key, and the second one scanned silently
+overwrites the first, hiding a real change to whichever file lost that
+collision. Confirmed and fixed in v0.1.4. Deliberately not keyed on
+`bom-ref` either: its numeric `-2` disambiguation suffix (model.py's
+`HarnessDocument.add()`) is insertion-order-dependent, so adding one new
+component earlier in a later scan can shift every following bom-ref and
+make untouched files look renamed.
+
+`hook` components still have this exposure and aren't yet fixed: the
+current `hermes hooks doctor` text-parsing (§5) only extracts a script
+*name*, not a full path, so there's no `path` property to key on if two
+hook scripts share a basename in different directories. Fixing this needs
+a real path in the hook data itself, which isn't available yet.
 
 ## 5. Known limitations (v0.1)
 
@@ -208,7 +237,13 @@ need `numbat hook install` run on it first.
 - **Skill/secrets-surface bom-refs can collide by name** (e.g. two `.env`
   files in different directories). `HarnessDocument.add()` disambiguates
   with a numeric suffix so the document stays valid, but the disambiguation
-  is order-dependent, not content-addressed.
+  is order-dependent, not content-addressed. `diff` itself no longer has
+  this problem as of v0.1.4 (§4) — this is about `bom-ref` specifically,
+  which `diff` deliberately avoids keying on for that exact reason.
+- **`hook` components can still collide in `diff`** if two hook scripts
+  share a basename in different directories — there's no `path` property
+  for them to key on yet, since hook data only comes from text-parsing
+  `hermes hooks doctor`'s output, which doesn't include a full path (§4).
 
 ## 6. Explicitly out of scope for this spec
 

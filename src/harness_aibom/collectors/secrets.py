@@ -43,7 +43,12 @@ def find_secrets_surface(directory: Path, exclude_dirnames: frozenset[str] = fro
                 mode = stat.S_IMODE(file_path.stat().st_mode)
             except OSError:
                 continue
-            comp = Component(component_class="secrets_surface", name=filename)
+            # name is the path relative to the scanned root, not just the
+            # basename -- matches how collectors/skills.py already names
+            # nested skills, and means two ".env" files in different
+            # directories read as two distinct, identifiable entries
+            # instead of both just being called ".env".
+            comp = Component(component_class="secrets_surface", name=str(file_path.relative_to(directory)))
             comp.set("path", str(file_path))
             comp.set("mode", oct(mode))
             comp.set("worldReadable", bool(mode & stat.S_IROTH))
