@@ -10,6 +10,7 @@ on:
 
 permissions:
   id-token: write  # required for Trusted Publishing
+  contents: write  # required to attach build files to the GitHub Release
 
 jobs:
   publish:
@@ -26,3 +27,8 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Attach the built wheel and sdist to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/* --clobber
