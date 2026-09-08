@@ -154,6 +154,37 @@ fixes, then found two more real defects in the same hook-fingerprint code
 Both confirmed against the reviewer's exact reproductions, both before
 and after fixing.
 
+**v0.1.10 update:** the same reviewer re-tested v0.1.9, confirmed both
+fixes, then found one high-severity regression the "Low" fix above had
+introduced, plus one further defect:
+- **High (regression).** The v0.1.9 fix for "status line repeats the
+  hook's name" made the "since approval" check fully unconditional — but
+  a line can be *both* a real hook entry (marker + name) *and* mention
+  "since approval" in the same breath (e.g.
+  `"✓ pre-commit.sh allowlisted (unchanged since approval)"`), and the
+  unconditional check swallowed that shape entirely: every hook silently
+  dropped, `found_any` never set, so the best-effort warning never fired
+  either. A reader had no way to tell "this box has no hooks" from "the
+  parser dropped them" — the worst failure mode a scanner has. Fixed by
+  making the actual discriminator explicit: a line carrying *both* a
+  marker *and* a name is always a new hook entry (which may also carry
+  its own content-changed signal, read from the same line), and only a
+  line that mentions "since approval" *without* being such an entry is a
+  status continuation. Also added a guard: if the output contains any
+  ✓/✗ marker lines but zero hooks were extracted, that's now a warning
+  instead of a silent empty result — so this whole class of failure
+  can't recur invisibly even for a fourth line shape nobody's found yet.
+- **Medium.** `mcp_server` (and `model_endpoint`) are services (§1),
+  carrying neither `path` nor `relPath` — so two same-named MCP servers
+  collapsed into one `diff` entry the same way two same-named `.env`
+  files used to (§4), and a TLS downgrade on one of them vanished
+  silently. Fixed with per-document disambiguation using each entry's
+  `endpoint` (or `command`+`args` for a stdio server) when a name turns
+  out to be shared — see §4 for the trade-off this involves.
+
+Both confirmed against the reviewer's exact reproductions, both before
+and after fixing.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -285,6 +316,25 @@ still the common case, since the real storage location isn't confirmed
 (§5) — there's nothing to key on but the bare script *name* parsed from
 `hermes hooks doctor` text, and two hook scripts sharing a basename in
 different directories would still collide.
+
+**Same-name disambiguation for classes with no `path`/`relPath` at
+all.** `model_endpoint` and `mcp_server` are services (§1) — they never
+carry a path, so their identity always falls all the way to `name`, and
+two services can share a config `name` the same way two `.env` files
+could share a basename (confirmed real by an independent reviewer: two
+`mcp_server` entries both named `"fs"` collapsed into one `diff` entry,
+and a TLS downgrade on one of them vanished silently). `_index()`
+disambiguates *within one document* when a name turns out to be shared,
+using each entry's `endpoint` (or `command`+`args` for a stdio server,
+§2) as a content-derived tiebreaker, falling back to position only as a
+genuine last resort. This is deliberately a per-document grouping, not a
+stable cross-scan id — if the tiebreaking field itself is what changed
+between two scans (e.g. a duplicate-named server's own `endpoint`), that
+reads as one entry removed and one added rather than one changed. Still
+visible, which is what matters — silence was the actual bug — just not
+as precise as an unambiguous name would allow. A server whose `name` is
+unique in the document is entirely unaffected by any of this and keeps
+plain `changed` semantics for an endpoint change, same as always.
 
 ## 5. Known limitations (v0.1)
 

@@ -28,7 +28,10 @@ IGNORED_FIELDS = frozenset({"harness-aibom:path"})
 
 
 def _index(doc: dict) -> dict[tuple[str, str], dict[str, str]]:
-    out: dict[tuple[str, str], dict[str, str]] = {}
+    # Group first, key second: a base identity that turns out to be
+    # shared by more than one entry within *this* document needs
+    # disambiguating (see below) before it can become a dict key at all.
+    grouped: dict[tuple[str, str], list[dict[str, str]]] = {}
     # model_endpoint and mcp_server live in "services", not "components"
     # (see model.py SERVICE_CLASSES) -- both arrays get indexed the same
     # way, keyed by componentClass, so a diff doesn't silently go blind to
@@ -59,7 +62,32 @@ def _index(doc: dict) -> dict[tuple[str, str], dict[str, str]]:
             props.get("harness-aibom:relPath") or props.get("harness-aibom:path") or entry.get("name", "")
         )
         key = (props.get("harness-aibom:componentClass", "unknown"), identity)
-        out[key] = props
+        grouped.setdefault(key, []).append(props)
+
+    out: dict[tuple[str, str], dict[str, str]] = {}
+    for key, props_list in grouped.items():
+        if len(props_list) == 1:
+            out[key] = props_list[0]
+            continue
+        # Two or more entries share this identity within the same
+        # document -- confirmed real for mcp_server: it's a *service*
+        # (§1), so it has neither `path` nor `relPath` to fall back on,
+        # and two servers can share a config `name` the same way two
+        # `.env` files could share a basename. Disambiguate each with
+        # whatever distinguishing, content-derived property it has --
+        # `endpoint` for a URL-based server, `command`+`args` for a
+        # stdio one -- falling back to position only as a last resort so
+        # nothing is silently dropped. This is a per-document grouping,
+        # not a stable cross-scan id: if a server's own `endpoint`
+        # happens to be the only thing that changed between scans, that
+        # reads as one entry removed and one added rather than one
+        # changed -- still visible, which is what matters, just not as
+        # precise as an unambiguous name would allow. See SPEC.md §4.
+        cls, base_identity = key
+        for i, props in enumerate(props_list):
+            command_str = " ".join(filter(None, [props.get("harness-aibom:command"), props.get("harness-aibom:args")]))
+            disambiguator = props.get("harness-aibom:endpoint") or command_str or str(i)
+            out[(cls, f"{base_identity}#{disambiguator}")] = props
     return out
 
 

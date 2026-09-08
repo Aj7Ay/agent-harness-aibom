@@ -141,3 +141,57 @@ def test_a_changed_allowlisted_hook_body_is_flagged_as_fingerprint_changed():
     [change] = result["changed"]
     assert change["component"] == "hook:.hermes/hooks/pre-commit.sh"
     assert change["fingerprint_changed"] is True
+
+
+def doc_with_two_same_named_mcp_servers(first_endpoint: str) -> dict:
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+
+    first = Component(component_class="mcp_server", name="fs")
+    first.set("endpoint", first_endpoint)
+    first.set("tls", first_endpoint.startswith("https://"))
+    doc.add(first, "uses")
+
+    second = Component(component_class="mcp_server", name="fs")
+    second.set("endpoint", "https://b.example.com/sse")
+    second.set("tls", True)
+    doc.add(second, "uses")
+
+    return to_cyclonedx(doc)
+
+
+def test_duplicate_mcp_server_names_do_not_collide_in_diff():
+    # Regression test: an independent reviewer found two mcp_server
+    # entries sharing a `name` collapsed into one dict entry, the same
+    # class of bug relPath fixed for files -- except services carry no
+    # path/relPath at all, so `name` was the only identity available and
+    # a TLS downgrade on one of two identically-named servers vanished
+    # from the diff entirely.
+    before = doc_with_two_same_named_mcp_servers("https://a.example.com/sse")
+    after = doc_with_two_same_named_mcp_servers("http://a.example.com/sse")  # downgraded to plaintext
+
+    result = diff_documents(before, after)
+    # Visible as add+remove (the disambiguator itself is what changed),
+    # not silently absent -- see diff.py's _index() for the trade-off.
+    assert result["added"] == ["mcp_server:fs#http://a.example.com/sse"]
+    assert result["removed"] == ["mcp_server:fs#https://a.example.com/sse"]
+    assert result["changed"] == []
+
+
+def test_single_named_mcp_server_is_unaffected_by_duplicate_handling():
+    # The common case (no name collision at all) must keep clean
+    # "changed" semantics, not regress to add+remove just because the
+    # duplicate-handling code path exists.
+    def doc_with(tls: bool) -> dict:
+        doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+        server = Component(component_class="mcp_server", name="corp-docs")
+        server.set("endpoint", "https://mcp.corp.lab" if tls else "http://mcp.corp.lab")
+        server.set("tls", tls)
+        doc.add(server, "uses")
+        return to_cyclonedx(doc)
+
+    result = diff_documents(doc_with(True), doc_with(False))
+    assert result["added"] == []
+    assert result["removed"] == []
+    [change] = result["changed"]
+    assert change["component"] == "mcp_server:corp-docs"
+    assert change["fields"]["harness-aibom:tls"] == {"before": "True", "after": "False"}

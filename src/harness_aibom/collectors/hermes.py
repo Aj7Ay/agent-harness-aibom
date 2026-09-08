@@ -195,32 +195,36 @@ class HermesCollector(Collector):
         # that's a clean, correct answer, not a parsing failure, so it gets
         # no warning at all.
         found_any = False
+        marker_line_seen = False
         current: Component | None = None
         for raw_line in output.splitlines():
             line = raw_line.strip()
             if not line:
                 continue
 
-            # A status line describing the *previous* hook -- e.g. "script
-            # unchanged since approval" -- is never itself a new hook
-            # entry. Checked unconditionally, before anything else: not
-            # gated on whether the line carries its own ✓/✗, and not
-            # gated on whether it happens to also repeat that hook's own
-            # script name -- none of "has a marker", "repeats the name",
-            # or "neither" is actually confirmed for a real multi-hook
-            # box, so this can't assume any of them. This is exactly the
-            # highest-severity finding a hook scan can produce (an
-            # allowlisted hook whose body changed after approval), so
-            # it's worth capturing rather than discarding.
-            if "since approval" in line.lower():
+            has_marker = line.startswith("✓") or line.startswith("✗")
+            name_match = re.search(r"([\w./-]+\.(?:sh|py))", line)
+            if has_marker:
+                marker_line_seen = True
+
+            # A line carrying *both* a marker and a script name is always
+            # a new hook entry, even if it also happens to mention "since
+            # approval" in the same breath (e.g. "✓ pre-commit.sh
+            # allowlisted (unchanged since approval)") -- confirmed a real
+            # regression here: an earlier version treated ANY "since
+            # approval" text as a status continuation unconditionally,
+            # which swallowed lines shaped like that whole and silently
+            # dropped every hook. A status-continuation line, by contrast,
+            # is a line that mentions "since approval" but is NOT itself a
+            # marker+name hook entry -- that's the actual discriminator,
+            # not any one guess at whether such a line has a marker or
+            # repeats the name (neither is confirmed for a real box).
+            if "since approval" in line.lower() and not (has_marker and name_match):
                 if current is not None:
                     current.set("contentChangedSinceApproval", "unchanged" not in line.lower())
                 continue
 
-            name_match = re.search(r"([\w./-]+\.(?:sh|py))", line)
-            if not name_match:
-                continue
-            if not (line.startswith("✓") or line.startswith("✗")):
+            if not name_match or not has_marker:
                 continue
 
             if not found_any:
@@ -241,9 +245,25 @@ class HermesCollector(Collector):
             if date_match := re.search(r"approved ([0-9-]+)", line):
                 comp.set("approvedAt", date_match.group(1))
             comp.set("rawLine", line)
+            if "since approval" in line.lower():
+                # A combined line (marker + name + status all in one)
+                # carries its own content-changed signal too.
+                comp.set("contentChangedSinceApproval", "unchanged" not in line.lower())
             self._attach_script_fingerprint(comp, name_match.group(1))
             doc.add(comp, "approves" if approved else "executes")
             current = comp
+
+        if marker_line_seen and not found_any:
+            # Output had ✓/✗ lines, but none of them turned into a hook
+            # component -- this parser's assumptions don't match this
+            # box's actual format. Silently reporting zero hooks would be
+            # indistinguishable from "this box genuinely has none", which
+            # is the worst failure mode a scanner has.
+            doc.warn(
+                "`hermes hooks doctor` output contained ✓/✗ lines but no hook components could be "
+                "extracted from them -- this parser may not understand this box's format; do not "
+                "treat this scan as evidence the box has no hooks"
+            )
 
     def _attach_script_fingerprint(self, comp: Component, captured_name: str) -> None:
         """Opportunistic, not authoritative: `hermes hooks doctor`'s text

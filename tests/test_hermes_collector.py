@@ -304,3 +304,57 @@ def test_hook_symlink_pointing_outside_home_sets_path_outside_home(tmp_path):
     assert "relPath" not in hook.properties
     assert hook.properties["pathOutsideHome"] == "True"
     assert hook.properties["symlink"] == "True"
+
+
+def test_combined_marker_name_and_status_line_is_not_dropped():
+    # Regression test: an independent reviewer found the v0.1.9 fix for
+    # "status line repeats the name" introduced a worse regression -- an
+    # unconditional "since approval" check swallowed a line that was
+    # BOTH a real hook entry (marker + name) AND mentioned "since
+    # approval" in the same breath, silently dropping every hook with no
+    # warning. A reader couldn't tell "this box has no hooks" from "the
+    # parser dropped them".
+    def run(argv):
+        if argv == ["hermes", "--version"]:
+            return VERSION_OUTPUT
+        if argv == ["hermes", "hooks", "doctor"]:
+            return (
+                "✓ pre-commit.sh allowlisted (unchanged since approval)\n"
+                "✗ evil-payload.py allowlisted but CHANGED since approval\n"
+            )
+        raise AssertionError(f"unexpected command {argv}")
+
+    collector = HermesCollector(home=FIXTURE_HOME, run=run, fetch=fake_fetch)
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    collector.collect(doc)
+
+    hooks = by_class(doc, "hook")
+    assert len(hooks) == 2
+
+    unchanged = next(h for h in hooks if h.name == "pre-commit.sh")
+    assert unchanged.properties["contentChangedSinceApproval"] == "False"
+
+    changed = next(h for h in hooks if h.name == "evil-payload.py")
+    assert changed.properties["approvalStatus"] == "not_allowlisted"
+    assert changed.properties["contentChangedSinceApproval"] == "True"
+
+
+def test_marker_lines_with_zero_extracted_hooks_warns_instead_of_silently_reporting_none():
+    # Guard against the same class of failure recurring in a form this
+    # specific fix doesn't cover: if the parser ever again fails to
+    # extract hooks from output that clearly has marker lines, it must
+    # say so, not report a clean "no hooks" the same way a genuinely
+    # hook-free box does.
+    def run(argv):
+        if argv == ["hermes", "--version"]:
+            return VERSION_OUTPUT
+        if argv == ["hermes", "hooks", "doctor"]:
+            return "✓ some format this parser doesn't recognize at all\n"
+        raise AssertionError(f"unexpected command {argv}")
+
+    collector = HermesCollector(home=FIXTURE_HOME, run=run, fetch=fake_fetch)
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    collector.collect(doc)
+
+    assert by_class(doc, "hook") == []
+    assert any("no hook components could be extracted" in w for w in doc.warnings)
