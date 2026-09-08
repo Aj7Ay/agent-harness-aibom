@@ -63,6 +63,17 @@ path; also had to stop comparing the absolute `path` field itself once two
 entries are matched, since it's inherently host-specific noise at that
 point. See §4.
 
+**v0.1.6 update:** the same reviewer found a real defect in MCP server
+extraction, confirmed against their own example config: a *stdio*-
+transport entry (`command`/`args`/`env`, no `url`) has none of the fields
+`mcp.py` looked for, so it came out as `tls=False, authConfigured=False`
+— both actively wrong. There's no network transport for "no TLS" to
+describe, and `env` routinely carries the real credential the old code
+never looked at; `command`/`args` (the actually dangerous part) weren't
+recorded at all. Fixed with a `transport` field, `tls: "n/a"` for stdio,
+`env`'s *names* (never values) counted toward `authConfigured`, and
+`command`/`args` recorded verbatim. See §2's `mcp_server` row.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -110,7 +121,7 @@ rather than e.g. `runtime` depending on `model_endpoint` depending on
 | `componentClass` | Key properties | Source |
 |---|---|---|
 | `model_endpoint` | `provider`, `apiMode`, `endpoints[]` (native CDX field) | `config.yaml` / `openclaw.json` |
-| `mcp_server` | `endpoint`, `endpoints[]` (native CDX field), `tls` (bool), `authConfigured` (bool), `toolCount` | `mcp_servers` list inside either config file |
+| `mcp_server` | `transport` (`stdio`/`http`/`sse`), `endpoint`, `endpoints[]` (native CDX field, URL-based transports only), `tls` (bool, or `"n/a"` for stdio), `authConfigured` (bool — declared auth *or* a non-empty `env`), `envKeys` (env var names, never values), `command`, `args`, `toolCount` | `mcp_servers` list inside either config file |
 
 `model` deliberately uses CycloneDX's native `machine-learning-model` type
 rather than a generic one — it's a real ML-BOM component, not just a file.
@@ -243,6 +254,12 @@ need `numbat hook install` run on it first.
 
 **Still open:**
 
+- **A stdio MCP server's `command` isn't fingerprinted.** It's recorded
+  verbatim, but not hashed: `command` is very often `npx`/`uvx` resolving
+  a package name at invocation time, not a single static file that
+  exists on disk to hash before the server ever runs — a hash here would
+  be misleading (it would "verify" the launcher, not what the launcher
+  actually fetches and runs) more often than useful.
 - **`openclaw --version` isn't parsed into a semantic version** — its exact
   output format wasn't in the source material, so the collector records the
   first line verbatim. Not yet checked against a live OpenClaw box.

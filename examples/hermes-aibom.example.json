@@ -1,16 +1,16 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:6dc52c4d-99e8-4bd2-8daf-41cb07a0f243",
+  "serialNumber": "urn:uuid:e1d9cc37-08ea-4d82-a618-e7ce01faf352",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-09-08T17:06:30+00:00",
+    "timestamp": "2026-09-08T17:11:22+00:00",
     "tools": {
       "components": [
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.1.5"
+          "version": "0.1.6"
         }
       ]
     },
@@ -58,6 +58,10 @@
         {
           "name": "harness-aibom:relationship",
           "value": "uses:mcp_server:corp-docs"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:mcp_server:local-fs"
         }
       ]
     }
@@ -82,7 +86,7 @@
         },
         {
           "name": "harness-aibom:sha256",
-          "value": "a96289af83fe74235bdf6a04d679002d476989db575e19023307f29c377cc291"
+          "value": "7769b125dc20957c2b4af32e882a92bb149821cd285db7dd630a06ffbaf9808c"
         }
       ]
     },
@@ -179,7 +183,8 @@
         "skill:incident-response",
         "skill:software-development-dogfood",
         "mcp_server:local-time",
-        "mcp_server:corp-docs"
+        "mcp_server:corp-docs",
+        "mcp_server:local-fs"
       ]
     }
   ],
@@ -217,6 +222,10 @@
           "value": "mcp_server"
         },
         {
+          "name": "harness-aibom:transport",
+          "value": "http"
+        },
+        {
           "name": "harness-aibom:endpoint",
           "value": "http://127.0.0.1:8001"
         },
@@ -242,6 +251,10 @@
           "value": "mcp_server"
         },
         {
+          "name": "harness-aibom:transport",
+          "value": "http"
+        },
+        {
           "name": "harness-aibom:endpoint",
           "value": "https://mcp.corp.lab:8443"
         },
@@ -256,6 +269,44 @@
         {
           "name": "harness-aibom:toolCount",
           "value": "2"
+        }
+      ]
+    },
+    {
+      "bom-ref": "mcp_server:local-fs",
+      "name": "local-fs",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "mcp_server"
+        },
+        {
+          "name": "harness-aibom:transport",
+          "value": "stdio"
+        },
+        {
+          "name": "harness-aibom:tls",
+          "value": "n/a"
+        },
+        {
+          "name": "harness-aibom:command",
+          "value": "npx"
+        },
+        {
+          "name": "harness-aibom:args",
+          "value": "-y @modelcontextprotocol/server-filesystem /"
+        },
+        {
+          "name": "harness-aibom:authConfigured",
+          "value": "True"
+        },
+        {
+          "name": "harness-aibom:envKeys",
+          "value": "API_KEY"
+        },
+        {
+          "name": "harness-aibom:toolCount",
+          "value": "3"
         }
       ]
     }

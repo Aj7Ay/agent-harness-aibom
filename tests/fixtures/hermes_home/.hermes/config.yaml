@@ -15,3 +15,9 @@ mcp_servers:
     auth:
       token: placeholder-not-a-real-token
     tools: [search, fetch]
+  - name: local-fs
+    command: npx
+    args: [-y, "@modelcontextprotocol/server-filesystem", /]
+    env:
+      API_KEY: placeholder-not-a-real-key
+    tools: [read_file, write_file, move_file]

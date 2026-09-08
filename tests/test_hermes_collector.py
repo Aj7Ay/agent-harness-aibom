@@ -110,7 +110,7 @@ def test_mcp_servers_from_config():
     doc = collect()
     servers = by_class(doc, "mcp_server")
     names = {s.name for s in servers}
-    assert names == {"local-time", "corp-docs"}
+    assert names == {"local-time", "corp-docs", "local-fs"}
 
     corp = next(s for s in servers if s.name == "corp-docs")
     assert corp.properties["tls"] == "True"
@@ -119,6 +119,12 @@ def test_mcp_servers_from_config():
 
     local = next(s for s in servers if s.name == "local-time")
     assert local.properties["tls"] == "False"
+
+    stdio = next(s for s in servers if s.name == "local-fs")
+    assert stdio.properties["transport"] == "stdio"
+    assert stdio.properties["tls"] == "n/a"
+    assert stdio.properties["authConfigured"] == "True"
+    assert stdio.properties["command"] == "npx"
     assert local.properties["authConfigured"] == "False"
 
 
