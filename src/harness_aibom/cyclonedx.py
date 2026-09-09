@@ -21,6 +21,29 @@ from .model import Component, HarnessDocument
 SPEC_VERSION = "1.6"
 ROOT_BOM_REF = "harness-root"
 
+#: Exact SPDX license identifiers common enough to appear verbatim in a
+#: Python package's METADATA `License:` header. Deliberately a small,
+#: fixed allowlist checked by *exact* string match, not a normalization
+#: attempt (e.g. mapping "Apache 2.0" or "MIT License" -> "Apache-2.0"/
+#: "MIT") -- CycloneDX's schema validates `license.id` against the real
+#: SPDX license-id enum (confirmed: spdx.SNAPSHOT.schema.json), so
+#: guessing a mapping risks emitting an `id` that isn't actually in that
+#: enum and failing strict validation. Anything not an exact match here
+#: falls back to `license.name` (free text, no enum constraint) instead
+#: of being dropped or guessed -- see _license_dict() below.
+_KNOWN_SPDX_IDS = frozenset({
+    "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MPL-2.0",
+    "LGPL-2.1-only", "LGPL-3.0-only", "GPL-2.0-only", "GPL-3.0-only",
+    "AGPL-3.0-only", "Unlicense", "0BSD", "Python-2.0", "Zlib", "EPL-2.0",
+    "CC0-1.0", "Artistic-2.0", "PSF-2.0", "WTFPL",
+})
+
+
+def _license_dict(license_value: str) -> dict:
+    if license_value in _KNOWN_SPDX_IDS:
+        return {"license": {"id": license_value}}
+    return {"license": {"name": license_value}}
+
 
 def _relationship_properties(relationships: list[tuple[str, str]]) -> list[dict]:
     return [{"name": "harness-aibom:relationship", "value": f"{verb}:{target}"} for verb, target in relationships]
@@ -74,6 +97,28 @@ def _component_dict(component: Component) -> dict:
         # on the server). Additive alongside the harness-aibom:purl
         # property, same reasoning as hashes[] above.
         out["purl"] = purl
+    license_value = component.properties.get("license")
+    if license_value:
+        # Additive, same reasoning as hashes[]/purl above. `license` is
+        # currently only ever set by collectors/deps.py, from a Python
+        # package's own METADATA `License:` header -- see _license_dict()
+        # for why this is `id` only on an exact SPDX match, `name`
+        # (free text) otherwise, never a guessed normalization.
+        out["licenses"] = [_license_dict(license_value)]
+    supplier_name = component.properties.get("supplierName")
+    supplier_email = component.properties.get("supplierEmail")
+    if supplier_name or supplier_email:
+        # Same source (METADATA `Author`/`Author-email`, falling back to
+        # `Maintainer`/`Maintainer-email` -- see deps.py) promoted into
+        # CycloneDX's native `organizationalEntity` shape. Neither field
+        # is required by the schema on its own, so either alone is still
+        # a valid (if partial) supplier entry.
+        supplier: dict = {}
+        if supplier_name:
+            supplier["name"] = supplier_name
+        if supplier_email:
+            supplier["contact"] = [{"email": supplier_email}]
+        out["supplier"] = supplier
     out["properties"] = _shared_properties(component)
     return out
 

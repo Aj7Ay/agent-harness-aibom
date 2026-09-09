@@ -263,6 +263,10 @@ discipline this whole spec has followed from v0.1.1 onward:
   `hashes[]` above would touch nearly every property this spec defines
   and every test that references one by its `harness-aibom:` name —
   correctly described by the same review as needing its own release.
+  (`licenses`/`supplier` narrowed, not fully closed, as of v0.2.4: a
+  `dependency` component gets both, since `deps.py` already reads the
+  METADATA file they come from — `modelCard`, `evidence.occurrences`,
+  and `externalReferences` are still untouched.)
 - Linking a skill to the servers/models its own prose actually
   references would need parsing `SKILL.md`'s content, which this
   scanner doesn't do.
@@ -407,6 +411,34 @@ the same code:
   (that's what v0.2.2 fixed, and it still holds): their `relPath` differs
   on the `site_packages` half.
 
+**v0.2.4 update:** the smallest item from the same reviewer's remaining-
+work list, picked first because it's closest to free: a `dependency`
+component now carries native `licenses[]`/`supplier` fields, parsed from
+the same Python package `METADATA` file `deps.py` already reads (§2) --
+no new file access, no new collector.
+
+- **`License:`** -- promoted to a native `licenses[]` entry (`cyclonedx.
+  py`'s `_license_dict()`). Deliberately `license.id` (the valid-SPDX-
+  identifier slot) only on an *exact* match against a small, fixed
+  allowlist of common SPDX ids (`MIT`, `Apache-2.0`, ...), never a
+  normalization guess (`"Apache 2.0"` -> `"Apache-2.0"`, `"MIT License"`
+  -> `"MIT"`): CycloneDX's schema validates `license.id` against the real
+  SPDX license-id enum, and a wrong guess would fail strict validation.
+  Anything not an exact match falls back to `license.name` (free text,
+  no enum constraint) instead of being guessed or dropped. The
+  historical setuptools/distutils placeholder `License: UNKNOWN` (and the
+  same for `Author:`) is treated as absent, not emitted verbatim.
+- **`Author:`/`Author-email:`, falling back to `Maintainer:`/
+  `Maintainer-email:` only when Author is entirely absent** -- promoted
+  to a native `supplier` (`organizationalEntity`) with `name`/
+  `contact[].email`. `Author-email` commonly carries the RFC 822 "Name
+  <email>" display form (the shape `[project.authors]` in a
+  `pyproject.toml` gets flattened into by every PEP 621-aware build
+  backend, often with no separate bare `Author:` line at all) -- parsed
+  out so a package that only ever set `Author-email` still yields a real
+  supplier name, not just an address. A partial `Author` (name only, no
+  email) is never topped up from an unrelated `Maintainer-email`.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -469,7 +501,7 @@ claimed otherwise.
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 | `tool` | `application` | `server` (parent server's name), `riskClass` (`read`/`write`/`exec`/`network`/`unknown`, a heuristic over the tool's own *name* — see below) | one per name in a `mcp_server` entry's `tools` list |
-| `dependency` | `library` | `version`, native `purl` (see below); Python packages only -- one component per `(site_packages, name)` pair, never deduplicated across different `site_packages` directories, so two disagreeing copies both show up rather than one silently masking the other (v0.2.2); `path` (the exact dist-info directory found) and `distDir` (the same, relative to `installDir`); `relPath` is deliberately `<site_packages relative to installDir>::<name>`, NOT the dist-info directory -- a dist-info directory's name embeds its own version, so using it as the diffable identity made every version bump read as removed+added instead of `changed` (v0.2.3) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
+| `dependency` | `library` | `version`, native `purl` (see below); Python packages only -- one component per `(site_packages, name)` pair, never deduplicated across different `site_packages` directories, so two disagreeing copies both show up rather than one silently masking the other (v0.2.2); `path` (the exact dist-info directory found) and `distDir` (the same, relative to `installDir`); `relPath` is deliberately `<site_packages relative to installDir>::<name>`, NOT the dist-info directory -- a dist-info directory's name embeds its own version, so using it as the diffable identity made every version bump read as removed+added instead of `changed` (v0.2.3); native `licenses[]` from `METADATA`'s `License:`, native `supplier` from `Author:`/`Author-email:` (falling back to `Maintainer:`/`Maintainer-email:`) -- Python packages only (v0.2.4) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
 

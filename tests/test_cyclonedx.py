@@ -103,6 +103,65 @@ def test_add_child_creates_a_non_root_dependency_entry():
     assert model.bom_ref not in by_ref[ROOT_BOM_REF]
 
 
+def test_known_spdx_license_gets_a_native_id_field():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="requests")
+    dep.set("license", "MIT")
+    doc.add(dep, "uses")
+
+    [comp] = to_cyclonedx(doc)["components"]
+    assert comp["licenses"] == [{"license": {"id": "MIT"}}]
+    props = {p["name"]: p["value"] for p in comp["properties"]}
+    assert props["harness-aibom:license"] == "MIT"
+
+
+def test_unrecognized_license_text_gets_a_native_name_field_not_a_guessed_id():
+    # "Apache 2.0" (a very common raw METADATA value) is NOT the valid
+    # SPDX identifier ("Apache-2.0") -- must never be guessed/normalized
+    # into one, since CycloneDX's schema validates `license.id` against
+    # the real SPDX enum and a wrong guess would fail strict validation.
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="oddpkg")
+    dep.set("license", "Apache 2.0")
+    doc.add(dep, "uses")
+
+    [comp] = to_cyclonedx(doc)["components"]
+    assert comp["licenses"] == [{"license": {"name": "Apache 2.0"}}]
+
+
+def test_component_without_a_license_property_has_no_licenses_field():
+    bom = to_cyclonedx(build_doc())  # a `model`, no license set
+    [comp] = bom["components"]
+    assert "licenses" not in comp
+
+
+def test_supplier_name_and_email_promote_to_a_native_organizational_entity():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="requests")
+    dep.set("supplierName", "Kenneth Reitz")
+    dep.set("supplierEmail", "me@kennethreitz.org")
+    doc.add(dep, "uses")
+
+    [comp] = to_cyclonedx(doc)["components"]
+    assert comp["supplier"] == {"name": "Kenneth Reitz", "contact": [{"email": "me@kennethreitz.org"}]}
+
+
+def test_supplier_email_only_still_produces_a_valid_partial_supplier():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="oddpkg")
+    dep.set("supplierEmail", "maintainers@oddpkg.example")
+    doc.add(dep, "uses")
+
+    [comp] = to_cyclonedx(doc)["components"]
+    assert comp["supplier"] == {"contact": [{"email": "maintainers@oddpkg.example"}]}
+
+
+def test_component_without_supplier_fields_has_no_supplier_field():
+    bom = to_cyclonedx(build_doc())  # a `model`, no supplier fields set
+    [comp] = bom["components"]
+    assert "supplier" not in comp
+
+
 def test_dependency_graph_has_no_dangling_references():
     doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
     endpoint = doc.add(Component(component_class="model_endpoint", name="http://x"), "uses")

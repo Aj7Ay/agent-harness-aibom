@@ -109,6 +109,85 @@ def test_dist_info_without_a_readable_metadata_file_is_skipped(tmp_path):
     assert discover_python_dependencies(install_dir) == []
 
 
+def test_license_and_author_email_are_captured(tmp_path):
+    install_dir = tmp_path / "install"
+    site_packages = install_dir / "site-packages"
+    dist_info = site_packages / "requests-2.31.0.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(
+        "Name: requests\nVersion: 2.31.0\nLicense: MIT\n"
+        "Author-email: Kenneth Reitz <me@kennethreitz.org>\n\nbody\n"
+    )
+
+    [comp] = discover_python_dependencies(install_dir)
+    assert comp.properties["license"] == "MIT"
+    assert comp.properties["supplierName"] == "Kenneth Reitz"
+    assert comp.properties["supplierEmail"] == "me@kennethreitz.org"
+
+
+def test_bare_author_and_bare_author_email_are_both_captured(tmp_path):
+    install_dir = tmp_path / "install"
+    site_packages = install_dir / "site-packages"
+    dist_info = site_packages / "oddpkg-1.0.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(
+        "Name: oddpkg\nVersion: 1.0\nAuthor: Jane Doe\nAuthor-email: jane@example.com\n\nbody\n"
+    )
+
+    [comp] = discover_python_dependencies(install_dir)
+    assert comp.properties["supplierName"] == "Jane Doe"
+    assert comp.properties["supplierEmail"] == "jane@example.com"
+
+
+def test_maintainer_is_used_only_when_author_is_entirely_absent(tmp_path):
+    install_dir = tmp_path / "install"
+    site_packages = install_dir / "site-packages"
+    dist_info = site_packages / "oldpkg-1.0.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(
+        "Name: oldpkg\nVersion: 1.0\n"
+        "Maintainer-email: New Team <team@example.com>\n\nbody\n"
+    )
+
+    [comp] = discover_python_dependencies(install_dir)
+    assert comp.properties["supplierName"] == "New Team"
+    assert comp.properties["supplierEmail"] == "team@example.com"
+
+
+def test_a_partial_author_is_not_topped_up_from_maintainer(tmp_path):
+    # Author: (bare name, no email) is still "Author present" -- must not
+    # then also pull an email from an unrelated Maintainer-email.
+    install_dir = tmp_path / "install"
+    site_packages = install_dir / "site-packages"
+    dist_info = site_packages / "pkg-1.0.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(
+        "Name: pkg\nVersion: 1.0\nAuthor: Jane Doe\n"
+        "Maintainer-email: someone-else@example.com\n\nbody\n"
+    )
+
+    [comp] = discover_python_dependencies(install_dir)
+    assert comp.properties["supplierName"] == "Jane Doe"
+    assert "supplierEmail" not in comp.properties
+
+
+def test_unknown_license_and_author_placeholders_are_not_emitted(tmp_path):
+    # setuptools/distutils's long-standing literal default when a package
+    # declares neither -- must read as absent, not as a license/author
+    # named "UNKNOWN".
+    install_dir = tmp_path / "install"
+    site_packages = install_dir / "site-packages"
+    dist_info = site_packages / "pkg-1.0.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(
+        "Name: pkg\nVersion: 1.0\nLicense: UNKNOWN\nAuthor: UNKNOWN\n\nbody\n"
+    )
+
+    [comp] = discover_python_dependencies(install_dir)
+    assert "license" not in comp.properties
+    assert "supplierName" not in comp.properties
+
+
 def test_metadata_header_stops_at_the_first_blank_line(tmp_path):
     # A long description that happens to contain "Name:"/"Version:"-
     # looking text must not be mistaken for the real header.

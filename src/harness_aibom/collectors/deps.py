@@ -23,30 +23,99 @@ it at all.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import NamedTuple
 
 from ..model import Component
 from ..paths import relative_to_or_none
 
+#: "UNKNOWN" is setuptools/distutils's long-standing literal default for
+#: Author/License when a package declares neither -- confirmed common in
+#: the wild, not a real value a supplier or license field should ever
+#: emit verbatim. Blank after stripping counts the same way.
+_METADATA_PLACEHOLDERS = frozenset({"", "UNKNOWN"})
 
-def _parse_metadata(text: str) -> tuple[str | None, str | None]:
-    """(name, version) from a PEP 566-shaped METADATA file's `Name:`/
-    `Version:` header lines -- the two fields every such file has,
-    regardless of packaging tool. Stops at the first blank line (the
-    header/body boundary) so a `Name:`/`Version:`-looking line inside a
-    long-description body is never mistaken for the real header.
+#: `Author-email`/`Maintainer-email` commonly follow RFC 822's
+#: "Name <email>" display form (the shape a `[project.authors]` table in
+#: pyproject.toml gets flattened into by every PEP 621-aware build
+#: backend) -- extracted here so a package that never sets a bare
+#: `Author:` line at all still yields a real supplier *name*, not just an
+#: address.
+_NAME_EMAIL_RE = re.compile(r"^(?P<name>.*?)\s*<(?P<email>[^<>]+)>\s*$")
+
+
+class _Metadata(NamedTuple):
+    name: str | None
+    version: str | None
+    license: str | None
+    supplier_name: str | None
+    supplier_email: str | None
+
+
+def _clean(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    return value if value not in _METADATA_PLACEHOLDERS else None
+
+
+def _split_name_email(value: str | None) -> tuple[str | None, str | None]:
+    """"Jane Doe <jane@example.com>" -> ("Jane Doe", "jane@example.com");
+    a bare email or a bare name (no angle brackets) passes through as
+    (None, value) / (value, None) respectively -- never guessed further
+    than the RFC 822 form actually present.
     """
-    name = version = None
+    value = _clean(value)
+    if value is None:
+        return None, None
+    match = _NAME_EMAIL_RE.match(value)
+    if match:
+        return _clean(match.group("name")), match.group("email").strip()
+    return (None, value) if "@" in value else (value, None)
+
+
+def _parse_metadata(text: str) -> _Metadata:
+    """The PEP 566-shaped METADATA header fields this collector uses --
+    `Name:`/`Version:` (the two every such file has, regardless of
+    packaging tool), `License:`, and a best-effort supplier name/email
+    from `Author:`/`Author-email:`, falling back to `Maintainer:`/
+    `Maintainer-email:` only when Author is entirely absent. Stops at the
+    first blank line (the header/body boundary) so a header-line-looking
+    string inside a long-description body is never mistaken for the real
+    header.
+    """
+    fields: dict[str, str] = {}
     for line in text.splitlines():
         if not line.strip():
             break
-        if line.startswith("Name:") and name is None:
-            name = line.split(":", 1)[1].strip()
-        elif line.startswith("Version:") and version is None:
-            version = line.split(":", 1)[1].strip()
-        if name and version:
-            break
-    return name, version
+        for key in ("Name", "Version", "License", "Author", "Author-email", "Maintainer", "Maintainer-email"):
+            prefix = f"{key}:"
+            if line.startswith(prefix) and key not in fields:
+                fields[key] = line[len(prefix):].strip()
+                break
+
+    author_name, author_email = _clean(fields.get("Author")), None
+    if "Author-email" in fields:
+        email_name, email_addr = _split_name_email(fields.get("Author-email"))
+        author_name = author_name or email_name
+        author_email = email_addr
+    if author_name is None and author_email is None:
+        # No Author at all -- Maintainer is the same shape, used only as
+        # a fallback, never merged with a partial Author.
+        author_name = _clean(fields.get("Maintainer"))
+        if "Maintainer-email" in fields:
+            email_name, email_addr = _split_name_email(fields.get("Maintainer-email"))
+            author_name = author_name or email_name
+            author_email = email_addr
+
+    return _Metadata(
+        name=_clean(fields.get("Name")),
+        version=_clean(fields.get("Version")),
+        license=_clean(fields.get("License")),
+        supplier_name=author_name,
+        supplier_email=author_email,
+    )
 
 
 def discover_python_dependencies(install_dir: Path) -> list[Component]:
@@ -105,9 +174,10 @@ def discover_python_dependencies(install_dir: Path) -> list[Component]:
                 text = metadata_path.read_text(errors="replace")
             except OSError:
                 continue
-            name, version = _parse_metadata(text)
-            if not name:
+            meta = _parse_metadata(text)
+            if not meta.name:
                 continue
+            name = meta.name
 
             comp = Component(component_class="dependency", name=name)
             comp.set("path", str(dist_info))
@@ -115,8 +185,11 @@ def discover_python_dependencies(install_dir: Path) -> list[Component]:
             site_packages_rel = relative_to_or_none(site_packages, install_dir)
             if site_packages_rel is not None:
                 comp.set("relPath", f"{site_packages_rel}::{name}")
-            if version:
-                comp.version = version
-                comp.set("purl", f"pkg:pypi/{name.lower().replace('_', '-')}@{version}")
+            if meta.version:
+                comp.version = meta.version
+                comp.set("purl", f"pkg:pypi/{name.lower().replace('_', '-')}@{meta.version}")
+            comp.set("license", meta.license)
+            comp.set("supplierName", meta.supplier_name)
+            comp.set("supplierEmail", meta.supplier_email)
             found.append(comp)
     return found
