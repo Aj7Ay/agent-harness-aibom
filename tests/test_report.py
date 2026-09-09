@@ -395,7 +395,10 @@ def test_external_references_vulnerabilities_compositions_have_honest_empty_stat
     # so external references legitimately stay in the empty state too.
     html_text = render_html(_doc_with_everything())
     assert "External references are not collected by this scanner." in html_text
-    assert "Vulnerability data is not collected by this scanner." in html_text
+    # Vulnerabilities (v0.9.0, vex.py) now distinguishes "not collected" from
+    # "checked, none found" -- see the dedicated tests below -- so this
+    # document (never run through `scan-vulns`) gets the "never checked" copy.
+    assert "has not been checked for this document" in html_text
     assert "Composition/completeness declarations are not collected by this scanner." in html_text
     # never a bare "0" that could look like a verified empty *result*
     ext_section = html_text.split('id="external-references"')[1].split('id="vulnerabilities"')[0]
@@ -758,3 +761,79 @@ def test_artifact_integrity_shows_not_verified_state_honestly():
     assert "NOT VERIFIED" in section
     assert "failed to verify signature" in section
     assert "Signature verified" not in section
+
+
+# ---- Vulnerabilities section (vex.py / OSV.dev, opt-in) ------------------
+
+
+def _vuln_section(bom: dict) -> str:
+    html_text = render_html(bom)
+    return html_text.split('id="vulnerabilities"')[1].split('id="compositions"')[0]
+
+
+def test_vulnerabilities_section_says_never_checked_by_default():
+    section = _vuln_section(_doc_with_everything())
+    assert "has not been checked for this document" in section
+    assert "scan-vulns" in section
+
+
+def test_vulnerabilities_section_distinguishes_checked_clean_from_never_checked():
+    bom = _doc_with_everything()
+    bom["components"].append(
+        {
+            "type": "library",
+            "bom-ref": "dependency:clean-pkg",
+            "name": "clean-pkg",
+            "purl": "pkg:pypi/clean-pkg@1.0",
+            "properties": [
+                {"name": "harness-aibom:componentClass", "value": "dependency"},
+                {"name": "harness-aibom:vulnCheck", "value": "checked"},
+            ],
+        }
+    )
+    section = _vuln_section(bom)
+    assert "has not been checked for this document" not in section
+    assert "Checked, none found for 1 component" in section
+
+
+def test_vulnerabilities_section_renders_a_real_finding_with_severity_and_link():
+    bom = _doc_with_everything()
+    bom["components"].append(
+        {
+            "type": "library",
+            "bom-ref": "dependency:pyyaml",
+            "name": "pyyaml",
+            "purl": "pkg:pypi/pyyaml@5.3",
+            "properties": [
+                {"name": "harness-aibom:componentClass", "value": "dependency"},
+                {"name": "harness-aibom:vulnCheck", "value": "checked"},
+            ],
+        }
+    )
+    bom["vulnerabilities"] = [
+        {
+            "id": "GHSA-6757-jp84-gxfx",
+            "source": {"name": "OSV", "url": "https://osv.dev/vulnerability/GHSA-6757-jp84-gxfx"},
+            "description": "Improper Input Validation in PyYAML",
+            "affects": [{"ref": "dependency:pyyaml"}],
+            "ratings": [{"source": {"name": "OSV"}, "method": "CVSSv31", "severity": "critical",
+                         "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}],
+            "cwes": [20],
+        }
+    ]
+    section = _vuln_section(bom)
+    assert "GHSA-6757-jp84-gxfx" in section
+    assert "https://osv.dev/vulnerability/GHSA-6757-jp84-gxfx" in section
+    assert "Improper Input Validation in PyYAML" in section
+    assert "CRITICAL" in section
+    assert 'data-inspect=\'dependency:pyyaml\'' in section  # reuses the Component Inspector wiring
+    assert "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" in section
+
+
+def test_vulnerabilities_with_no_cvss_vector_render_as_unrated_not_a_fabricated_severity():
+    bom = _doc_with_everything()
+    bom["vulnerabilities"] = [
+        {"id": "PYSEC-2018-28", "source": {"name": "OSV"}, "affects": [{"ref": "harness-root"}]}
+    ]
+    section = _vuln_section(bom)
+    assert "UNRATED" in section

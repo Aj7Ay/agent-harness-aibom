@@ -179,6 +179,7 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .risk-badge.sev-critical { background: #d03b3b; color: #fff; }
 .risk-badge.sev-serious { background: #ec835a; color: #fff; }
 .risk-badge.sev-warning { background: #fab219; color: #1a1a19; }
+.risk-badge.sev-info { background: var(--border); color: var(--fg); }
 .risk-clean { color: #0ca30c; font-weight: 600; }
 .mcp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
 .mcp-card-header { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.4rem; }
@@ -1224,6 +1225,107 @@ def _render_external_references(bom: dict) -> str:
     return f"{table}{doc_level_html}"
 
 
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4, "none": 5, "unknown": 6}
+
+
+def _vuln_severity(vuln: dict) -> str:
+    """The most severe `ratings[].severity` on this vulnerability entry,
+    or "unknown" if it has ratings with no severity, or "" if it has no
+    ratings at all (OSV had a CVE id but no CVSS vector to derive one
+    from) -- kept distinct from "unknown" since the former is a real,
+    if unscored, finding and the latter genuinely has nothing to show.
+    """
+    severities = [r["severity"] for r in vuln.get("ratings", []) if r.get("severity")]
+    if not severities:
+        return "unknown" if vuln.get("ratings") else ""
+    return min(severities, key=lambda s: _SEVERITY_RANK.get(s, 99))
+
+
+def _vuln_check_status_by_ref(bom: dict) -> dict[str, str]:
+    """bom-ref -> "checked"/"failed", from each component's own
+    `harness-aibom:vulnCheck` property (vex.py) -- never re-derived or
+    guessed, just read back so this renderer and `scan-vulns` can never
+    disagree about which components were actually queried."""
+    out = {}
+    for entry in bom.get("components", []) + bom.get("services", []):
+        for prop in entry.get("properties", []):
+            if prop["name"] == "harness-aibom:vulnCheck":
+                out[entry.get("bom-ref", "")] = prop["value"]
+    return out
+
+
+def _render_vulnerabilities(bom: dict) -> str:
+    """Real OSV.dev-sourced `vulnerabilities[]` entries (`harness-aibom
+    scan-vulns`, vex.py) when present; otherwise an explicit statement
+    that vulnerability data was never checked at all -- never rendered
+    as if a clean "0 findings" scan had actually happened, since this
+    scanner doesn't run one on its own (`scan` stays fully offline).
+    """
+    vulns = bom.get("vulnerabilities", [])
+    ref_to_name = {
+        e.get("bom-ref"): e.get("name", "")
+        for e in bom.get("components", []) + bom.get("services", [])
+    }
+    check_status = _vuln_check_status_by_ref(bom)
+    checked_refs = [ref for ref, status in check_status.items() if status == "checked"]
+    failed_refs = [ref for ref, status in check_status.items() if status == "failed"]
+
+    status_line = (
+        f"<p class='muted'>{len(checked_refs)} component(s) checked against OSV.dev, "
+        f"{len(failed_refs)} check(s) failed.</p>"
+        if check_status
+        else (
+            "<p class='muted'><em>Vulnerability data has not been checked for this document -- "
+            "run <code>harness-aibom scan-vulns</code> against it (queries the real, public OSV.dev "
+            "API; requires network access, so this is never part of a plain `scan`).</em></p>"
+        )
+    )
+
+    if not vulns:
+        clean_note = (
+            f"<p class='muted'>Checked, none found for {len(checked_refs)} component(s).</p>"
+            if checked_refs
+            else ""
+        )
+        return status_line + clean_note
+
+    def sort_key(v: dict) -> tuple:
+        return (_SEVERITY_RANK.get(_vuln_severity(v), 99), v.get("id", ""))
+
+    severity_css = {"critical": "sev-critical", "high": "sev-critical", "medium": "sev-serious", "low": "sev-warning"}
+    rows = []
+    for v in sorted(vulns, key=sort_key):
+        severity = _vuln_severity(v) or "unrated"
+        badge_class = severity_css.get(severity, "sev-info")
+        affected = v.get("affects", [])
+        affected_html = " ".join(
+            f"<button type='button' class='inspect-btn' data-inspect='{_esc(a['ref'])}' "
+            f"aria-label='Inspect {_esc(ref_to_name.get(a['ref'], a['ref']))}'>"
+            f"{_esc(ref_to_name.get(a['ref'], a['ref']))}</button>"
+            for a in affected
+            if a.get("ref")
+        )
+        source = v.get("source", {})
+        source_html = (
+            f"<a href='{_esc(source['url'])}'>{_esc(v.get('id', ''))}</a>"
+            if source.get("url", "").startswith(("http://", "https://"))
+            else _esc(v.get("id", ""))
+        )
+        vector = next((r.get("vector") for r in v.get("ratings", []) if r.get("vector")), "")
+        rows.append(
+            f"<tr><td><span class='risk-badge {badge_class}'>{_esc(severity.upper())}</span></td>"
+            f"<td>{source_html}</td>"
+            f"<td>{_esc(v.get('description', ''))}</td>"
+            f"<td>{affected_html}</td>"
+            f"<td class='small'>{_esc(vector)}</td></tr>"
+        )
+    table = (
+        "<table class='summary'><tr><th>severity</th><th>id</th><th>description</th>"
+        f"<th>affects</th><th>CVSS vector</th></tr>{''.join(rows)}</table>"
+    )
+    return status_line + table
+
+
 def _render_raw_bom(compact_size: int) -> str:
     # Lazily populated from the shared #bom-data blob (see _JS and
     # render_html) via the sentinel ref "__bom__", not embedded again
@@ -1672,7 +1774,9 @@ def render_html(bom: dict, diff_result: dict | None = None, signature_info: dict
 
 <section id="vulnerabilities">
   <h2>Vulnerabilities</h2>
-  {_render_empty_cyclonedx_section(bom, "vulnerabilities", "Vulnerability data is not collected by this scanner.")}
+  <p class="muted">Real OSV.dev records (<code>harness-aibom scan-vulns</code>), never generated by
+    <code>scan</code> itself -- that command stays fully offline. See vex.py / SPEC.md.</p>
+  {_render_vulnerabilities(bom)}
 </section>
 
 <section id="compositions">

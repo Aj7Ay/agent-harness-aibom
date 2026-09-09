@@ -1827,3 +1827,97 @@ MITRE ATLAS/SLSA -- authoring a real, defensible control-to-evidence
 mapping needs careful, dedicated domain work this project's "never
 overclaim" discipline shouldn't rush); CycloneDX 1.7 (still a deliberate,
 separate migration decision, not a side effect of this release, per §15).
+
+## 17. Vulnerability/VEX integration via OSV.dev (v0.9.0)
+
+The first of the 33-item wishlist's remaining "no real data source yet"
+items to actually get one. **OSV.dev** (https://osv.dev) is a real,
+free, public, no-auth API -- confirmed directly, not assumed, before
+writing a line of `vex.py`:
+
+```
+POST https://api.osv.dev/v1/query
+{"package": {"purl": "pkg:pypi/pyyaml@5.3"}}
+```
+
+returned a real record for PyYAML's actual 2020 arbitrary-code-execution
+advisory (`GHSA-6757-jp84-gxfx` / `CVE-2020-1747`), with exactly the
+shape `vex.py`'s module docstring quotes in full; the same query against
+`pkg:pypi/requests@2.34.2` (the real latest release as of this writing)
+returned a bare `{}` -- confirmed the "clean" and "nothing found" cases
+are the same shape (an absent/empty `vulns` list), not two different
+ones. `https://osv.dev/vulnerability/<id>` was also confirmed live
+(HTTP 200) before being used as this module's `vulnerability.source.url`.
+
+**Deliberately a separate, opt-in step, never part of `scan`.** `scan`
+reads the filesystem and local subprocesses/HTTP only -- adding a
+mandatory call to a third-party internet API there would be a real,
+undocumented change to what "just run `scan`" does and would break
+`scan`'s own byte-identical `--deterministic` promise (§10) the moment
+OSV's own database changes between two scans of the same, unchanged
+box. Instead: `harness-aibom scan-vulns aibom.json -o aibom-with-vulns.json`
+(`cli.py`'s `_run_scan_vulns`, `vex.py`'s `enrich_bom_with_vulnerabilities()`)
+takes an already-produced document and queries OSV.dev for every
+component that carries a native CycloneDX `purl` field -- today, only
+this project's `dependency` components (cyclonedx.py) actually do.
+
+**Never a fabricated "0 vulnerabilities found."** The exact same
+"checked vs. not collected" discipline `security.py`'s
+`COLLECTIBLE_CLASSES`/`NOT_YET_COLLECTED` already applies to whole
+componentClasses is applied here per-component instead: every component
+`scan-vulns` actually queries gets a `harness-aibom:vulnCheck` property,
+`"checked"` (query succeeded, whether or not it found anything) or
+`"failed"` (the OSV query itself errored -- network down, timeout,
+malformed response). A component with neither property was never
+queried at all (no `purl` to check). `report.py`'s Vulnerabilities
+section reads this property back, never re-derives it, so the three
+real states -- never checked / checked, clean / checked, vulnerable --
+can never be confused with each other, and a check that failed can
+never silently render as a clean scan. One bad or unreachable purl never
+aborts the whole enrichment (`vex.py` catches per-purl, continues with
+the rest) -- the same "missing pieces are never fatal" discipline `scan`
+itself already follows for a missing `hermes` binary or unreachable
+Ollama, just applied to a new failure mode.
+
+**Real CycloneDX 1.6 `vulnerabilities[]`, not a bespoke shape.** The
+exact field names and enums (`id`, `source`, `ratings[].method`'s closed
+enum, `cwes[]` as bare positive integers -- not OSV's own `"CWE-20"`
+string form, `affects[].ref`) were read directly out of this project's
+own vendored schema dependency
+(`cyclonedx.schema._res.bom-1.6.SNAPSHOT.schema.json`, the same one
+`test_cyclonedx_schema.py` already validates every other document
+against), not guessed from memory. `test_vex.py` includes a dedicated
+test that runs a real enriched document through the same
+`JsonStrictValidator` `test_cyclonedx_schema.py` uses, confirming the
+new array is actually schema-valid, not just plausible-looking. CVSS
+scores are recorded as OSV's own vector string (`rating.vector`) plus
+its qualitative `database_specific.severity` label, mapped onto
+CycloneDX's own `critical`/`high`/`medium`/`low` enum -- deliberately
+**never** a numeric score computed from the vector by this project
+itself, which would mean re-implementing the CVSS scoring formula and
+risking getting it subtly wrong (the same reasoning `sign.py` never
+re-implements signature verification, SPEC.md §16).
+
+**`report.py`'s Vulnerabilities section**, previously a permanent
+"not collected by this scanner" stub, now renders real entries --
+severity-sorted (reusing the existing `risk-badge`/`sev-*` CSS classes,
+never a new, undifferentiated color scheme), each with a link to the
+real `osv.dev/vulnerability/<id>` page, its CVSS vector, and a button
+per affected component that opens that component's own Component
+Inspector (`data-inspect`, the same delegated click-handling `openInspector()`
+already uses -- no new JS wiring needed, since the handler is already
+bound on `document` for any element carrying that attribute anywhere on
+the page, not just inside a rendered `.entry`). Absent any
+`vulnerabilities[]` data, the section says plainly that vulnerability
+data has never been checked for this document and names the command
+that would check it -- never a bare, misleadingly-clean "0" or the
+previous stub wording that no longer distinguishes "not collected" from
+"checked, none found."
+
+**Regression tests** (`tests/test_vex.py`, 11 cases; `tests/test_cli.py`,
+4 new `scan-vulns` cases; `tests/test_report.py`, 4 new Vulnerabilities-
+section cases) all inject a fake `query`/`default_query` -- the one real
+network call against the live OSV.dev API was made manually during
+development (see the exact requests and responses quoted above and in
+`vex.py`'s own docstring), never repeated automatically in CI or this
+test suite.
