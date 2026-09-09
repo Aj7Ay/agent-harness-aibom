@@ -511,3 +511,36 @@ some content-derived property to key on instead.
 
 `tests/test_redaction.py` proves the secrets-never-leak promise (§3)
 directly rather than only asserting it in comments.
+
+## 8. HTML report
+
+`harness-aibom report aibom.json -o report.html` renders any harness-aibom
+document (from `scan`, with or without `--deterministic`) as a single,
+self-contained, offline static HTML file — no CDN, no JavaScript
+framework, no external dependency, same principle as the rest of this
+tool. Collapsible sections (`<details>`/`<summary>`) need no JavaScript at
+all.
+
+The renderer (`report.py`) shows **every property of every component and
+service** — nothing is summarized away or curated out, since the whole
+point of an AIBOM is to be a complete record. Components are grouped by
+`componentClass`, in the same reading order as §2's tables, with anything
+this renderer doesn't specifically recognize still shown (appended after,
+alphabetically) rather than silently dropped. `model` components show the
+full Ollama-sourced provenance (§2) when it was captured — digest, size,
+family, parameter size, quantization level — not just the model name.
+
+Two correctness details worth noting for anyone touching this file:
+- `harness-aibom:relationship` can repeat on one entry (every component
+  the harness root touches adds one more "relationship" property to the
+  *root* entry) — `_split_properties()` collects those into a list
+  explicitly, since a plain `{p["name"]: p["value"] for p in properties}`
+  dict comprehension would silently keep only the last repeat.
+- Every user-controlled string (names, paths, property values) goes
+  through `html.escape()` before reaching the page — confirmed with a
+  test that plants HTML-special characters in a component name and
+  asserts they never appear unescaped.
+
+Diff-mode HTML reports (color-coded added/removed/changed, from `diff`'s
+own output) are deliberately out of scope for this first version — noted
+as a natural next step, not attempted alongside the single-scan case.

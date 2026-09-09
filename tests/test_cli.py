@@ -190,3 +190,28 @@ def test_deterministic_scan_is_byte_identical_across_runs(tmp_path):
     data = json.loads(out_a.read_text())
     assert "serialNumber" not in data
     assert "timestamp" not in data["metadata"]
+
+
+def test_report_command_writes_html_next_to_the_json_by_default(tmp_path):
+    out = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out)])
+    exit_code = main(["report", str(out)])
+    assert exit_code == 0
+    expected_html = out.with_suffix(".html")
+    assert expected_html.is_file()
+    assert expected_html.read_text().startswith("<!doctype html>")
+
+
+def test_report_command_honors_explicit_output_path(tmp_path):
+    out = tmp_path / "aibom.json"
+    custom = tmp_path / "custom-report.html"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out)])
+    exit_code = main(["report", str(out), "--output", str(custom)])
+    assert exit_code == 0
+    assert custom.is_file()
+
+
+def test_report_command_reports_a_clean_error_for_a_missing_file(capsys):
+    exit_code = main(["report", "/no/such/file.json"])
+    assert exit_code == 1
+    assert "no such file" in capsys.readouterr().err

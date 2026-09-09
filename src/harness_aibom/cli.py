@@ -13,6 +13,7 @@ from .collectors.openclaw import OpenClawCollector
 from .cyclonedx import current_hostname, to_cyclonedx
 from .diff import diff_documents
 from .model import HarnessDocument
+from .report import render_html
 from .validate import validate_document
 
 COLLECTORS = {
@@ -103,6 +104,17 @@ def _run_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_report(args: argparse.Namespace) -> int:
+    data = _load_json_file(args.file)
+    if data is None:
+        return 1
+
+    out_path = Path(args.output) if args.output else Path(args.file).with_suffix(".html")
+    out_path.write_text(render_html(data))
+    print(f"wrote {out_path}")
+    return 0
+
+
 def _run_diff(args: argparse.Namespace) -> int:
     before = _load_json_file(args.before)
     after = _load_json_file(args.after)
@@ -149,6 +161,11 @@ def build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate", help="check a harness-aibom JSON document's shape")
     validate.add_argument("file")
     validate.set_defaults(func=_run_validate)
+
+    report = sub.add_parser("report", help="render a harness-aibom document as a single static HTML file")
+    report.add_argument("file")
+    report.add_argument("--output", "-o", help="output HTML file (default: <file> with a .html extension)")
+    report.set_defaults(func=_run_report)
 
     diff = sub.add_parser("diff", help="compare two harness-aibom documents, e.g. before/after a suspected compromise")
     diff.add_argument("before")
