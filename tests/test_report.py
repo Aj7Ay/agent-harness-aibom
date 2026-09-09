@@ -342,3 +342,60 @@ def test_external_references_vulnerabilities_compositions_have_honest_empty_stat
     # never a bare "0" that could look like a verified empty *result*
     ext_section = html_text.split('id="external-references"')[1].split('id="vulnerabilities"')[0]
     assert ">0<" not in ext_section
+
+
+# ---- v0.5.0: Agent Security Graph (capabilities, attack surface, blast radius) --
+
+
+def test_attack_surface_nav_link_and_section_present():
+    html_text = render_html(_doc_with_everything())
+    assert "href='#attack-surface'" in html_text
+    assert 'id="attack-surface"' in html_text
+    assert "Attack surface" in html_text
+
+
+def test_attack_surface_groups_real_components_by_reachability():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    secret = Component(component_class="secrets_surface", name=".env")
+    doc.add(secret, "accesses")
+    html_text = render_html(to_cyclonedx(doc))
+    surface_section = html_text.split('id="attack-surface"')[1].split('id="mcp"')[0]
+    assert re.search(r"credential-store</td><td>1</td>", surface_section)
+
+
+def test_attack_surface_flags_a_remote_network_endpoint():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    endpoint = Component(component_class="model_endpoint", name="https://api.example.com/v1")
+    doc.add(endpoint, "uses")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "cross a network trust boundary" in html_text
+
+
+def test_attack_surface_clean_state_when_nothing_crosses_the_network_boundary():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    doc.add(Component(component_class="skill", name="only-a-skill"), "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "Nothing in this document reaches beyond loopback or the local filesystem" in html_text
+
+
+def test_entry_shows_capability_and_reachability_line():
+    html_text = render_html(_doc_with_everything())
+    assert "capability: network" in html_text
+    assert "reachability:" in html_text
+
+
+def test_blast_radius_reveal_shown_for_a_component_with_real_children():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    endpoint = doc.add(Component(component_class="model_endpoint", name="http://x"), "uses")
+    model = doc.add_child(Component(component_class="model", name="qwen3:8b"), endpoint, "uses")
+    html_text = render_html(to_cyclonedx(doc))
+
+    assert "Blast radius (1 reachable, observed)" in html_text
+    assert model.bom_ref in html_text
+
+
+def test_blast_radius_reveal_absent_for_a_leaf_component():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    doc.add(Component(component_class="skill", name="lonely-skill"), "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "Blast radius" not in html_text

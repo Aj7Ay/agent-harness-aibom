@@ -1055,3 +1055,76 @@ the raw-BOM JSON viewer; splitting `report.py` into a `report/` package
 not preemptively — it is a large single module by v0.4.0, but every
 function in it is still independently testable and the module docstring
 still accurately describes the whole file's shape).
+
+## 11. Agent Security Graph (v0.5.0)
+
+The persisted roadmap's next stage: capabilities, an attack-surface
+classification, and blast radius, all in `security.py` (§9's module),
+following the same discipline every function there already had — fixed,
+explainable rules, never an opaque score, never a claim this scanner
+can't actually back up.
+
+- **`classify_capabilities(entry)`** — one tag: `read` / `write` /
+  `execute` / `network` / `credential` / `inference` / `unknown`. Every
+  class except `tool` gets a fixed mapping (`_CLASS_CAPABILITY`) — what
+  that kind of thing inherently *is* (a `hook` executes, a
+  `secrets_surface` is a credential, ...), never a guess at its actual
+  runtime behavior. `tool` is the one exception: it already has a more
+  specific, per-instance signal (`riskClass`, mcp.py's own name
+  heuristic — §2), so its capability is a direct relabeling of that,
+  never a second, independent classification that could disagree with
+  it.
+- **`classify_reachability(entry)`** / **`compute_attack_surface(bom)`**
+  — where a component actually sits: `filesystem` / `process` /
+  `filesystem+process` (a hook, which is both a script on disk and
+  something that executes) / `loopback` / `network` / `credential-store`
+  / `model-provider` / `unknown`. Deliberately conservative about
+  "network": a non-loopback hostname could be a private LAN address or a
+  real internet host, and this scanner has no DNS/routing check to tell
+  which — so it's labeled `network`, never `internet-reachable`, a claim
+  the string alone can't back up. `compute_attack_surface()` groups every
+  entry by this tag and separately flags which ones cross a network
+  trust boundary (any `network`-tier entry) — the "TRUST ZONE: LOCAL
+  HOST" vs "TRUST ZONE: MODEL SERVICE" distinction an independent
+  reviewer asked for, expressed as a real, checkable grouping (a table)
+  rather than a second hand-drawn diagram alongside the Architecture
+  section's (§9).
+- **`build_dependency_children(bom)`** / **`compute_blast_radius(bom,
+  bom_ref, children=None)`** — everything reachable from one component by
+  following the document's own real `dependencies[]` edges (a plain
+  BFS): direct children and the full transitive set. Every result is
+  labeled "observed" by construction — these are edges a collector
+  actually recorded (`HarnessDocument.add()`/`add_child()`), never a
+  guessed or inferred path. There is deliberately no "inferred" tier
+  yet: that needs something like skill-content parsing (linking a skill
+  to servers/models its own `SKILL.md` prose references — §5, still not
+  done), so blast radius is complete only up to what the dependency
+  graph itself already contains. `build_dependency_children()` exists
+  because `report.py` computes blast radius once per rendered entry
+  (potentially hundreds); building the ref→dependsOn adjacency map fresh
+  on every single call would make that O(components × edges) instead of
+  O(components + edges) — passed in once, reused for every call.
+
+**Rendering (`report.py`).** A new **Attack surface** section (a table
+of reachability-tier counts, plus an explicit "N components cross a
+network trust boundary" note, or an equally explicit "nothing reaches
+beyond loopback or the local filesystem" clean state — never a silent
+absence). Every entry in Components/Services now shows a
+`capability: ... · reachability: ...` line. A **Blast radius** reveal
+(native `<details>`, same offline idiom as the raw-JSON reveal) appears
+on any entry with at least one real descendant, listing every reachable
+bom-ref and labeled "observed" explicitly; a leaf component (nothing
+downstream — most skills, dependencies, secrets surfaces) shows nothing,
+the same "don't clutter every entry with an empty section" precedent
+`_render_relationships()` already set.
+
+**Deliberately not attempted in v0.5.0** (the persisted roadmap's
+remaining v0.5.0 items, kept for a later pass): a common `SecurityEvidence`
+object (source/collector/observed_at/confidence/evidence_type/location)
+and a per-component Provenance section. Both need per-property
+source-tracking that no collector currently records — every collector
+would need touching to add it, a genuinely large, cross-cutting change
+better done deliberately on its own than folded into this release. Until
+then, "observed" (blast radius) versus a real "inferred" tier (v0.6.0's
+skill-content analysis) is the only provenance-adjacent distinction this
+scanner makes.

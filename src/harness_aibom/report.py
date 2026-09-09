@@ -358,7 +358,21 @@ def _search_blob(entry: dict, cls: str) -> str:
     return " ".join(str(p) for p in parts if p).lower()
 
 
-def _render_entry(entry: dict, cls: str) -> str:
+def _render_blast_radius(bom_ref: str, blast_radii: dict[str, dict]) -> str:
+    radius = blast_radii.get(bom_ref) or {}
+    reachable = radius.get("reachable", [])
+    if not reachable:
+        return ""
+    items = "".join(f"<li>{_esc(ref)}</li>" for ref in reachable)
+    return (
+        f"<details><summary>Blast radius ({len(reachable)} reachable, observed)</summary>"
+        "<p class='muted small'>Everything reachable by following this component's own recorded "
+        "relationships, transitively -- an exact graph traversal, not a guess.</p>"
+        f"<ul>{items}</ul></details>"
+    )
+
+
+def _render_entry(entry: dict, cls: str, blast_radii: dict[str, dict]) -> str:
     single, relationships = _split_properties(entry)
     single.pop("harness-aibom:componentClass", None)
 
@@ -371,6 +385,13 @@ def _render_entry(entry: dict, cls: str) -> str:
         header_bits.append(f"<span class='muted'>v{_esc(entry['version'])}</span>")
     if entry.get("type"):  # absent for services -- they have no CDX `type`
         header_bits.append(f"<span class='badge'>{_esc(entry['type'])}</span>")
+
+    # v0.5.0: capability + reachability, both fixed/explainable
+    # classifications (security.py), never a guess at actual runtime
+    # behavior -- see SPEC.md section 11.
+    capability = security.classify_capabilities(entry)
+    reachability = security.classify_reachability(entry)
+    surface_line = f"<p class='muted small'>capability: {_esc(capability)} &middot; reachability: {_esc(reachability)}</p>"
 
     endpoints_html = ""
     if entry.get("endpoints"):
@@ -386,8 +407,10 @@ def _render_entry(entry: dict, cls: str) -> str:
         f"<div class='entry' data-class='{_esc(cls)}' data-search='{_esc(_search_blob(entry, cls))}'>"
         f"<div class='entry-header'>{' '.join(header_bits)}"
         f" <span class='small'>{_esc(entry.get('bom-ref', ''))}</span></div>"
+        f"{surface_line}"
         f"{endpoints_html}"
         f"{_render_props_table(single)}"
+        f"{_render_blast_radius(entry.get('bom-ref', ''), blast_radii)}"
         f"{_render_relationships(relationships)}"
         f"{raw_json}"
         "</div>"
@@ -401,8 +424,8 @@ def _group_by_class(entries: list[dict]) -> dict[str, list[dict]]:
     return grouped
 
 
-def _render_group(cls: str, entries: list[dict]) -> str:
-    body = "".join(_render_entry(e, cls) for e in sorted(entries, key=lambda e: e.get("name", "")))
+def _render_group(cls: str, entries: list[dict], blast_radii: dict[str, dict]) -> str:
+    body = "".join(_render_entry(e, cls, blast_radii) for e in sorted(entries, key=lambda e: e.get("name", "")))
     return (
         f"<details open class='group' data-class='{_esc(cls)}'>"
         f"<summary>{_class_dot(cls)}{_esc(cls)} <span class='count'>({len(entries)})</span></summary>"
@@ -411,12 +434,12 @@ def _render_group(cls: str, entries: list[dict]) -> str:
     )
 
 
-def _render_groups(grouped: dict[str, list[dict]], preferred_order: tuple[str, ...]) -> str:
+def _render_groups(grouped: dict[str, list[dict]], preferred_order: tuple[str, ...], blast_radii: dict[str, dict]) -> str:
     # Preferred classes first, in a fixed reading order; anything this
     # renderer doesn't specifically know about still gets shown, appended
     # afterward rather than silently dropped -- see module docstring.
     order = list(preferred_order) + sorted(set(grouped) - set(preferred_order))
-    return "".join(_render_group(cls, grouped[cls]) for cls in order if cls in grouped)
+    return "".join(_render_group(cls, grouped[cls], blast_radii) for cls in order if cls in grouped)
 
 
 def _render_kpi_row(tiles: list[tuple[str, int]]) -> str:
@@ -725,6 +748,7 @@ _EXPLORER_NAV_LINKS = (
     ("#architecture", "Architecture"),
     ("#security-summary", "Security"),
     ("#risk", "Risk"),
+    ("#attack-surface", "Attack surface"),
     ("#mcp", "MCP"),
     ("#components", "Components"),
     ("#services", "Services"),
@@ -809,6 +833,36 @@ def _render_raw_bom(bom: dict) -> str:
     )
 
 
+#: Reading order for the attack-surface breakdown -- most-exposed first,
+#: so a reader scanning top to bottom sees the highest-attention tiers
+#: before the purely-local ones. Anything this renderer doesn't
+#: specifically know about (a future reachability tag) still gets shown,
+#: appended after, alphabetically -- same principle as every other
+#: ordered listing in this file.
+_REACHABILITY_ORDER = ("network", "loopback", "process", "filesystem+process", "credential-store", "model-provider", "filesystem", "unknown")
+
+
+def _render_attack_surface(bom: dict) -> str:
+    surface = security.compute_attack_surface(bom)
+    by_tier = surface["by_tier"]
+    if not by_tier:
+        return "<p class='muted'><em>nothing to show</em></p>"
+
+    order = list(_REACHABILITY_ORDER) + sorted(set(by_tier) - set(_REACHABILITY_ORDER))
+    rows = "".join(f"<tr><td>{_esc(tier)}</td><td>{len(by_tier[tier])}</td></tr>" for tier in order if tier in by_tier)
+    table = f"<table class='summary'><tr><th>reachability</th><th>count</th></tr>{rows}</table>"
+
+    crosses = surface["crosses_network_boundary"]
+    boundary_note = (
+        f"<p class='muted'>{len(crosses)} component(s) cross a network trust boundary "
+        "(a non-loopback endpoint) -- see the <code>network</code> tier's Raw JSON entries below for "
+        "exactly which.</p>"
+        if crosses
+        else "<p class='risk-clean'>✓ Nothing in this document reaches beyond loopback or the local filesystem.</p>"
+    )
+    return f"{table}{boundary_note}"
+
+
 def render_html(bom: dict) -> str:
     """Build the full HTML document for a harness-aibom CycloneDX dict."""
     metadata = bom.get("metadata", {})
@@ -837,6 +891,15 @@ def render_html(bom: dict) -> str:
     ]
     class_counts = {cls: len(entries) for cls, entries in all_groups.items()}
     architecture_graph = security.build_architecture_graph(bom)
+    # The ref->dependsOn adjacency map is built once here and reused for
+    # every entry's blast radius below -- compute_blast_radius() would
+    # otherwise rebuild it from bom["dependencies"] on every single call.
+    dependency_children = security.build_dependency_children(bom)
+    blast_radii = {
+        ref: security.compute_blast_radius(bom, ref, dependency_children)
+        for entry in components + services
+        if (ref := entry.get("bom-ref"))
+    }
 
     summary_rows = "".join(
         f"<tr><td>{_class_dot(cls)}{_esc(cls)}</td><td>{len(entries)}</td></tr>"
@@ -901,6 +964,15 @@ def render_html(bom: dict) -> str:
   {_render_risk_observations(bom)}
 </section>
 
+<section id="attack-surface">
+  <h2>Attack surface</h2>
+  <p class="muted">Every component grouped by where it actually sits &mdash; filesystem, a local
+    process, loopback, network, a credential store, or a model provider &mdash; a fixed,
+    explainable classification (see SPEC.md section 11), never a guess at behavior this
+    scanner didn't observe.</p>
+  {_render_attack_surface(bom)}
+</section>
+
 <section id="mcp">
   <h2>MCP security</h2>
   {_render_mcp_security(services)}
@@ -922,12 +994,12 @@ def render_html(bom: dict) -> str:
 <section id="components">
   <h2>Components</h2>
   {_render_skill_category_breakdown(comp_groups.get("skill", []))}
-  {_render_groups(comp_groups, _COMPONENT_CLASS_ORDER) or "<p><em>none found</em></p>"}
+  {_render_groups(comp_groups, _COMPONENT_CLASS_ORDER, blast_radii) or "<p><em>none found</em></p>"}
 </section>
 
 <section id="services">
   <h2>Services</h2>
-  {_render_groups(svc_groups, _SERVICE_CLASS_ORDER) or "<p><em>none found</em></p>"}
+  {_render_groups(svc_groups, _SERVICE_CLASS_ORDER, blast_radii) or "<p><em>none found</em></p>"}
 </section>
 
 <section id="metadata">

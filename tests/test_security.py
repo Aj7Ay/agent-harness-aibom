@@ -6,7 +6,11 @@ from harness_aibom.security import (
     HIGH_CONFIDENCE_PATTERNS,
     ROOT_LABEL,
     build_architecture_graph,
+    classify_capabilities,
+    classify_reachability,
     classify_secret_confidence,
+    compute_attack_surface,
+    compute_blast_radius,
     compute_coverage,
     compute_risk_observations,
     compute_security_summary,
@@ -233,3 +237,116 @@ def test_coverage_score_counts_found_against_the_full_known_universe():
     found, total = compute_coverage(bom)["score"]
     assert found == 0
     assert total == len(compute_coverage(bom)["empty"]) + len(compute_coverage(bom)["not_collected"])
+
+
+# ---- capabilities (v0.5.0) -------------------------------------------------
+
+
+def test_tool_capability_comes_from_its_own_riskclass_not_a_fixed_default():
+    entry = {"properties": [
+        {"name": "harness-aibom:componentClass", "value": "tool"},
+        {"name": "harness-aibom:riskClass", "value": "exec"},
+    ]}
+    assert classify_capabilities(entry) == "execute"
+
+
+def test_secrets_surface_capability_is_credential():
+    entry = {"properties": [{"name": "harness-aibom:componentClass", "value": "secrets_surface"}]}
+    assert classify_capabilities(entry) == "credential"
+
+
+def test_model_endpoint_and_mcp_server_capability_is_network():
+    for cls in ("model_endpoint", "mcp_server"):
+        entry = {"properties": [{"name": "harness-aibom:componentClass", "value": cls}]}
+        assert classify_capabilities(entry) == "network"
+
+
+# ---- reachability / attack surface (v0.5.0) --------------------------------
+
+
+def test_secrets_surface_is_credential_store():
+    entry = {"properties": [{"name": "harness-aibom:componentClass", "value": "secrets_surface"}]}
+    assert classify_reachability(entry) == "credential-store"
+
+
+def test_stdio_mcp_server_is_process_not_network():
+    entry = {"properties": [
+        {"name": "harness-aibom:componentClass", "value": "mcp_server"},
+        {"name": "harness-aibom:transport", "value": "stdio"},
+    ]}
+    assert classify_reachability(entry) == "process"
+
+
+def test_loopback_model_endpoint_is_loopback_not_network():
+    entry = {"name": "http://127.0.0.1:11434/v1", "properties": [
+        {"name": "harness-aibom:componentClass", "value": "model_endpoint"},
+    ]}
+    assert classify_reachability(entry) == "loopback"
+
+
+def test_remote_mcp_server_endpoint_is_network():
+    entry = {"properties": [
+        {"name": "harness-aibom:componentClass", "value": "mcp_server"},
+        {"name": "harness-aibom:transport", "value": "http"},
+        {"name": "harness-aibom:endpoint", "value": "https://mcp.corp.lab:8443"},
+    ]}
+    assert classify_reachability(entry) == "network"
+
+
+def test_attack_surface_groups_entries_by_reachability_tier():
+    doc = _doc()
+    secret = Component(component_class="secrets_surface", name=".env")
+    doc.add(secret, "accesses")
+    endpoint = Component(component_class="model_endpoint", name="https://api.example.com/v1")
+    doc.add(endpoint, "uses")
+    bom = to_cyclonedx(doc)
+
+    surface = compute_attack_surface(bom)
+    assert secret.bom_ref in surface["by_tier"]["credential-store"]
+    assert endpoint.bom_ref in surface["by_tier"]["network"]
+    assert endpoint.bom_ref in surface["crosses_network_boundary"]
+
+
+def test_attack_surface_loopback_entries_dont_cross_a_network_boundary():
+    doc = _doc()
+    endpoint = Component(component_class="model_endpoint", name="http://127.0.0.1:11434/v1")
+    doc.add(endpoint, "uses")
+    bom = to_cyclonedx(doc)
+
+    surface = compute_attack_surface(bom)
+    assert endpoint.bom_ref not in surface["crosses_network_boundary"]
+    assert endpoint.bom_ref in surface["by_tier"]["loopback"]
+
+
+# ---- blast radius (v0.5.0) -------------------------------------------------
+
+
+def test_blast_radius_is_the_real_transitive_dependency_set():
+    doc = _doc()
+    config = Component(component_class="configuration", name="config.yaml")
+    doc.add(config, "loads")
+    endpoint = Component(component_class="model_endpoint", name="http://x")
+    doc.add_child(endpoint, config, "uses")
+    model = Component(component_class="model", name="qwen3:8b")
+    doc.add_child(model, endpoint, "uses")
+    bom = to_cyclonedx(doc)
+
+    radius = compute_blast_radius(bom, config.bom_ref)
+    assert radius["direct_children"] == [endpoint.bom_ref]
+    assert set(radius["reachable"]) == {endpoint.bom_ref, model.bom_ref}
+
+
+def test_blast_radius_of_a_leaf_component_is_empty():
+    doc = _doc()
+    skill = Component(component_class="skill", name="lonely-skill")
+    doc.add(skill, "loads")
+    bom = to_cyclonedx(doc)
+
+    radius = compute_blast_radius(bom, skill.bom_ref)
+    assert radius["direct_children"] == []
+    assert radius["reachable"] == []
+
+
+def test_blast_radius_of_an_unknown_ref_is_empty_not_an_error():
+    bom = to_cyclonedx(_doc())
+    assert compute_blast_radius(bom, "no-such-ref") == {"direct_children": [], "reachable": []}

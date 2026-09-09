@@ -16,6 +16,7 @@ see `report.py`'s security-summary panel for where that matters.
 from __future__ import annotations
 
 import fnmatch
+from urllib.parse import urlsplit
 
 #: The synthetic node label for the harness root in the architecture
 #: graph -- not a real componentClass, so it can never collide with one.
@@ -258,3 +259,156 @@ def compute_coverage(bom: dict) -> dict:
         "not_collected": list(NOT_YET_COLLECTED),
         "score": (len(found), total),
     }
+
+
+# ---- 6. Capabilities (v0.5.0) --------------------------------------------
+
+#: Fixed, explainable capability tag per componentClass -- what that kind
+#: of thing inherently *is*, not a guess at its actual runtime behavior.
+#: `tool` is deliberately absent here: it already has a real, specific
+#: signal (`riskClass`, from mcp.py's own name-heuristic) more precise
+#: than a fixed per-class default would be -- see `classify_capabilities`.
+_CLASS_CAPABILITY = {
+    "runtime": "execute",
+    "configuration": "read",
+    "model": "inference",
+    "skill": "read",
+    "hook": "execute",
+    "secrets_surface": "credential",
+    "dependency": "read",
+    "model_endpoint": "network",
+    "mcp_server": "network",
+}
+
+#: `tool`'s riskClass (mcp.py, a name-only heuristic -- see model.py's
+#: CDX_TYPE_FOR_CLASS entry for `tool`) maps directly onto a capability;
+#: this is a relabeling, not a second independent classification, so the
+#: two can never disagree with each other.
+_TOOL_RISK_TO_CAPABILITY = {"read": "read", "write": "write", "exec": "execute", "network": "network"}
+
+
+def classify_capabilities(entry: dict) -> str:
+    """One capability tag: read / write / execute / network / credential
+    / inference / unknown. Explainable by construction -- every class's
+    tag is a fixed, documented mapping (above), never inferred from
+    behavior this scanner didn't observe. `tool` reuses its own
+    `riskClass` instead of the class-level default, since that's already
+    a more specific, per-instance signal.
+    """
+    cls = _component_class(entry)
+    if cls == "tool":
+        risk = _properties(entry).get("harness-aibom:riskClass", "unknown")
+        return _TOOL_RISK_TO_CAPABILITY.get(risk, "unknown")
+    return _CLASS_CAPABILITY.get(cls, "unknown")
+
+
+# ---- 7. Reachability / attack surface (v0.5.0) ---------------------------
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})
+
+
+def _endpoint_url(entry: dict, props: dict[str, str]) -> str | None:
+    cls = _component_class(entry)
+    if cls == "model_endpoint":
+        # model_endpoint stores its URL as the component's own `name`
+        # (see cyclonedx.py's _service_dict) -- `endpoint` property is
+        # mcp_server's own field, checked first in case a future
+        # collector sets both.
+        return props.get("harness-aibom:endpoint") or entry.get("name")
+    if cls == "mcp_server":
+        return props.get("harness-aibom:endpoint")
+    return None
+
+
+def classify_reachability(entry: dict) -> str:
+    """Where this component sits, in terms an attack-surface map cares
+    about: filesystem / process / loopback / network / credential-store
+    / model-provider / unknown. Deliberately conservative about
+    "network": a non-loopback hostname could be a private LAN address or
+    a real internet host, and this scanner has no way to tell which from
+    the string alone (no DNS/routing check is performed) -- so it's
+    labeled "network", never "internet-reachable", which would be a
+    claim this scanner can't actually back up.
+    """
+    cls = _component_class(entry)
+    props = _properties(entry)
+
+    if cls == "secrets_surface":
+        return "credential-store"
+    if cls in ("configuration", "skill", "dependency"):
+        return "filesystem"
+    if cls == "hook":
+        return "filesystem+process"
+    if cls == "runtime":
+        return "process"
+    if cls == "model":
+        return "model-provider"
+    if cls == "tool":
+        return {"execute": "process", "network": "network"}.get(classify_capabilities(entry), "filesystem")
+    if cls in ("model_endpoint", "mcp_server"):
+        if props.get("harness-aibom:transport") == "stdio":
+            return "process"
+        url = _endpoint_url(entry, props)
+        if not url:
+            return "unknown"
+        host = urlsplit(url).hostname
+        return "loopback" if host in _LOOPBACK_HOSTS else "network"
+    return "unknown"
+
+
+def compute_attack_surface(bom: dict) -> dict:
+    """Every entry grouped by `classify_reachability()`, plus which
+    network-tier entries actually cross a trust boundary (a non-loopback
+    endpoint) -- the "TRUST ZONE: LOCAL HOST" vs "TRUST ZONE: MODEL
+    SERVICE" distinction an independent reviewer asked for, expressed as
+    real, checkable groupings rather than another hand-drawn diagram.
+    """
+    by_tier: dict[str, list[str]] = {}
+    for entry in _entries(bom):
+        tier = classify_reachability(entry)
+        by_tier.setdefault(tier, []).append(entry.get("bom-ref", ""))
+    return {"by_tier": by_tier, "crosses_network_boundary": sorted(by_tier.get("network", []))}
+
+
+# ---- 8. Blast radius (v0.5.0) --------------------------------------------
+
+
+def build_dependency_children(bom: dict) -> dict[str, list[str]]:
+    """ref -> its direct `dependsOn` targets, built once from
+    `bom["dependencies"]`. A caller computing blast radius for many refs
+    from the same document (report.py renders one per component) should
+    build this once and pass it to every `compute_blast_radius()` call,
+    rather than paying the O(edges) cost again on every single call.
+    """
+    return {dep.get("ref", ""): dep.get("dependsOn", []) for dep in bom.get("dependencies", [])}
+
+
+def compute_blast_radius(bom: dict, bom_ref: str, children: dict[str, list[str]] | None = None) -> dict:
+    """Everything reachable from `bom_ref` by following the document's
+    own real `dependencies[]` edges (a plain BFS) -- direct children and
+    the full transitive set. Every result here is labeled "observed" by
+    construction: these are edges a collector actually recorded (via
+    `HarnessDocument.add()`/`add_child()`), never a guessed or inferred
+    path. There is no "inferred" tier yet -- that needs something like
+    skill-content parsing (linking a skill to servers/models its own
+    `SKILL.md` prose references), which this scanner doesn't do (SPEC.md
+    section 5) -- so blast radius is complete only up to what the
+    dependency graph itself already contains.
+
+    `children` is optional -- built fresh from `bom` via
+    `build_dependency_children()` if omitted, for a single-call use.
+    """
+    if children is None:
+        children = build_dependency_children(bom)
+
+    direct = children.get(bom_ref, [])
+    visited: set[str] = set()
+    queue = list(direct)
+    while queue:
+        node = queue.pop(0)
+        if node in visited:
+            continue
+        visited.add(node)
+        queue.extend(children.get(node, []))
+
+    return {"direct_children": direct, "reachable": sorted(visited)}
