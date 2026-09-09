@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:a42865a5-509a-4c92-80ee-ec9ab9ce8f5a",
+  "serialNumber": "urn:uuid:19ff034f-4e68-4c1b-b1ee-691986b20ae8",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.5.1"
+          "version": "0.6.0"
         }
       ]
     },
@@ -49,10 +49,18 @@
         {
           "name": "harness-aibom:relationship",
           "value": "loads:skill:software-development-dogfood"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "loads:prompt_surface:agents.md"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "accesses:memory_store:chroma.sqlite3"
         }
       ]
     },
-    "timestamp": "2026-09-09T12:07:26+00:00"
+    "timestamp": "2026-09-09T12:32:30+00:00"
   },
   "components": [
     {
@@ -228,6 +236,12 @@
       "bom-ref": "dependency:modelcontextprotocol-server-filesystem",
       "name": "@modelcontextprotocol/server-filesystem",
       "purl": "pkg:npm/%40modelcontextprotocol/server-filesystem",
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://www.npmjs.com/package/@modelcontextprotocol/server-filesystem"
+        }
+      ],
       "properties": [
         {
           "name": "harness-aibom:componentClass",
@@ -250,7 +264,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696"
+          "content": "ff199ec65bcc20055df522c320abbbfce37134136d5dffb7367d63c6e6e5aa08"
         }
       ],
       "properties": [
@@ -268,11 +282,27 @@
         },
         {
           "name": "harness-aibom:sha256",
-          "value": "9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696"
+          "value": "ff199ec65bcc20055df522c320abbbfce37134136d5dffb7367d63c6e6e5aa08"
         },
         {
           "name": "harness-aibom:description",
           "value": "Incident Response"
+        },
+        {
+          "name": "harness-aibom:referencedServers",
+          "value": "corp-docs"
+        },
+        {
+          "name": "harness-aibom:shellIndicators",
+          "value": "curl"
+        },
+        {
+          "name": "harness-aibom:envVarReferences",
+          "value": "INCIDENT_CHANNEL_WEBHOOK"
+        },
+        {
+          "name": "harness-aibom:urls",
+          "value": "https://runbooks.corp.lab/incident-response"
         }
       ]
     },
@@ -310,6 +340,62 @@
         {
           "name": "harness-aibom:description",
           "value": "Dogfood"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "prompt_surface:agents.md",
+      "name": "AGENTS.md",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "98f2d3acc171b51e1d9a8635f888be402ad30231f2cf92364b01f113d70e71b8"
+        }
+      ],
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "prompt_surface"
+        },
+        {
+          "name": "harness-aibom:path",
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/AGENTS.md"
+        },
+        {
+          "name": "harness-aibom:relPath",
+          "value": ".hermes/AGENTS.md"
+        },
+        {
+          "name": "harness-aibom:sha256",
+          "value": "98f2d3acc171b51e1d9a8635f888be402ad30231f2cf92364b01f113d70e71b8"
+        }
+      ]
+    },
+    {
+      "type": "data",
+      "bom-ref": "memory_store:chroma.sqlite3",
+      "name": "chroma.sqlite3",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "memory_store"
+        },
+        {
+          "name": "harness-aibom:path",
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/chroma.sqlite3"
+        },
+        {
+          "name": "harness-aibom:relPath",
+          "value": ".hermes/chroma.sqlite3"
+        },
+        {
+          "name": "harness-aibom:mode",
+          "value": "0o644"
+        },
+        {
+          "name": "harness-aibom:worldReadable",
+          "value": "True"
         }
       ]
     }
@@ -483,7 +569,9 @@
       "dependsOn": [
         "configuration:config.yaml",
         "skill:incident-response",
-        "skill:software-development-dogfood"
+        "skill:software-development-dogfood",
+        "prompt_surface:agents.md",
+        "memory_store:chroma.sqlite3"
       ]
     },
     {

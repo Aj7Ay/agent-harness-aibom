@@ -45,6 +45,27 @@ def _license_dict(license_value: str) -> dict:
     return {"license": {"name": license_value}}
 
 
+def _registry_url_for_purl(purl: str) -> str | None:
+    """A registry-page URL for a `pkg:pypi/...`/`pkg:npm/...` purl this
+    scanner already produced -- the exact URL shape each registry itself
+    publishes (confirmed real, not invented): `pypi.org/project/<name>/`,
+    `npmjs.com/package/<name>`. Only these two ecosystems, matching the
+    only two this scanner ever emits a purl for (mcp.py/deps.py) --
+    never a guess at a URL shape for a purl type this scanner doesn't
+    actually produce.
+    """
+    if purl.startswith("pkg:pypi/"):
+        name = purl.removeprefix("pkg:pypi/").split("@", 1)[0]
+        return f"https://pypi.org/project/{name}/" if name else None
+    if purl.startswith("pkg:npm/"):
+        # purl-spec encodes a scoped package's leading "@" as "%40" in
+        # the namespace segment (see mcp.py's _purl_for_npm) -- decoded
+        # back here since npmjs.com's own URLs use the real "@".
+        name = purl.removeprefix("pkg:npm/").split("@", 1)[0].replace("%40", "@")
+        return f"https://www.npmjs.com/package/{name}" if name else None
+    return None
+
+
 def _relationship_properties(relationships: list[tuple[str, str]]) -> list[dict]:
     return [{"name": "harness-aibom:relationship", "value": f"{verb}:{target}"} for verb, target in relationships]
 
@@ -97,6 +118,17 @@ def _component_dict(component: Component) -> dict:
         # on the server). Additive alongside the harness-aibom:purl
         # property, same reasoning as hashes[] above.
         out["purl"] = purl
+        # externalReferences (v0.6.0): a deterministic registry-page URL
+        # derived from the purl this scanner already produced -- the
+        # real, standardized URL shape each registry itself uses
+        # (pypi.org/project/<name>/, npmjs.com/package/<name>), not a
+        # guess or a network lookup. Version-agnostic on purpose: the
+        # registry's own current-release page is more useful here than a
+        # version-pinned deep link that may 404 once a package is
+        # yanked, and simpler to derive correctly.
+        registry_url = _registry_url_for_purl(purl)
+        if registry_url:
+            out["externalReferences"] = [{"type": "distribution", "url": registry_url}]
     license_value = component.properties.get("license")
     if license_value:
         # Additive, same reasoning as hashes[]/purl above. `license` is

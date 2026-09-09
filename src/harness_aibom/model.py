@@ -56,6 +56,22 @@ CDX_TYPE_FOR_CLASS = {
     # `purl` (see cyclonedx.py), which is the whole point of having it as
     # its own component instead of just a property on whatever names it.
     "dependency": "library",
+    # A well-known, cross-project instruction/prompt filename found in
+    # the harness's own directory tree (AGENTS.md, CLAUDE.md -- see
+    # collectors/prompt_surface.py for exactly which, and why those two
+    # specifically are a real convention, not a guess). `type: file`,
+    # same reasoning as `configuration`/`hook`: it's a text file the
+    # harness (or a human, or another tool) reads, not a data store.
+    "prompt_surface": "file",
+    # A well-known, cross-project AI-memory artifact (a vector-store
+    # persistence file, a conversation/session log) found the same way --
+    # see collectors/memory_store.py. `type: data`, same mapping as
+    # `secrets_surface`: this scanner records presence/location/mode
+    # only, never reads or fingerprints contents, since a memory store
+    # can carry the same kind of sensitive material a secrets surface
+    # can (and unlike a hook or skill script, its content isn't meant to
+    # be inspected by a human reviewer at all).
+    "memory_store": "data",
 }
 
 #: every componentClass this package knows how to emit, service or not.

@@ -112,6 +112,8 @@ def compute_security_summary(bom: dict) -> dict:
         "executable_tools": len(executables),
         "secrets_surfaces": len(by_class.get("secrets_surface", [])),
         "dependencies": len(by_class.get("dependency", [])),
+        "prompt_surfaces": len(by_class.get("prompt_surface", [])),
+        "memory_stores": len(by_class.get("memory_store", [])),
         "fingerprinted": len(fingerprinted),
         "total_components": len(comps),
         "total_services": len(svcs),
@@ -240,6 +242,22 @@ def compute_risk_observations(bom: dict) -> list[dict]:
             "components": [e.get("bom-ref") for e in no_digest_models],
         })
 
+    # A memory store can carry conversation history, which can itself
+    # contain anything a user or the agent ever discussed -- same
+    # underlying risk as a world-readable secret, just a different
+    # componentClass (v0.6.0).
+    world_readable_memory = [
+        e for e in entries
+        if _component_class(e) == "memory_store" and _properties(e).get("harness-aibom:worldReadable") == "True"
+    ]
+    if world_readable_memory:
+        observations.append({
+            "rule": "world_readable_memory_store",
+            "severity": "high",
+            "summary": f"{len(world_readable_memory)} memory-store file(s) are world-readable",
+            "components": [e.get("bom-ref") for e in world_readable_memory],
+        })
+
     return observations
 
 
@@ -280,14 +298,19 @@ def classify_secret_confidence(entry: dict) -> str:
 COLLECTIBLE_CLASSES = (
     "runtime", "model_endpoint", "model", "configuration", "skill",
     "mcp_server", "tool", "hook", "secrets_surface", "dependency",
+    # v0.6.0 -- both real, named gaps as of v0.2.0's SPEC.md, now closed:
+    # collectors/prompt_surface.py, collectors/memory_store.py.
+    "prompt_surface", "memory_store",
 )
 
 #: Real, named gaps this scanner does not collect at all yet -- see
 #: SPEC.md's "deliberately deferred" notes. Listed here so "coverage"
 #: means something honest (out of everything this project has scoped to
 #: collect), not just "out of whatever happens to be present in this one
-#: document".
-NOT_YET_COLLECTED = ("prompt_surface", "memory_store")
+#: document". Empty as of v0.6.0 -- kept as a real tuple, not removed
+#: outright, so a future genuinely-uncollected gap has an obvious place
+#: to go.
+NOT_YET_COLLECTED: tuple[str, ...] = ()
 
 
 def compute_coverage(bom: dict) -> dict:
@@ -319,6 +342,8 @@ _CLASS_CAPABILITY = {
     "secrets_surface": "credential",
     "dependency": "read",
     "model_endpoint": "network",
+    "prompt_surface": "read",
+    "memory_store": "read",
 }
 
 #: `tool`'s riskClass (mcp.py, a name-only heuristic -- see model.py's
@@ -405,7 +430,7 @@ def classify_reachability(entry: dict, mcp_servers: dict[str, dict] | None = Non
 
     if cls == "secrets_surface":
         return "credential-store"
-    if cls in ("configuration", "skill", "dependency"):
+    if cls in ("configuration", "skill", "dependency", "prompt_surface", "memory_store"):
         return "filesystem"
     if cls == "hook":
         return "filesystem+process"

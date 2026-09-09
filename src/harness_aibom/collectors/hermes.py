@@ -38,7 +38,9 @@ from ..model import Component, HarnessDocument
 from ..paths import relative_to_or_none
 from . import deps as deps_mod
 from . import mcp as mcp_mod
+from . import memory_store as memory_store_mod
 from . import ollama as ollama_mod
+from . import prompt_surface as prompt_surface_mod
 from . import secrets as secrets_mod
 from . import skills as skills_mod
 from .base import Collector
@@ -87,9 +89,13 @@ class HermesCollector(Collector):
         if config_comp is not None:
             self._collect_model(doc, config, config_comp)
             self._collect_mcp_servers(doc, config, config_comp)
-        self._collect_skills(doc)
+        self._collect_skills(doc, config)
         self._collect_hooks(doc)
         for comp in secrets_mod.find_secrets_surface(self.hermes_dir, self.home):
+            doc.add(comp, "accesses")
+        for comp in prompt_surface_mod.find_prompt_surface(self.hermes_dir, self.home):
+            doc.add(comp, "loads")
+        for comp in memory_store_mod.find_memory_store(self.hermes_dir, self.home):
             doc.add(comp, "accesses")
 
     def _collect_mcp_servers(self, doc: HarnessDocument, config: dict, config_comp: Component) -> None:
@@ -213,8 +219,11 @@ class HermesCollector(Collector):
             doc.add_child(comp, endpoint, "uses")
             doc.warn(f"configured model {default_name!r} not found via Ollama /api/tags; recorded from config only")
 
-    def _collect_skills(self, doc: HarnessDocument) -> None:
-        for comp in skills_mod.discover_skills(self.hermes_dir / "skills", self.home):
+    def _collect_skills(self, doc: HarnessDocument, config: dict) -> None:
+        # Real, configured server names only -- see mcp.py's docstring
+        # for the shape (`mcp_servers` or nested `mcp.servers`).
+        known_servers = frozenset(server.name for server, _tools, _pkg in mcp_mod.extract_mcp_servers(config))
+        for comp in skills_mod.discover_skills(self.hermes_dir / "skills", self.home, known_servers):
             doc.add(comp, "loads")
 
     def _collect_hooks(self, doc: HarnessDocument) -> None:

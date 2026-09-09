@@ -135,6 +135,49 @@ def test_component_without_a_license_property_has_no_licenses_field():
     assert "licenses" not in comp
 
 
+# ---- external references from purl (v0.6.0) --------------------------
+
+
+def test_pypi_purl_gets_a_registry_external_reference():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="requests")
+    dep.version = "2.31.0"
+    dep.set("purl", "pkg:pypi/requests@2.31.0")
+    doc.add(dep, "uses")
+
+    [comp] = to_cyclonedx(doc)["components"]
+    assert comp["externalReferences"] == [{"type": "distribution", "url": "https://pypi.org/project/requests/"}]
+
+
+def test_npm_scoped_purl_gets_a_registry_external_reference_with_the_real_at_sign():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="@modelcontextprotocol/server-filesystem")
+    dep.set("purl", "pkg:npm/%40modelcontextprotocol/server-filesystem@2.1.0")
+    doc.add(dep, "uses")
+
+    [comp] = to_cyclonedx(doc)["components"]
+    assert comp["externalReferences"] == [{
+        "type": "distribution",
+        "url": "https://www.npmjs.com/package/@modelcontextprotocol/server-filesystem",
+    }]
+
+
+def test_unpinned_purl_still_gets_a_version_agnostic_registry_reference():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="some-package")
+    dep.set("purl", "pkg:npm/some-package")
+    doc.add(dep, "uses")
+
+    [comp] = to_cyclonedx(doc)["components"]
+    assert comp["externalReferences"] == [{"type": "distribution", "url": "https://www.npmjs.com/package/some-package"}]
+
+
+def test_component_without_a_purl_has_no_external_references_field():
+    bom = to_cyclonedx(build_doc())  # a `model`, no purl set
+    [comp] = bom["components"]
+    assert "externalReferences" not in comp
+
+
 def test_supplier_name_and_email_promote_to_a_native_organizational_entity():
     doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
     dep = Component(component_class="dependency", name="requests")

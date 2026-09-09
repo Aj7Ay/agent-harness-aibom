@@ -482,11 +482,15 @@ which a generic SBOM tool can't use for impact analysis at all (v1 called
 this "a deliberate trade-off"; on reflection it was more of a shortcut
 than a defensible design decision, so it's fixed rather than kept). Not
 every relationship in this data model has a real parent to attach to yet
-— a skill isn't (yet) linked to the servers or models its own content
-might reference, since that would need parsing `SKILL.md`'s prose, which
-this scanner doesn't do (§5) — so skills, hooks, and secrets surfaces
-still hang directly off the root. That's a real remaining gap, not
-claimed otherwise.
+— a skill isn't (yet) *graph-linked* to the servers or models its own
+content might reference. v0.6.0 (§13) added deterministic parsing of
+`SKILL.md`'s prose (`analyze_skill_content()`), but only to record what
+it finds as *properties* on the skill itself (`referencedServers`, a
+text mention, not confirmation the skill invokes it at runtime) — not as
+a real `dependencies[]` edge, which would need its own design pass on
+what "inferred" means for the graph (§11, §13). So skills, hooks, and
+secrets surfaces still hang directly off the root in the actual
+dependency graph. That's a real remaining gap, not claimed otherwise.
 
 ## 2. Component taxonomy (v1)
 
@@ -497,9 +501,11 @@ claimed otherwise.
 | `runtime` | `application` | `version`, `installDir`, `installMethod`, `upstreamHash`, `pythonVersion`, `sdkVersion` | `hermes --version` / `openclaw --version` |
 | `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest`, `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx` | Ollama `GET /api/tags`, cross-referenced against the configured default model |
 | `configuration` | `file` | `path`, `relPath` (path relative to `--home`; see §4), `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
-| `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description` | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
+| `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description`; `referencedServers`/`urls`/`shellIndicators`/`envVarReferences` (v0.6.0, opportunistic -- only set when `analyze_skill_content()` actually finds something; a *text mention* in the skill's own `SKILL.md` prose, never confirmation the skill invokes it at runtime -- see §13) | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
+| `prompt_surface` (v0.6.0) | `file` | `path`, `relPath`, `sha256` (fingerprinted -- an instruction file's content is meant to be read, not kept private) | recursive filesystem scan for exact filenames `AGENTS.md`/`CLAUDE.md` under the harness's own directory -- real, cross-project conventions (agents.md; Claude Code's own), not confirmed specifically for Hermes/OpenClaw, recorded on the same "absence isn't an error, presence doesn't over-claim relevance" basis as `secrets_surface` |
+| `memory_store` (v0.6.0) | `data` | `path`, `relPath`, `mode`, `worldReadable` -- never fingerprinted, never opened to read content at all, same secrets-never-leak discipline as `secrets_surface` (§3) | recursive filesystem scan for `chroma.sqlite3` (Chroma's own literal default filename), `*.faiss`/`*.index` (FAISS's own index-file extensions) -- deliberately narrower than a generic `*.sqlite`/`*.json` pattern |
 | `tool` | `application` | `server` (parent server's name), `riskClass` (`read`/`write`/`exec`/`network`/`unknown`, a heuristic over the tool's own *name* — see below) | one per name in a `mcp_server` entry's `tools` list |
 | `dependency` | `library` | `version`, native `purl` (see below); Python packages only -- one component per `(site_packages, name)` pair, never deduplicated across different `site_packages` directories, so two disagreeing copies both show up rather than one silently masking the other (v0.2.2); `path` (the exact dist-info directory found) and `distDir` (the same, relative to `installDir`); `relPath` is deliberately `<site_packages relative to installDir>::<name>`, NOT the dist-info directory -- a dist-info directory's name embeds its own version, so using it as the diffable identity made every version bump read as removed+added instead of `changed` (v0.2.3); native `licenses[]` from `METADATA`'s `License:`, native `supplier` from `Author:`/`Author-email:` (falling back to `Maintainer:`/`Maintainer-email:`) -- Python packages only (v0.2.4); `origin` (`"mcp-launcher"` or `"python-package"`, set by `mcp.py`/`deps.py` respectively) distinguishes the two sources this table's own "Source" column names, by a real recorded fact rather than an inferred absence -- security.py's `unpinned_dependency`-family risk rules key on it (v0.5.1, §12) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
 
@@ -747,9 +753,11 @@ need `numbat hook install` run on it first.
   every class.** `configuration -> model_endpoint -> model` and
   `configuration -> mcp_server -> tool` are real parent/child edges now;
   `skill`, `hook`, and `secrets_surface` still hang directly off the
-  root, since this scanner has no data linking a specific skill to the
-  servers or models its own `SKILL.md` prose might reference — that
-  would need parsing the skill's content, which it doesn't do. The verb
+  root in the actual dependency *graph* — v0.6.0 (§13) added
+  deterministic `SKILL.md`-content parsing, but only as properties on
+  the skill itself (a text mention), not a real graph edge, so this
+  specific gap (a skill's *place in the dependency graph* not reflecting
+  what it references) is narrowed, not closed. The verb
   on every edge (`uses`, `loads`, ...) is still only in
   `harness-aibom:relationship` properties, not a native CycloneDX field
   (§1 explains why: `dependencies[]` itself is untyped in CycloneDX).
@@ -1272,3 +1280,117 @@ one change (a) closes two items at once:**
   <email>" form is still kept even when the email half is garbled, since
   the two are independent facts -- only the invalid email is dropped, not
   guessed at or silently passed through anyway.
+
+## 13. Agent Supply Chain (v0.6.0), plus one v0.5.1 follow-up fix
+
+The persisted roadmap's next stage: two new componentClasses closing gaps
+named since v0.2.0, deterministic skill-content analysis closing the gap
+named since v0.2.0's own critique, and populated `externalReferences[]`
+for anything with a `purl`. Plus one small fix a reviewer found in the
+same pass, in code v0.5.1 had just touched.
+
+**`prompt_surface` (`collectors/prompt_surface.py`, `type: file`).**
+Well-known, cross-project instruction filenames (`AGENTS.md`, `CLAUDE.md`)
+found anywhere under the harness's own directory. Confirmed generic, not
+harness-specific guessing, the same justification `deps.py`'s PEP 376/427
+convention already established: `AGENTS.md` is a real, public, cross-tool
+convention (agents.md), `CLAUDE.md` is Claude Code's own documented one --
+neither is confirmed specifically for Hermes or OpenClaw from this
+project's source material, but "if a file with this name exists in the
+harness's own tree, record it" is the same "absence is not an error,
+presence doesn't over-claim relevance" stance `secrets.py`'s recursive
+scan already takes. Fingerprinted (sha256) like a skill or hook -- an
+instruction file's content is meant to be read and reasoned about, not
+kept private.
+
+**`memory_store` (`collectors/memory_store.py`, `type: data`).**
+Well-known, real artifact names/extensions from specific, widely-used
+tools: `chroma.sqlite3` (Chroma's own literal default persistence
+filename), `*.faiss`/`*.index` (FAISS's own index-file extensions).
+Deliberately NOT a broad `*.sqlite`/`*.json` pattern -- far too broad,
+and `*.sqlite` specifically already belongs to `secrets.py`'s own
+pattern list for the credential-store angle. Metadata only (`path`,
+`relPath`, `mode`, `worldReadable`) -- same secrets-never-leak discipline
+as `secrets_surface` (§3) and for the same underlying reason: a memory
+store can carry conversation history, which can itself contain anything a
+user or the agent ever discussed, including credentials. Never
+fingerprinted -- unlike `prompt_surface`, this content isn't meant to be
+inspected at all, so this module never even opens a matched file to hash
+it (hashing would still mean reading the whole file).
+
+A new risk rule, `world_readable_memory_store` (severity `high`), mirrors
+the existing `world_readable_secret_*` pair for the same reason a
+world-readable `.env` matters.
+
+**Deterministic skill-content analysis (`skills.py`'s
+`analyze_skill_content()`).** Closes the gap SPEC.md has named since
+v0.2.0 ("this scanner doesn't parse `SKILL.md` content to link a skill
+to the servers/models it references"). Deterministic, closed-set
+matching only -- never an LLM, never fuzzy inference:
+- `referencedServers` -- only a real, *configured* MCP server name found
+  in the harness's own config (passed in as `known_server_names`, so a
+  skill mentioning an unrelated word never gets reported as "referencing
+  a server").
+- `urls` -- `https?://` matches, with common prose/markdown trailing
+  punctuation (a sentence-ending period, a markdown code-span backtick, a
+  closing paren/bracket) stripped afterward rather than excluded from the
+  character class outright, so a real mid-URL "." (e.g.
+  `api.example.com`) is never truncated.
+- `shellIndicators` -- a fixed, closed set of common CLI tool names
+  (`curl`, `wget`, `ssh`, `git`, `python`, `pip`, `npm`, `npx`, `docker`,
+  `kubectl`), matched as whole words only (`curly` must never match
+  `curl`).
+- `envVarReferences` -- `$VAR`/`${VAR}`-shaped references.
+
+Every match is recorded as a **text mention**, not a real graph edge --
+this is the "inferred" tier the security-analysis layer's blast-radius
+work (§11) deliberately left open: a skill's prose *referencing* a
+server is evidence its author described some relationship, not
+confirmation the skill actually invokes it at runtime (this scanner
+reads static files, never traces execution). A future release could
+promote a `referencedServers` match into a real, labeled-`inferred` graph
+edge (distinct from the "observed" edges `add_child()` already
+produces) -- not done here, since that changes what `compute_blast_radius()`
+and the Architecture graph (§9) mean, and deserves its own design pass
+rather than folding in as a side effect of adding the text-analysis
+signal itself.
+
+**Populated `externalReferences[]` (`cyclonedx.py`'s
+`_registry_url_for_purl()`).** Any component with a `purl` (currently
+only `dependency`, via `mcp.py`/`deps.py`) now also gets a native, real
+`externalReferences` entry pointing at that package's actual registry
+page -- `pypi.org/project/<name>/`, `npmjs.com/package/<name>` -- the
+real, standardized URL shape each registry itself publishes, not a guess
+or a network lookup, and deliberately version-agnostic (the registry's
+current-release page outlives a version-pinned deep link that may 404
+once a package is yanked). `report.py`'s External References section
+(previously a permanent empty-state stub, since nothing populated the
+*document-level* array it checked) now has its own renderer surfacing
+these per-component entries in a table, falling back to the honest
+empty-state message only when a document truly has none at either level.
+
+**A real, if lower-severity, injection risk caught while building this,
+fixed the same way v0.5.1 fixed the architecture-diagram one.** Since
+`report` renders any JSON file, not just ones this scanner produced, a
+hand-crafted document's `externalReferences[].url` is untrusted input --
+rendering it as a plain `<a href>` after only `_esc()`-escaping would
+still let a `javascript:` URI execute on click (HTML-attribute escaping
+says nothing about the URL *scheme*). Fixed before it ever shipped:
+`_render_external_reference_url()` only renders a clickable link for an
+`http://`/`https://` URL; anything else renders as plain escaped text,
+never a real link.
+
+**`COLLECTIBLE_CLASSES`/`NOT_YET_COLLECTED` (§9's coverage checklist)
+updated**: both new classes moved from "not yet collected" (empty as of
+this release) to "collectible" -- AIBOM coverage now reads out of 12
+categories this scanner actually looks for, not 10 plus 2 permanently
+absent ones.
+
+**Deliberately not attempted in v0.6.0** (the persisted roadmap's
+remaining v0.6.0 items, kept for later): promoting a skill's text
+references into real, labeled-`inferred` graph edges (needs its own
+design pass, noted above); deeper MCP-tool-inventory provenance and a
+common `SecurityEvidence` object (still blocked on the same per-property
+source-tracking work named as deferred in v0.5.0, §11); vulnerability
+integration (no real data source -- `report`'s Vulnerabilities section
+stays an honest empty-state stub until one exists).

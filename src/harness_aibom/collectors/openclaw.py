@@ -29,7 +29,9 @@ from ..model import Component, HarnessDocument
 from ..paths import relative_to_or_none
 from . import deps as deps_mod
 from . import mcp as mcp_mod
+from . import memory_store as memory_store_mod
 from . import ollama as ollama_mod
+from . import prompt_surface as prompt_surface_mod
 from . import secrets as secrets_mod
 from . import skills as skills_mod
 from .base import Collector
@@ -84,8 +86,12 @@ class OpenClawCollector(Collector):
         if config_comp is not None:
             self._collect_model(doc, config, config_comp)
             self._collect_mcp_servers(doc, config, config_comp)
-        self._collect_skills(doc)
+        self._collect_skills(doc, config)
         self._collect_secrets(doc)
+        for comp in prompt_surface_mod.find_prompt_surface(self.openclaw_dir, self.home):
+            doc.add(comp, "loads")
+        for comp in memory_store_mod.find_memory_store(self.openclaw_dir, self.home):
+            doc.add(comp, "accesses")
 
     def _collect_mcp_servers(self, doc: HarnessDocument, config: dict, config_comp: Component) -> None:
         # Real dependency-graph edges, not root edges -- see hermes.py's
@@ -178,12 +184,13 @@ class OpenClawCollector(Collector):
             doc.add_child(comp, endpoint, "uses")
             doc.warn(f"configured model {default_name!r} not found via Ollama /api/tags; recorded from config only")
 
-    def _collect_skills(self, doc: HarnessDocument) -> None:
+    def _collect_skills(self, doc: HarnessDocument, config: dict) -> None:
         # Not confirmed from source material that OpenClaw has a skills
         # directory at all -- discover_skills() returns [] harmlessly if
         # ~/.openclaw/skills/ doesn't exist, same as any other optional
         # piece this collector looks for.
-        for comp in skills_mod.discover_skills(self.openclaw_dir / "skills", self.home):
+        known_servers = frozenset(server.name for server, _tools, _pkg in mcp_mod.extract_mcp_servers(config))
+        for comp in skills_mod.discover_skills(self.openclaw_dir / "skills", self.home, known_servers):
             doc.add(comp, "loads")
 
     def _collect_secrets(self, doc: HarnessDocument) -> None:

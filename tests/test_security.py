@@ -273,8 +273,14 @@ def test_coverage_reports_found_and_empty_collectible_classes():
     coverage = compute_coverage(bom)
     assert "skill" in coverage["found"]
     assert "mcp_server" in coverage["empty"]
-    assert "prompt_surface" in coverage["not_collected"]
-    assert "memory_store" in coverage["not_collected"]
+    # v0.6.0: both now genuinely collectible (see collectors/
+    # prompt_surface.py, collectors/memory_store.py), so "not found in
+    # THIS document" correctly reads as "empty", not "not_collected" --
+    # that tuple is empty as of this release, kept only as a place for a
+    # future genuinely-uncollected gap to go.
+    assert "prompt_surface" in coverage["empty"]
+    assert "memory_store" in coverage["empty"]
+    assert coverage["not_collected"] == []
 
 
 def test_coverage_score_counts_found_against_the_full_known_universe():

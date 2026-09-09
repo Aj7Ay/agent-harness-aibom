@@ -391,6 +391,8 @@ def test_metadata_section_shows_bom_format_and_spec_version():
 
 
 def test_external_references_vulnerabilities_compositions_have_honest_empty_states():
+    # _doc_with_everything() has no purl-bearing dependency component,
+    # so external references legitimately stay in the empty state too.
     html_text = render_html(_doc_with_everything())
     assert "External references are not collected by this scanner." in html_text
     assert "Vulnerability data is not collected by this scanner." in html_text
@@ -398,6 +400,44 @@ def test_external_references_vulnerabilities_compositions_have_honest_empty_stat
     # never a bare "0" that could look like a verified empty *result*
     ext_section = html_text.split('id="external-references"')[1].split('id="vulnerabilities"')[0]
     assert ">0<" not in ext_section
+
+
+def test_external_references_section_shows_a_real_purl_derived_registry_link():
+    # v0.6.0: no longer a permanent empty-state stub -- a dependency
+    # component's purl produces a real, native externalReferences entry
+    # (cyclonedx.py), and the report section must actually surface it.
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    dep = Component(component_class="dependency", name="requests")
+    dep.version = "2.31.0"
+    dep.set("purl", "pkg:pypi/requests@2.31.0")
+    doc.add(dep, "uses")
+    html_text = render_html(to_cyclonedx(doc))
+
+    ext_section = html_text.split('id="external-references"')[1].split('id="vulnerabilities"')[0]
+    assert "https://pypi.org/project/requests/" in ext_section
+    assert "not collected by this scanner" not in ext_section
+
+
+def test_external_reference_with_a_non_http_scheme_is_never_a_clickable_link():
+    # Regression test: report accepts any JSON file, not just ones this
+    # scanner produced -- a hand-crafted document setting an
+    # externalReferences[].url to a non-http(s) scheme (e.g. a
+    # javascript: URI) must never render as a real <a href> link, the
+    # same discipline as the v0.5.1 architecture-diagram XSS fix.
+    bom = {
+        "bomFormat": "CycloneDX", "specVersion": "1.6", "version": 1,
+        "metadata": {"component": {"type": "application", "bom-ref": "harness-root", "name": "evil@test"}},
+        "components": [{
+            "type": "library", "bom-ref": "c1", "name": "evil-dep",
+            "externalReferences": [{"type": "website", "url": "javascript:alert(document.domain)"}],
+            "properties": [{"name": "harness-aibom:componentClass", "value": "dependency"}],
+        }],
+        "dependencies": [{"ref": "harness-root", "dependsOn": ["c1"]}],
+    }
+    html_text = render_html(bom)
+    assert "href='javascript:" not in html_text
+    # the value still reaches the page, safely, as escaped text
+    assert "javascript:alert(document.domain)" in html_text
 
 
 # ---- v0.5.0: Agent Security Graph (capabilities, attack surface, blast radius) --

@@ -358,3 +358,30 @@ def test_marker_lines_with_zero_extracted_hooks_warns_instead_of_silently_report
 
     assert by_class(doc, "hook") == []
     assert any("no hook components could be extracted" in w for w in doc.warnings)
+
+
+# ---- v0.6.0: prompt_surface, memory_store, skill-content analysis ----------
+
+
+def test_prompt_surface_component_is_collected():
+    doc = collect()
+    [comp] = by_class(doc, "prompt_surface")
+    assert comp.name == "AGENTS.md"
+    assert len(comp.properties["sha256"]) == 64
+
+
+def test_memory_store_component_is_collected():
+    doc = collect()
+    [comp] = by_class(doc, "memory_store")
+    assert comp.name == "chroma.sqlite3"
+    assert "sha256" not in comp.properties  # content never read
+
+
+def test_skill_content_analysis_finds_the_real_configured_server():
+    doc = collect()
+    skills = by_class(doc, "skill")
+    incident_response = next(s for s in skills if s.name == "incident-response")
+    assert incident_response.properties["referencedServers"] == "corp-docs"
+    assert incident_response.properties["shellIndicators"] == "curl"
+    assert "INCIDENT_CHANNEL_WEBHOOK" in incident_response.properties["envVarReferences"]
+    assert "https://runbooks.corp.lab/incident-response" in incident_response.properties["urls"]

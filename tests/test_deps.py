@@ -148,6 +148,28 @@ def test_obfuscated_non_email_author_email_is_dropped_not_passed_through(tmp_pat
     assert "supplierEmail" not in comp.properties
 
 
+def test_bare_author_email_that_fails_the_shape_check_becomes_the_supplier_name(tmp_path):
+    # Regression test: an independent reviewer found a *bare* (no "Name
+    # <...>" form) Author-email that contains "@" but doesn't look like a
+    # real email (e.g. "Contact us @ example.com") used to be dropped
+    # entirely -- losing the real fact that a named contact exists, for
+    # the sake of rejecting a fact that wasn't real. With no <...> form
+    # to supply a name separately, the whole string becomes the supplier
+    # name instead (free text, no schema risk), rather than nothing at
+    # all.
+    install_dir = tmp_path / "install"
+    site_packages = install_dir / "site-packages"
+    dist_info = site_packages / "oddpkg-1.0.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(
+        "Name: oddpkg\nVersion: 1.0\nAuthor-email: Contact us @ example.com\n\nbody\n"
+    )
+
+    [comp] = discover_python_dependencies(install_dir)
+    assert comp.properties["supplierName"] == "Contact us @ example.com"
+    assert "supplierEmail" not in comp.properties
+
+
 def test_bare_author_and_bare_author_email_are_both_captured(tmp_path):
     install_dir = tmp_path / "install"
     site_packages = install_dir / "site-packages"

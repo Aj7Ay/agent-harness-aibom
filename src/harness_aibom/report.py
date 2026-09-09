@@ -53,8 +53,13 @@ from . import security
 #: through to the alphabetical catch-all: "dependency" right after
 #: "runtime" (it's that runtime's own package inventory), "tool" right
 #: after "skill" (both are units of capability a harness exposes, just
-#: declared by different sources).
-_COMPONENT_CLASS_ORDER = ("runtime", "dependency", "configuration", "model", "skill", "tool", "hook", "secrets_surface")
+#: declared by different sources). "prompt_surface"/"memory_store"
+#: (v0.6.0) sit right after "configuration" -- all three are files the
+#: harness itself reads to decide how to behave.
+_COMPONENT_CLASS_ORDER = (
+    "runtime", "dependency", "configuration", "prompt_surface", "memory_store",
+    "model", "skill", "tool", "hook", "secrets_surface",
+)
 _SERVICE_CLASS_ORDER = ("model_endpoint", "mcp_server")
 
 #: Fixed categorical color per componentClass -- (light, dark), palette.md's
@@ -89,6 +94,8 @@ _UNKNOWN_CLASS_COLOR = ("#898781", "#898781")  # muted gray -- never a generated
 _KNOWN_UNPALETTED_CLASS_COLORS: dict[str, tuple[str, str]] = {
     "dependency": ("#6b7680", "#8b96a0"),  # cool slate
     "tool": ("#8a7a6b", "#a8988a"),  # warm taupe
+    "prompt_surface": ("#7a7568", "#9a9486"),  # warm gray (v0.6.0)
+    "memory_store": ("#68767a", "#86999e"),  # cool gray (v0.6.0)
 }
 
 _NOT_RECORDED = "not recorded (deterministic scan)"
@@ -734,6 +741,8 @@ def _render_security_summary(bom: dict) -> str:
             ("Executable tools", s["executable_tools"]),
             ("Secrets surfaces", s["secrets_surfaces"]),
             ("Dependencies", s["dependencies"]),
+            ("Prompt surfaces", s["prompt_surfaces"]),
+            ("Memory stores", s["memory_stores"]),
         ]
     )
 
@@ -772,7 +781,8 @@ def _render_risk_observations(bom: dict) -> str:
             "<p class='muted'>This reflects only the specific, named rules this scanner checks "
             "(world-readable secrets, at both confidence tiers; plaintext/unauthenticated MCP "
             "transport; unpinned MCP launcher packages; Python packages missing a version; models "
-            "with no content digest) &mdash; not a general clean bill of health.</p>"
+            "with no content digest; world-readable memory-store files) &mdash; not a general clean "
+            "bill of health.</p>"
         )
     items = "".join(
         "<li>"
@@ -920,11 +930,13 @@ def _render_metadata_section(bom: dict, root: dict) -> str:
 
 def _render_empty_cyclonedx_section(bom: dict, key: str, message: str) -> str:
     """A dedicated section for a native CycloneDX 1.6 array this scanner
-    doesn't populate yet (externalReferences, vulnerabilities,
-    compositions) -- shown explicitly rather than silently absent, same
-    "nothing summarized away" principle as every other section, but
-    honest about the difference between "checked, found none" (this
-    scanner doesn't check at all) and an actual empty result.
+    doesn't populate yet (vulnerabilities, compositions) -- shown
+    explicitly rather than silently absent, same "nothing summarized
+    away" principle as every other section, but honest about the
+    difference between "checked, found none" (this scanner doesn't
+    check at all) and an actual empty result. `externalReferences` has
+    its own dedicated renderer (`_render_external_references()`) as of
+    v0.6.0, since that one IS populated, per-component.
     """
     entries = bom.get(key, [])
     if entries:
@@ -932,6 +944,55 @@ def _render_empty_cyclonedx_section(bom: dict, key: str, message: str) -> str:
         # but never silently drop real data if a future collector does.
         return f"<pre class='raw-json'>{_esc(json.dumps(entries, indent=2))}</pre>"
     return f"<p class='muted'><em>{_esc(message)}</em></p>"
+
+
+def _render_external_reference_url(url: str) -> str:
+    """A clickable link ONLY for an http(s) URL, plain escaped text
+    otherwise -- `report` renders any JSON file handed to it, not just
+    ones this scanner produced, so `url` here is untrusted input, not
+    something this codebase always controls the shape of (unlike the
+    registry URLs `_registry_url_for_purl()` itself builds, which are
+    always http(s) by construction). `_esc()` alone protects the HTML
+    *attribute* syntax, but does nothing about the URL *scheme* --
+    without this check, a hand-crafted document setting
+    externalReferences[].url to a `javascript:` URI would render as a
+    real, clickable `<a href="javascript:...">` link, exactly the kind
+    of injection this project's own v0.5.1 XSS fix (SPEC.md section 12)
+    was written to close elsewhere on this same page.
+    """
+    if url.startswith(("http://", "https://")):
+        return f"<a href='{_esc(url)}'>{_esc(url)}</a>"
+    return _esc(url)
+
+
+def _render_external_references(bom: dict) -> str:
+    """CycloneDX's `externalReferences[]` exists at both the document
+    level (never populated by this scanner) and per-component (v0.6.0:
+    a registry-page URL for any component with a `purl` -- see
+    cyclonedx.py's `_registry_url_for_purl()`). Confirmed real gap this
+    fixes: before this function existed, the section unconditionally
+    said "not collected by this scanner" even once a document's own
+    dependency components actually carried one, which would have been a
+    document contradicting the very section describing it.
+    """
+    rows = "".join(
+        f"<tr><td>{_esc(comp.get('name', ''))}</td><td>{_esc(ref.get('type', ''))}</td>"
+        f"<td>{_render_external_reference_url(str(ref.get('url', '')))}</td></tr>"
+        for comp in bom.get("components", [])
+        for ref in comp.get("externalReferences", [])
+    )
+    doc_level = bom.get("externalReferences", [])
+    if not rows and not doc_level:
+        return "<p class='muted'><em>External references are not collected by this scanner.</em></p>"
+    table = (
+        f"<table class='summary'><tr><th>component</th><th>type</th><th>url</th></tr>{rows}</table>"
+        if rows
+        else ""
+    )
+    doc_level_html = (
+        f"<pre class='raw-json'>{_esc(json.dumps(doc_level, indent=2))}</pre>" if doc_level else ""
+    )
+    return f"{table}{doc_level_html}"
 
 
 def _render_raw_bom(compact_size: int) -> str:
@@ -1152,7 +1213,7 @@ def render_html(bom: dict) -> str:
 
 <section id="external-references">
   <h2>External references</h2>
-  {_render_empty_cyclonedx_section(bom, "externalReferences", "External references are not collected by this scanner.")}
+  {_render_external_references(bom)}
 </section>
 
 <section id="vulnerabilities">

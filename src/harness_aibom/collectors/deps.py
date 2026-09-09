@@ -87,10 +87,16 @@ def _split_name_email(value: str | None) -> tuple[str | None, str | None]:
     a bare email or a bare name (no angle brackets) passes through as
     (None, value) / (value, None) respectively -- never guessed further
     than the RFC 822 form actually present. A value that doesn't look
-    like a real email (see `_EMAIL_RE`) is dropped, not guessed at or
-    passed through anyway -- a name extracted from the "Name <...>" form
-    is still kept even when its email half is garbled, since the two are
-    independent facts.
+    like a real email (see `_EMAIL_RE`) is never emitted as one, but
+    isn't discarded outright either: with no `<...>` form to supply a
+    name separately, the whole string becomes the supplier *name*
+    instead (free text, no schema risk) -- confirmed real bug fixed
+    here: a bare value containing "@" that failed the shape check (e.g.
+    "Contact us @ example.com") used to be dropped entirely, losing a
+    real fact (there IS a named contact here) for the sake of rejecting
+    a fact that wasn't real (there's no actual email address). A name
+    extracted from the "Name <...>" form is, as before, still kept even
+    when its email half is garbled, since the two are independent facts.
     """
     value = _clean(value)
     if value is None:
@@ -101,7 +107,7 @@ def _split_name_email(value: str | None) -> tuple[str | None, str | None]:
         email = match.group("email").strip()
         return name, (email if _looks_like_email(email) else None)
     if "@" in value:
-        return None, (value if _looks_like_email(value) else None)
+        return (None, value) if _looks_like_email(value) else (value, None)
     return value, None
 
 
