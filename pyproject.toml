@@ -1,6 +1,6 @@
 [project]
 name = "agent-harness-aibom"
-version = "0.1.13"
+version = "0.1.14"
 description = "AIBOM generator for AI agent harnesses (Hermes, OpenClaw) and their model/skill/MCP/hook surface"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -9,6 +9,15 @@ authors = [{ name = "Practical DevSecOps" }]
 dependencies = [
     "PyYAML>=6.0",
 ]
+
+# Shown as "Project links" in the PyPI sidebar -- fixes a real gap: a
+# test-only release still bumps the version with nothing visible on the
+# PyPI page itself to explain why. Changelog points at GitHub Releases,
+# where every version's actual notes live.
+[project.urls]
+Homepage = "https://github.com/Aj7Ay/agent-harness-aibom"
+Repository = "https://github.com/Aj7Ay/agent-harness-aibom"
+Changelog = "https://github.com/Aj7Ay/agent-harness-aibom/releases"
 
 [project.optional-dependencies]
 dev = [
