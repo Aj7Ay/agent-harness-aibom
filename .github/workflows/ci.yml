@@ -12,10 +12,17 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      # Both pinned past their Node 20 releases -- GitHub is deprecating
+      # Node 20 runners; @v4/@v5 warned "targets Node.js 20 but forced to
+      # run on Node.js 24". actions/checkout@v7 and astral-sh/setup-uv's
+      # exact v10.0.1 tag both confirmed (by reading their real
+      # action.yml) to declare `using: node24` themselves -- setup-uv has
+      # no floating major tag past v5, only exact release tags, so this
+      # one is pinned exactly rather than to a nonexistent "v10".
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           python-version: ${{ matrix.python-version }}
 
