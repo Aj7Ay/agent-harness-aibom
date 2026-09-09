@@ -161,7 +161,7 @@ def test_architecture_section_shows_class_level_nodes_not_instance_level():
     for name in ("a", "b", "c"):
         doc.add(Component(component_class="skill", name=name), "loads")
     html_text = render_html(to_cyclonedx(doc))
-    architecture_section = html_text.split('id="architecture"')[1].split('id="security-summary"')[0]
+    architecture_section = html_text.split('id="architecture"')[1].split('id="dependency-graph"')[0]
 
     assert "Architecture" in html_text
     # the aggregate node label "skill" with its count, not three
@@ -935,3 +935,77 @@ def test_evidence_chain_never_shown_for_a_skill_analysis_found_nothing():
     assert "Evidence chain" in html_text  # the observed sha256 row still shows
     assert "INFERRED" not in html_text
     assert "OBSERVED" in html_text
+
+
+# ---- Dependency graph explorer (v0.9.0) -----------------------------------
+
+
+def _dep_graph_doc_with_edges() -> dict:
+    doc = HarnessDocument(harness_name="hermes@testhost", runtime_kind="hermes", hostname="testhost")
+    endpoint = Component(component_class="model_endpoint", name="http://127.0.0.1:11434")
+    doc.add(endpoint, "uses")
+    model = Component(component_class="model", name="qwen3:8b")
+    doc.add_child(model, endpoint, "uses")
+    return to_cyclonedx(doc)
+
+
+def test_dependency_graph_section_gives_every_real_component_at_least_a_root_edge():
+    # A component added via HarnessDocument.add() is always a root child,
+    # so it always has at least one recorded parent edge (the harness
+    # root itself) -- a genuinely edge-less component (§ below) only
+    # happens for a hand-edited/malformed document, not a real scan.
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    skill = Component(component_class="skill", name="lonely-skill")
+    doc.add(skill, "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    section = html_text.split('id="dependency-graph"')[1].split('id="security-summary"')[0]
+    assert "dep-graph-node" in section
+
+
+def test_dependency_graph_section_absent_state_for_a_genuine_orphan():
+    # A component present in components[] but never referenced anywhere
+    # in dependencies[] at all -- the same real, malformed-document case
+    # validate.py's find_orphan_components() exists to catch (`report`
+    # renders any JSON handed to it, not just this scanner's own output).
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    doc.add(Component(component_class="skill", name="normal-skill"), "loads")
+    bom = to_cyclonedx(doc)
+    bom["components"].append({
+        "type": "library", "bom-ref": "skill:orphan", "name": "orphan-skill",
+        "properties": [{"name": "harness-aibom:componentClass", "value": "skill"}],
+    })
+    html_text = render_html(bom)
+    section = html_text.split('id="dependency-graph"')[1].split('id="security-summary"')[0]
+    assert "data-ref='skill:orphan'" not in section  # no node pre-rendered for it
+    assert "dep-graph-no-edges" in section  # the JS-side fallback message still exists
+
+
+def test_dependency_graph_section_renders_hidden_nodes_and_controls():
+    html_text = render_html(_dep_graph_doc_with_edges())
+    section = html_text.split('id="dependency-graph"')[1].split('id="security-summary"')[0]
+    assert "dep-graph-show" in section
+    assert "dep-graph-input" in section
+    assert "qwen3:8b" in section  # datalist option label
+    # both the endpoint and the model have real edges -- both get a node
+    assert section.count("dep-graph-node") >= 2
+    # hidden by default -- collapsed, not an all-nodes-at-once canvas
+    assert "class='dep-graph-node' data-ref=" in section and "hidden>" in section
+
+
+def test_dependency_graph_neighbor_boxes_are_clickable_via_data_view_graph():
+    html_text = render_html(_dep_graph_doc_with_edges())
+    assert "data-view-graph=" in html_text
+
+
+def test_inspector_has_a_view_in_graph_button():
+    html_text = render_html(_dep_graph_doc_with_edges())
+    assert "inspector-view-graph" in html_text
+    assert "View in graph" in html_text
+
+
+def test_dependency_graph_functions_are_wired_into_js():
+    html_text = render_html(_dep_graph_doc_with_edges())
+    for fn in ("showDependencyGraph", "findEntryRefByNameOrRef", "viewInGraph"):
+        assert f"function {fn}(" in html_text
+    assert "data-view-graph" in html_text
+    assert "inspector-view-graph" in html_text

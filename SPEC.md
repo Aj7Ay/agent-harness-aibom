@@ -2211,3 +2211,59 @@ doesn't stretch to cover from a doc search alone. **Nothing added for
 this item** -- explicitly reporting "no additional real field found"
 rather than fabricating a dataset-provenance schema Ollama doesn't
 actually expose, per this section's own scope.
+
+## 24. Dependency graph explorer (v0.9.0) -- per-instance, collapsed by default
+
+A real, per-*instance* dependency graph (as distinct from the
+componentClass-level Architecture diagram, §9), reusing data this
+project already computes (`security.build_dependency_children()`/
+`build_dependency_parents()`, the same adjacency the per-entry "Depends
+on"/"Blast radius" lists in the Component Inspector already use).
+
+**Scale is the real design problem this section exists to solve** (a
+document can have hundreds of components) -- solved the same way this
+section's own design note anticipated: nothing is rendered until a
+component is chosen (a text input with a name/bom-ref datalist, any
+Component Inspector's new "View in graph" button, or clicking a
+neighbor box to walk the graph), never an all-nodes-at-once canvas.
+Each component/service that has at least one real dependency edge gets
+its own small, pre-rendered (server-side, same "no live client-side
+layout engine" principle as the rest of this file), *hidden* neighborhood
+diagram -- immediate parents above, the node itself in the middle,
+immediate children below, capped at 8 boxes per side
+(`_NEIGHBORHOOD_MAX_PER_SIDE`) with an honest "N more not shown" note
+pointing at the existing full-BFS lists for anything beyond that.
+Client-side JS (`showDependencyGraph()`) only toggles which
+pre-rendered node is visible -- it never builds SVG or inserts
+untrusted text via `innerHTML` itself, keeping every escaping
+responsibility exactly where `_esc()` already lives.
+
+**Reused, not reinvented**: `_render_dependency_neighborhood_svg()`
+follows `_render_architecture_graph()`'s own layout patterns (computed
+box positions, `<line>` edges, `.arch-box`/`.arch-edge`/`.arch-label`
+CSS classes, `.chart-card`'s width/height-auto sizing fix) and its
+delegated-click discipline (`data-view-graph`, read via `getAttribute()`
+and compared in a loop, never built into a CSS selector or concatenated
+JS string -- the same reasoning `data-goto`/`data-inspect` are built that
+way, since a bom-ref this scanner didn't itself generate could contain a
+character that breaks a hand-built selector). A genuinely edge-less
+component only happens for a hand-edited/malformed document (the same
+"orphan" case `validate.py`'s `find_orphan_components()` already
+checks for) -- a real scan's own output always gives every component at
+least one edge (the harness root itself), confirmed by a dedicated test
+that also exercises the true orphan case by hand-appending a component
+to `components[]` with no `dependencies[]` entry at all, distinguishing
+it from a plain "no match for that search" state.
+
+**Confirmed with real dispatched browser events** (headless Chrome,
+driven directly over the DevTools Protocol, same discipline as §21):
+the section starts fully collapsed (every `.dep-graph-node` hidden);
+clicking a component's real Inspect button -> its Inspector's real
+"View in graph" button closes the inspector and reveals exactly that
+component's own diagram; clicking a real neighbor box inside that
+diagram re-centers it on the neighbor and updates the search input;
+searching by a partial *name* (not just an exact bom-ref) finds and
+shows the right node; a genuinely unmatched search shows "no match
+found"; and a real, hand-crafted orphan component shows the distinct
+"this component has no recorded dependency-graph edges" message instead
+of either of those two -- five real states, not just the happy path.
