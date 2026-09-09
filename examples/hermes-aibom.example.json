@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:4034edc2-626e-4194-9117-bd296e1029e2",
+  "serialNumber": "urn:uuid:a628e80e-ab27-49e2-aaa3-d842d7440cdb",
   "version": 1,
   "metadata": {
     "tools": {
@@ -60,7 +60,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-09T13:55:18+00:00"
+    "timestamp": "2026-09-09T23:42:50+00:00"
   },
   "components": [
     {
@@ -80,7 +80,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/config.yaml"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a378979eb0724b38b/tests/fixtures/hermes_home/.hermes/config.yaml"
         },
         {
           "name": "harness-aibom:relPath",
@@ -274,7 +274,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/incident-response"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a378979eb0724b38b/tests/fixtures/hermes_home/.hermes/skills/incident-response"
         },
         {
           "name": "harness-aibom:relPath",
@@ -283,6 +283,10 @@
         {
           "name": "harness-aibom:sha256",
           "value": "ff199ec65bcc20055df522c320abbbfce37134136d5dffb7367d63c6e6e5aa08"
+        },
+        {
+          "name": "harness-aibom:sha256Confidence",
+          "value": "observed"
         },
         {
           "name": "harness-aibom:description",
@@ -307,6 +311,10 @@
         {
           "name": "harness-aibom:urls",
           "value": "https://runbooks.corp.lab/incident-response"
+        },
+        {
+          "name": "harness-aibom:contentAnalysisConfidence",
+          "value": "inferred"
         }
       ]
     },
@@ -327,7 +335,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a378979eb0724b38b/tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood"
         },
         {
           "name": "harness-aibom:relPath",
@@ -340,6 +348,10 @@
         {
           "name": "harness-aibom:sha256",
           "value": "20e123dc1ed35f7ab718d089347cac0a10c1c0c314101a9c3b139d20eade9ea2"
+        },
+        {
+          "name": "harness-aibom:sha256Confidence",
+          "value": "observed"
         },
         {
           "name": "harness-aibom:description",
@@ -368,7 +380,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/AGENTS.md"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a378979eb0724b38b/tests/fixtures/hermes_home/.hermes/AGENTS.md"
         },
         {
           "name": "harness-aibom:relPath",
@@ -395,7 +407,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/chroma.sqlite3"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a378979eb0724b38b/tests/fixtures/hermes_home/.hermes/chroma.sqlite3"
         },
         {
           "name": "harness-aibom:relPath",
@@ -458,6 +470,10 @@
           "value": "http"
         },
         {
+          "name": "harness-aibom:transportConfidence",
+          "value": "inferred"
+        },
+        {
           "name": "harness-aibom:endpoint",
           "value": "http://127.0.0.1:8001"
         },
@@ -485,6 +501,10 @@
         {
           "name": "harness-aibom:transport",
           "value": "http"
+        },
+        {
+          "name": "harness-aibom:transportConfidence",
+          "value": "inferred"
         },
         {
           "name": "harness-aibom:endpoint",
@@ -523,6 +543,10 @@
         {
           "name": "harness-aibom:transport",
           "value": "stdio"
+        },
+        {
+          "name": "harness-aibom:transportConfidence",
+          "value": "inferred"
         },
         {
           "name": "harness-aibom:tls",
@@ -621,5 +645,76 @@
         "dependency:modelcontextprotocol-server-filesystem"
       ]
     }
-  ]
+  ],
+  "declarations": {
+    "assessors": [
+      {
+        "bom-ref": "declaration-assessor:agent-harness-aibom",
+        "thirdParty": false,
+        "organization": {
+          "name": "agent-harness-aibom (self-assessment, not a third-party audit)"
+        }
+      }
+    ],
+    "claims": [
+      {
+        "bom-ref": "declaration-claim:skill-fingerprint-coverage",
+        "target": "harness-root",
+        "predicate": "2 of 2 discovered skill component(s) carry a native content hash (hashes[]).",
+        "reasoning": "Computed by counting `skill` components in this document's own components[] array whose native `hashes[]` field is present -- sha256_directory() (fingerprint.py) is called for every skill this scanner's collectors discover, so a skill missing a hash here means the whole skill directory was unreadable (a permission error), never that hashing was skipped.",
+        "evidence": [
+          "declaration-evidence:skill-fingerprint-coverage"
+        ]
+      },
+      {
+        "bom-ref": "declaration-claim:mcp-auth-posture-recorded",
+        "target": "harness-root",
+        "predicate": "3 of 3 discovered MCP server(s) have harness-aibom:authConfigured explicitly recorded.",
+        "reasoning": "collectors/mcp.py sets authConfigured (true or false) for every mcp_server entry it extracts from a harness's own config file -- a missing value here would mean this scanner's own extraction code didn't run for that entry, not that auth posture is merely unknown.",
+        "evidence": [
+          "declaration-evidence:mcp-auth-posture-recorded"
+        ]
+      },
+      {
+        "bom-ref": "declaration-claim:model-digest-provenance",
+        "target": "harness-root",
+        "predicate": "0 of 1 discovered model(s) carry a real content digest (harness-aibom:digest) from Ollama's own manifest, not just a tag/name.",
+        "reasoning": "digest is taken verbatim from Ollama's GET /api/tags response for every model this scanner finds -- never recomputed or guessed (SPEC.md section 3). A model missing one means Ollama's own API response didn't include a digest for that entry, not that this scanner failed to look.",
+        "evidence": [
+          "declaration-evidence:model-digest-provenance"
+        ]
+      },
+      {
+        "bom-ref": "declaration-claim:dependency-purl-coverage",
+        "target": "harness-root",
+        "predicate": "1 of 1 discovered dependency component(s) carry a native purl for a generic SBOM/vulnerability tool to resolve.",
+        "reasoning": "purl is set for every Python package deps.py finds a well-formed METADATA `Name`/`Version` pair for, and for every MCP launcher package mcp.py recognizes (npx/uvx only) -- see SPEC.md section 2 for the exact derivation.",
+        "evidence": [
+          "declaration-evidence:dependency-purl-coverage"
+        ]
+      }
+    ],
+    "evidence": [
+      {
+        "bom-ref": "declaration-evidence:skill-fingerprint-coverage",
+        "propertyName": "harness-aibom:coverageEvidence",
+        "description": "Computed by counting `skill` components in this document's own components[] array whose native `hashes[]` field is present -- sha256_directory() (fingerprint.py) is called for every skill this scanner's collectors discover, so a skill missing a hash here means the whole skill directory was unreadable (a permission error), never that hashing was skipped."
+      },
+      {
+        "bom-ref": "declaration-evidence:mcp-auth-posture-recorded",
+        "propertyName": "harness-aibom:coverageEvidence",
+        "description": "collectors/mcp.py sets authConfigured (true or false) for every mcp_server entry it extracts from a harness's own config file -- a missing value here would mean this scanner's own extraction code didn't run for that entry, not that auth posture is merely unknown."
+      },
+      {
+        "bom-ref": "declaration-evidence:model-digest-provenance",
+        "propertyName": "harness-aibom:coverageEvidence",
+        "description": "digest is taken verbatim from Ollama's GET /api/tags response for every model this scanner finds -- never recomputed or guessed (SPEC.md section 3). A model missing one means Ollama's own API response didn't include a digest for that entry, not that this scanner failed to look."
+      },
+      {
+        "bom-ref": "declaration-evidence:dependency-purl-coverage",
+        "propertyName": "harness-aibom:coverageEvidence",
+        "description": "purl is set for every Python package deps.py finds a well-formed METADATA `Name`/`Version` pair for, and for every MCP launcher package mcp.py recognizes (npx/uvx only) -- see SPEC.md section 2 for the exact derivation."
+      }
+    ]
+  }
 }
