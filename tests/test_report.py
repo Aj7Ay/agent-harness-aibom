@@ -837,3 +837,31 @@ def test_vulnerabilities_with_no_cvss_vector_render_as_unrated_not_a_fabricated_
     ]
     section = _vuln_section(bom)
     assert "UNRATED" in section
+
+
+# ---- Declarations section (cyclonedx.py, self-assessed coverage claims) --
+
+
+def _declarations_section(bom: dict) -> str:
+    html_text = render_html(bom)
+    return html_text.split('id="declarations"')[1].split('id="compositions"')[0]
+
+
+def test_declarations_section_present_for_a_real_scan():
+    bom = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t"))
+    # A plain empty document has nothing to self-assess -- honest empty state.
+    section = _declarations_section(bom)
+    assert "No self-assessed claims" in section
+
+
+def test_declarations_section_renders_a_real_claim_and_never_third_party():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    model = Component(component_class="model", name="qwen3:8b")
+    model.set("digest", "abc123")
+    doc.add(model, "uses")
+    bom = to_cyclonedx(doc)
+    section = _declarations_section(bom)
+    assert "1 of 1 discovered model(s) carry a real content digest" in section
+    assert "thirdParty: false" in section
+    assert "compliant" not in section.lower()
+    assert "certified" not in section.lower()

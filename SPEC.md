@@ -1921,3 +1921,66 @@ network call against the live OSV.dev API was made manually during
 development (see the exact requests and responses quoted above and in
 `vex.py`'s own docstring), never repeated automatically in CI or this
 test suite.
+
+## 18. CycloneDX declarations -- self-assessed coverage claims (v0.9.0)
+
+CycloneDX 1.6 added a top-level `declarations` block (assessors, claims,
+evidence, attestations) for "conformance to standards" -- confirmed
+directly from this project's own vendored schema dependency
+(`cyclonedx.schema._res.bom-1.6.SNAPSHOT.schema.json`, the same one
+`test_cyclonedx_schema.py` already validates every document against),
+not guessed from the spec's prose. Nothing in `declarations` is
+required, so a small, honest subset was picked: `assessors[]`,
+`claims[]`, `evidence[]`. `attestations[]`/`targets`/`affirmation` are
+deliberately **not** used -- `attestations[].map[].requirement`
+references a `requirement` bom-ref, and CycloneDX 1.6's own schema has
+no `requirements[]` array anywhere in `declarations` for one to point
+at (confirmed by reading the full `declarations` property list:
+`assessors`, `attestations`, `claims`, `evidence`, `targets`,
+`affirmation`, `signature` -- no `requirements`). Building a formal
+requirement-to-claim map with no real requirement catalog to reference
+would mean inventing control IDs, exactly what this project's whole
+discipline forbids -- so this scanner emits bare `claims[]` with
+`reasoning`/`evidence` instead, and stops there.
+
+**Four real, narrow, computed ratios** (`cyclonedx.py`'s
+`_DECLARATION_CLAIMS`), each a `len()` over entries already in the
+document being serialized -- nothing invented, nothing estimated:
+
+- skill-fingerprint-coverage -- N of N `skill` components carry a
+  native `hashes[]` entry.
+- mcp-auth-posture-recorded -- N of N `mcp_server` services have
+  `harness-aibom:authConfigured` explicitly recorded.
+- model-digest-provenance -- N of N `model` components carry a real
+  Ollama-sourced `harness-aibom:digest`.
+- dependency-purl-coverage -- N of N `dependency` components carry a
+  native `purl`.
+
+Each claim's `reasoning` names the exact collector behavior the ratio
+depends on (e.g. "a skill missing a hash here means the whole skill
+directory was unreadable, never that hashing was skipped"), and links
+to a real `evidence[]` entry via `claims[].evidence` -- never a bare
+assertion with nothing backing it. **A category with zero entries in
+this document is skipped entirely**, never emitted as "0 of 0" -- that
+would read as a vacuous 100% rather than "not applicable to this scan".
+`declarations` itself is omitted from the whole document when every
+category is empty (an empty harness scan has nothing honest to
+self-assess). `assessors[0].thirdParty` is always `false` and its
+organization name says "self-assessment, not a third-party audit"
+outright, both in the raw JSON and in `report.py`'s new Declarations
+section -- this is deliberately never phrased as "compliant",
+"certified", or "passed" anywhere (confirmed by a dedicated regression
+test that greps the rendered claim text for those words).
+
+`report.py`'s Declarations section renders each claim's predicate and
+reasoning; `tests/test_cyclonedx_schema.py` confirms a real document
+carrying this block still validates against the actual vendored
+CycloneDX 1.6 schema, not just a plausible-looking shape.
+
+**Deliberately not attempted here**: `attestations[]` (needs a real
+requirement catalog CycloneDX 1.6 itself doesn't provide a slot for),
+`affirmation`/signed signatories (needs a real human signatory, not
+something a scanner can assert on anyone's behalf), and any claim
+broader than the four ratios above -- e.g. no claim about `tool`
+riskClass accuracy, secrets-surface completeness, or anything else this
+scanner doesn't already compute a precise ratio for.
