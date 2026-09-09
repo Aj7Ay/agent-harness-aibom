@@ -183,3 +183,99 @@ def test_hook_replaced_by_a_symlink_escaping_home_is_visible_in_diff():
     assert result["removed"] == ["hook:.hermes/hooks/audit.sh"]
     assert result["added"] == ["hook:/tmp/evil/payload.sh"]
     assert result["changed"] == []
+
+
+def test_name_duplicated_in_before_but_unique_in_after_matches_the_persisting_server():
+    # Reverse of the case above: one of two same-named servers is
+    # removed. The persisting one must still match, not read as
+    # "removed + re-added" just because it no longer has a sibling to
+    # disambiguate against.
+    before_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    before_doc.add(Component(component_class="mcp_server", name="fs").set("endpoint", "https://x.example.com"), "uses")
+    before_doc.add(Component(component_class="mcp_server", name="fs").set("endpoint", "https://y.example.com"), "uses")
+    before = to_cyclonedx(before_doc)
+
+    after_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    after_doc.add(Component(component_class="mcp_server", name="fs").set("endpoint", "https://x.example.com"), "uses")
+    after = to_cyclonedx(after_doc)
+
+    result = diff_documents(before, after)
+    assert result["added"] == []
+    assert result["removed"] == ["mcp_server:fs#https://y.example.com"]
+    assert result["changed"] == []
+
+
+def test_three_same_named_servers_only_the_changed_one_shows_up():
+    # Three-way disambiguation, not just two: a change to the middle
+    # entry must not disturb the other two.
+    def build(middle_tls: bool) -> dict:
+        doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+        doc.add(Component(component_class="mcp_server", name="fs").set("endpoint", "https://a.example.com"), "uses")
+        middle = Component(component_class="mcp_server", name="fs")
+        middle.set("endpoint", "https://b.example.com")
+        middle.set("tls", middle_tls)
+        doc.add(middle, "uses")
+        doc.add(Component(component_class="mcp_server", name="fs").set("endpoint", "https://c.example.com"), "uses")
+        return to_cyclonedx(doc)
+
+    result = diff_documents(build(True), build(False))
+    assert result["added"] == []
+    assert result["removed"] == []
+    [change] = result["changed"]
+    assert change["component"] == "mcp_server:fs#https://b.example.com"
+    assert change["fields"]["harness-aibom:tls"] == {"before": "True", "after": "False"}
+
+
+def test_positional_fallback_works_when_entry_order_is_stable():
+    # Two same-named services with neither endpoint nor command/args --
+    # nothing content-derived to disambiguate on, so position is the last
+    # resort. Works correctly as long as the set of entries doesn't
+    # change shape between scans.
+    def build(second_note: str) -> dict:
+        doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+        first = Component(component_class="mcp_server", name="bare")
+        first.set("note", "first")
+        doc.add(first, "uses")
+        second = Component(component_class="mcp_server", name="bare")
+        second.set("note", second_note)
+        doc.add(second, "uses")
+        return to_cyclonedx(doc)
+
+    result = diff_documents(build("second"), build("second-modified"))
+    assert result["added"] == []
+    assert result["removed"] == []
+    [change] = result["changed"]
+    assert change["component"] == "mcp_server:bare#1"
+    assert change["fields"]["harness-aibom:note"] == {"before": "second", "after": "second-modified"}
+
+
+def test_positional_fallback_inherent_limit_when_a_third_indistinguishable_entry_is_inserted():
+    # Documented limitation, not a bug (SPEC.md §4 / §5): when entries
+    # carry nothing to tell them apart, inserting a new, equally
+    # undistinguishable one *between* two existing ones shifts every
+    # later position -- no scheme could avoid this without some
+    # content-derived property to key on instead. This test pins the
+    # known, accepted behavior so it can't silently change unnoticed,
+    # not because it's the desired outcome.
+    before_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    before_doc.add(Component(component_class="mcp_server", name="bare").set("note", "first"), "uses")
+    before_doc.add(Component(component_class="mcp_server", name="bare").set("note", "second"), "uses")
+    before = to_cyclonedx(before_doc)
+
+    after_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    after_doc.add(Component(component_class="mcp_server", name="bare").set("note", "first"), "uses")
+    after_doc.add(Component(component_class="mcp_server", name="bare").set("note", "inserted"), "uses")
+    after_doc.add(Component(component_class="mcp_server", name="bare").set("note", "second"), "uses")
+    after = to_cyclonedx(after_doc)
+
+    result = diff_documents(before, after)
+    # The genuinely new entry lands at position 2 and reads as "added" --
+    # visible, which is what matters.
+    assert result["added"] == ["mcp_server:bare#2"]
+    assert result["removed"] == []
+    # But the original second entry (now shifted to position 1) reads as
+    # a false "changed" against the newly-inserted one, since position is
+    # all either has to go on.
+    [change] = result["changed"]
+    assert change["component"] == "mcp_server:bare#1"
+    assert change["fields"]["harness-aibom:note"] == {"before": "second", "after": "inserted"}

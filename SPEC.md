@@ -291,6 +291,14 @@ whole harness directory, skill directories included — a `.env` dropped
 inside a skill is exactly where a poisoned skill would keep a payload's
 configuration, and a top-level-only scan would never see it.
 
+This is a promise, not just an assumption — an independent reviewer
+pointed out that the stdio MCP `env` handling (§2's `mcp_server` row) is
+exactly the kind of new code path that could accidentally start reading a
+value instead of just a name. `tests/test_redaction.py` proves it: it
+plants one unique string in a `.env`, an MCP server's `env`, an MCP
+server's `auth.token`, a skill's `SKILL.md`, and a hook script, then
+greps the fully serialized CycloneDX JSON for it.
+
 Both `sha256_directory` and secrets-surface discovery tolerate permission
 errors rather than crashing the scan: a subdirectory that can't be listed
 (root-owned skills, scanned as a non-root user — a realistic lab condition)
@@ -489,3 +497,17 @@ fix for one hook-output shape silently broke a different, already-working
 one — a gap these two files exist to close going forward. Add a new row
 to the relevant table (never a one-off test elsewhere) whenever a new
 hook-output shape or diff-identity edge case is found.
+
+`tests/test_diff_identity_matrix.py` also covers the identity-resolution
+edge cases an independent reviewer's own probes had found and this
+project's suite hadn't: a name unique in one document but duplicated in
+the other (both directions), a change to the *middle* one of three
+same-named entries, and the positional-fallback disambiguator (for
+same-named services with no `endpoint`/`command`/`args` to key on at
+all) — including a test that pins its known, accepted limitation: a
+third, equally indistinguishable entry inserted *between* two existing
+ones shifts every later position, and no scheme could avoid that without
+some content-derived property to key on instead.
+
+`tests/test_redaction.py` proves the secrets-never-leak promise (§3)
+directly rather than only asserting it in comments.
