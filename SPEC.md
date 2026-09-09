@@ -2092,3 +2092,44 @@ didn't record them at all -- so tagging them would manufacture a
 distinction that doesn't exist, exactly what this section's own
 introduction (and SPEC.md section 16) warns against. This unblocks §21
 (evidence chains) narrowly, for exactly the case now tagged here.
+
+## 21. Evidence chains in the Component Inspector (v0.9.0, built on §20)
+
+A rendering feature over data that already exists as of §20 -- explicitly
+**not** a generic evidence-chain engine over every property this scanner
+records, since most properties have no real confidence/provenance data
+behind them to chain in the first place. Scoped to exactly the two
+confidence-tagged fact groups §20 introduced:
+
+- For a skill with `harness-aibom:contentAnalysisConfidence: "inferred"`,
+  one evidence-chain row per actual value in `referencedServers`/`urls`/
+  `shellIndicators`/`envVarReferences` -- the exact rule that produced it
+  (named plainly, e.g. "analyze_skill_content() found this MCP server
+  name mentioned in the skill's own SKILL.md prose"), the specific
+  triggering value itself, and an `INFERRED` badge.
+- For the same skill's `harness-aibom:sha256Confidence: "observed"`, one
+  row naming `fingerprint.py`'s `sha256_directory()` and the actual hash
+  value, with an `OBSERVED` badge -- so a reader sees the contrast
+  directly, on the same component, not just in two different places in
+  the spec.
+
+**Implemented as markup on the entry itself (`_render_evidence_chain()`,
+`report.py`), not a second client-side render path** -- the same "reuse,
+don't re-derive" principle the Component Inspector itself was built on
+in v0.8.0 (SPEC.md §15): `openInspector()` clones an already-rendered
+`.entry` element's DOM into the modal, so the evidence chain `<details>`
+block needs zero new JavaScript to appear there. **Confirmed with real
+dispatched browser events** (headless Chrome, driven directly over the
+DevTools Protocol -- `MouseEvent` dispatched via `dispatchEvent()` on the
+real Inspect `<button>`, never a direct call into `openInspector()`):
+the cloned modal body actually contains the Evidence chain block, both
+badges, and the real triggering value (`corp-docs`) after a real click,
+not just in the static pre-click HTML -- exactly the check this
+project's own SPEC.md has required for every JS-adjacent change since
+the v0.4.0 postmortem (a real shipped bug -- a written-but-never-wired
+`addEventListener` -- was caught only this way, most recently for the
+v0.8.2 Raw BOM search box, §16).
+
+Returns nothing for every other componentClass and for a skill whose
+content analysis found nothing to infer (no fabricated empty evidence
+chain) -- confirmed by a dedicated regression test.

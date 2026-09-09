@@ -186,6 +186,9 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .compliance-status.evidence-collected { background: #2f7a3d; color: #fff; }
 .compliance-status.partial-evidence { background: #b9852f; color: #fff; }
 .compliance-status.not-assessed { background: var(--border); color: var(--muted); }
+.confidence-badge { display: inline-block; border-radius: 4px; padding: 0.05rem 0.4rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em; }
+.confidence-badge.observed { background: #2f7a3d; color: #fff; }
+.confidence-badge.inferred { background: #b9852f; color: #fff; }
 .mcp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
 .mcp-card-header { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.4rem; }
 .status-pill { display: inline-block; border-radius: 4px; padding: 0.05rem 0.45rem; font-size: 0.72rem; font-weight: 600; }
@@ -665,6 +668,62 @@ def _render_reachable_list(bom_ref: str, index: dict[str, dict], key: str, label
     )
 
 
+#: (property name, the exact rule that produces it) for every skill
+#: content-analysis field that carries the v0.9.0 "inferred" confidence
+#: tag (collectors/skills.py, SPEC.md section 20) -- the ONLY fields this
+#: renderer builds an evidence chain for; see SPEC.md section 21 for why
+#: this is deliberately not a generic engine over every property.
+_INFERRED_EVIDENCE_FIELDS = (
+    ("referencedServers", "analyze_skill_content() found this MCP server name mentioned in the "
+                           "skill's own SKILL.md prose"),
+    ("urls", "analyze_skill_content() found this URL written in the skill's own SKILL.md prose"),
+    ("shellIndicators", "analyze_skill_content() found this shell/CLI tool name mentioned in the "
+                         "skill's own SKILL.md prose"),
+    ("envVarReferences", "analyze_skill_content() found this environment variable name mentioned in "
+                          "the skill's own SKILL.md prose"),
+)
+
+
+def _render_evidence_chain(single: dict) -> str:
+    """rule that fired -> the specific text/property that triggered it ->
+    confidence, for exactly the properties collectors/skills.py's v0.9.0
+    confidence tagging covers (SPEC.md section 20) -- a rendering
+    feature over data that already exists on this entry, deliberately
+    not a generic evidence-chain engine for every property (most of
+    which have no real provenance/confidence data behind them at all).
+    Returns "" for any entry with neither confidence property set, so
+    this adds nothing to the Component Inspector for every other class.
+    """
+    rows: list[tuple[str, str, str]] = []
+    if single.get("harness-aibom:contentAnalysisConfidence") == "inferred":
+        for field, rule in _INFERRED_EVIDENCE_FIELDS:
+            for item in (single.get(f"harness-aibom:{field}") or "").split(","):
+                item = item.strip()
+                if item:
+                    rows.append((rule, item, "inferred"))
+    if single.get("harness-aibom:sha256Confidence") == "observed" and single.get("harness-aibom:sha256"):
+        rows.append((
+            "fingerprint.py sha256_directory() directly hashed every file under this component directory",
+            single["harness-aibom:sha256"],
+            "observed",
+        ))
+    if not rows:
+        return ""
+    items = "".join(
+        f"<li><span class='muted small'>{_esc(rule)}</span><br>"
+        f"<code class='small'>{_esc(trigger)}</code> "
+        f"<span class='confidence-badge {_esc(confidence)}'>{_esc(confidence.upper())}</span></li>"
+        for rule, trigger, confidence in rows
+    )
+    return (
+        f"<details><summary>Evidence chain ({len(rows)})</summary>"
+        "<p class='muted small'>rule that fired &rarr; the exact text/property that triggered it "
+        "&rarr; this component &rarr; confidence (never re-derived; read back verbatim from the "
+        "properties already shown above).</p>"
+        f"<ul class='risk-list'>{items}</ul></details>"
+    )
+
+
 def _render_entry(entry: dict, cls: str, ctx: dict) -> str:
     single, relationships = _split_properties(entry)
     single.pop("harness-aibom:componentClass", None)
@@ -734,6 +793,7 @@ def _render_entry(entry: dict, cls: str, ctx: dict) -> str:
         f"{surface_line}"
         f"{endpoints_html}"
         f"{_render_props_table(single)}"
+        f"{_render_evidence_chain(single)}"
         f"{blast_radius_html}"
         f"{supply_chain_html}"
         f"{_render_relationships(relationships)}"

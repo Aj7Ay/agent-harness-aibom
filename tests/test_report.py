@@ -890,3 +890,48 @@ def test_compliance_section_renders_all_three_frameworks_with_real_ids():
     assert "LLM03:2025" in section
     assert "MITRE ATLAS" in section
     assert "AML.T0007" in section
+
+
+# ---- Evidence chains in the Component Inspector (v0.9.0, built on #4) ----
+
+
+def _skill_doc_with_content_analysis() -> dict:
+    doc = HarnessDocument(harness_name="hermes@testhost", runtime_kind="hermes", hostname="testhost")
+    skill = Component(component_class="skill", name="web-fetcher")
+    skill.set("sha256", "a" * 64)
+    skill.set("sha256Confidence", "observed")
+    skill.set("referencedServers", "corp-docs")
+    skill.set("shellIndicators", "curl")
+    skill.set("contentAnalysisConfidence", "inferred")
+    doc.add(skill, "loads")
+    return to_cyclonedx(doc)
+
+
+def test_evidence_chain_renders_for_a_skill_with_content_analysis():
+    html_text = render_html(_skill_doc_with_content_analysis())
+    assert "Evidence chain" in html_text
+    assert "analyze_skill_content() found this MCP server name mentioned" in html_text
+    assert ">corp-docs<" in html_text
+    assert "INFERRED" in html_text
+    assert "sha256_directory() directly hashed every file under this component directory" in html_text
+    assert "OBSERVED" in html_text
+
+
+def test_evidence_chain_absent_for_a_component_with_no_confidence_data():
+    # _doc_with_everything() has a model/model_endpoint/mcp_server, none
+    # of which carry the v0.9.0 confidence properties in this test setup.
+    html_text = render_html(_doc_with_everything())
+    assert "Evidence chain" not in html_text
+
+
+def test_evidence_chain_never_shown_for_a_skill_analysis_found_nothing():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    skill = Component(component_class="skill", name="quiet-skill")
+    skill.set("sha256", "b" * 64)
+    skill.set("sha256Confidence", "observed")
+    # No contentAnalysisConfidence -- analysis found nothing to infer.
+    doc.add(skill, "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "Evidence chain" in html_text  # the observed sha256 row still shows
+    assert "INFERRED" not in html_text
+    assert "OBSERVED" in html_text
