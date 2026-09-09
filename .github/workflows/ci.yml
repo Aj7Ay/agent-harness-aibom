@@ -25,6 +25,13 @@ jobs:
       # tests actually run in CI too, not just locally.
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
+        with:
+          # Pinned to the exact version sign.py's own docstring/SPEC.md
+          # claim was verified against -- the action's own unpinned
+          # default resolved to v2.5.2, which has no --signing-config
+          # flag at all ("unknown flag") and broke every sign/verify
+          # test in CI despite passing locally against v3.1.3.
+          cosign-release: 'v3.1.3'
 
       - name: Install the package and dev dependencies
         run: uv sync --extra dev
