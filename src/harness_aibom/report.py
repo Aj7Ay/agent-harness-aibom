@@ -18,7 +18,11 @@ could; this is the "AIBOM Explorer" step an independent reviewer asked
 for. Still single-file, still fully offline, still no CDN/framework --
 `_JS` is a plain inline `<script>` block, no build step, no external
 runtime. Everything that CAN stay JS-free still is: per-entry raw JSON
-uses `<details>`/`<pre>`, same as every other collapsible section.
+uses `<details>`/`<pre>`, same as every other collapsible section --
+though as of v0.5.1 its content is populated lazily by `_JS` from one
+shared, compact embedded copy of the whole document, rather than each
+`<details>` server-embedding its own full pretty-printed copy (which
+had roughly doubled the file's size for data most viewers never open).
 
 Color: each componentClass gets a fixed categorical color, used
 consistently everywhere it appears on the page (badges, group headers,
@@ -207,10 +211,30 @@ pre.raw-json {
 #: v0.4.0's one deliberate exception to "no JavaScript needed at all" (see
 #: module docstring) -- live search and a componentClass filter across
 #: potentially hundreds of entries. Plain global functions, not an IIFE:
-#: this is a single generated page with server-rendered `onclick`
-#: attributes calling `goToClass()` directly (from the architecture
-#: diagram's boxes), so there's no module-collision risk to guard
-#: against, and no build step or bundler to justify one.
+#: this is a single generated page, so there's no module-collision risk
+#: to guard against, and no build step or bundler to justify one.
+#:
+#: v0.5.1: architecture-diagram nodes are found by a delegated
+#: `click` listener reading a `data-goto` attribute, NOT a server-
+#: rendered `onclick="goToClass('...')"` attribute. Confirmed real: an
+#: independent reviewer found that `_esc()` (`html.escape`) is the wrong
+#: escaper for "a value embedded inside a JS string literal that is
+#: itself inside an HTML attribute" -- the browser HTML-decodes the
+#: attribute (turning `&#x27;` back into a literal `'`) *before* handing
+#: the attribute's text to the JS parser, so a componentClass containing
+#: a quote (reachable only by hand-editing or otherwise supplying a
+#: harness-aibom document this scanner didn't itself produce -- `report`
+#: accepts any JSON file, and collector-produced componentClass values
+#: are the only thing actually restricted to a fixed vocabulary) broke
+#: out of the JS string and ran arbitrary script. `data-goto` sidesteps
+#: the whole nested-grammar problem: `_esc()` still protects the HTML
+#: attribute context correctly, and `getAttribute()` returns that exact
+#: decoded string with no further parsing step, so there is no second
+#: grammar left to escape for. `goToClass()` itself no longer builds a
+#: CSS selector by string concatenation either (the same class of
+#: mistake, flagged even though the `<select>`-sourced value reaching it
+#: couldn't itself carry a `"` past the HTML-attribute boundary) -- it
+#: compares `data-class` values in a loop instead.
 _JS = """
 function normalizeText(s) { return (s || '').toLowerCase(); }
 
@@ -237,13 +261,21 @@ function applyFilters() {
   }
 }
 
+function findGroupForClass(cls) {
+  var groups = document.querySelectorAll('.group[data-class]');
+  for (var i = 0; i < groups.length; i++) {
+    if (groups[i].getAttribute('data-class') === cls) return groups[i];
+  }
+  return null;
+}
+
 function goToClass(cls) {
   var classFilter = document.getElementById('class-filter');
   var searchBox = document.getElementById('search-box');
   if (classFilter) classFilter.value = cls || '';
   if (searchBox) searchBox.value = '';
   applyFilters();
-  var target = cls ? document.querySelector('.group[data-class="' + cls + '"]') : document.getElementById('components');
+  var target = cls ? findGroupForClass(cls) : document.getElementById('components');
   if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
@@ -252,8 +284,57 @@ document.addEventListener('DOMContentLoaded', function () {
   var classFilter = document.getElementById('class-filter');
   if (searchBox) searchBox.addEventListener('input', applyFilters);
   if (classFilter) classFilter.addEventListener('change', applyFilters);
+  document.addEventListener('click', function (event) {
+    var node = event.target.closest && event.target.closest('[data-goto]');
+    if (node) goToClass(node.getAttribute('data-goto'));
+  });
   applyFilters();
 });
+
+// v0.5.1: raw JSON (per entry, and the whole document) is rendered
+// lazily from one shared, compact embedded blob instead of a second,
+// pretty-printed copy per entry -- an independent reviewer found the
+// previous approach (every entry AND the whole document each carrying
+// their own full `json.dumps(..., indent=2)`) roughly doubled the
+// file's size for no benefit most viewers never open. `<details
+// data-bom-ref="...">` is populated into its own `<pre>` the first time
+// it's actually opened; the root document itself uses the sentinel ref
+// "__bom__". Same principle as search/filter (v0.4.0): this needs
+// JavaScript and has no fallback for a JS-disabled viewer, consistent
+// with that already being true of every other interactive piece of
+// this report.
+var BOM_DATA = null;
+(function () {
+  var dataEl = document.getElementById('bom-data');
+  if (!dataEl) return;
+  try { BOM_DATA = JSON.parse(dataEl.textContent); } catch (e) { BOM_DATA = null; }
+})();
+
+function findByRef(ref) {
+  if (!BOM_DATA) return null;
+  if (ref === '__bom__') return BOM_DATA;
+  var root = BOM_DATA.metadata && BOM_DATA.metadata.component;
+  if (root && root['bom-ref'] === ref) return root;
+  var lists = [BOM_DATA.components || [], BOM_DATA.services || []];
+  for (var i = 0; i < lists.length; i++) {
+    for (var j = 0; j < lists[i].length; j++) {
+      if (lists[i][j]['bom-ref'] === ref) return lists[i][j];
+    }
+  }
+  return null;
+}
+
+document.addEventListener('toggle', function (event) {
+  var details = event.target;
+  if (!details || details.tagName !== 'DETAILS' || !details.hasAttribute('data-bom-ref')) return;
+  if (!details.open || details.dataset.rendered) return;
+  var data = findByRef(details.getAttribute('data-bom-ref'));
+  var pre = details.querySelector('pre.raw-json');
+  if (pre && data) {
+    pre.textContent = JSON.stringify(data, null, 2);
+    details.dataset.rendered = '1';
+  }
+}, true); // capture: 'toggle' does not bubble
 """
 
 
@@ -358,21 +439,25 @@ def _search_blob(entry: dict, cls: str) -> str:
     return " ".join(str(p) for p in parts if p).lower()
 
 
-def _render_blast_radius(bom_ref: str, blast_radii: dict[str, dict]) -> str:
-    radius = blast_radii.get(bom_ref) or {}
-    reachable = radius.get("reachable", [])
+def _render_reachable_list(bom_ref: str, index: dict[str, dict], key: str, label: str, blurb: str) -> str:
+    """Shared renderer for both directions -- `compute_supply_chain()`
+    (what this depends on) and `compute_blast_radius()` (what would be
+    affected if this were compromised, the reverse traversal -- see
+    SPEC.md section 11's v0.5.1 note for why these are two different,
+    both-real questions, not one function pretending to answer both).
+    """
+    reachable = (index.get(bom_ref) or {}).get(key, [])
     if not reachable:
         return ""
     items = "".join(f"<li>{_esc(ref)}</li>" for ref in reachable)
     return (
-        f"<details><summary>Blast radius ({len(reachable)} reachable, observed)</summary>"
-        "<p class='muted small'>Everything reachable by following this component's own recorded "
-        "relationships, transitively -- an exact graph traversal, not a guess.</p>"
+        f"<details><summary>{label} ({len(reachable)} reachable, observed)</summary>"
+        f"<p class='muted small'>{blurb}</p>"
         f"<ul>{items}</ul></details>"
     )
 
 
-def _render_entry(entry: dict, cls: str, blast_radii: dict[str, dict]) -> str:
+def _render_entry(entry: dict, cls: str, ctx: dict) -> str:
     single, relationships = _split_properties(entry)
     single.pop("harness-aibom:componentClass", None)
 
@@ -388,29 +473,45 @@ def _render_entry(entry: dict, cls: str, blast_radii: dict[str, dict]) -> str:
 
     # v0.5.0: capability + reachability, both fixed/explainable
     # classifications (security.py), never a guess at actual runtime
-    # behavior -- see SPEC.md section 11.
+    # behavior -- see SPEC.md section 11. `tool` needs the document-wide
+    # mcp_servers lookup (v0.5.1) to inherit its parent server's own
+    # reachability rather than guessing one from its own riskClass.
     capability = security.classify_capabilities(entry)
-    reachability = security.classify_reachability(entry)
+    reachability = security.classify_reachability(entry, ctx["mcp_servers"])
     surface_line = f"<p class='muted small'>capability: {_esc(capability)} &middot; reachability: {_esc(reachability)}</p>"
 
     endpoints_html = ""
     if entry.get("endpoints"):
         endpoints_html = f"<p class='muted'>endpoints: {_esc(', '.join(entry['endpoints']))}</p>"
 
-    # Raw JSON per entry, the offline-idiom way (native <details>, same as
-    # every other collapsible section) rather than a JavaScript drawer --
-    # an independent reviewer's "click for detail" ask, scoped for v0.4.0
-    # to what doesn't need any JS at all. See SPEC.md section 10.
-    raw_json = f"<details><summary>Raw JSON</summary><pre class='raw-json'>{_esc(json.dumps(entry, indent=2))}</pre></details>"
+    # Raw JSON per entry -- native <details>, same as every other
+    # collapsible section, but its content is populated lazily by the
+    # `toggle` listener in `_JS` (from the single shared `#bom-data`
+    # blob, see `render_html`) rather than server-embedded here. See
+    # SPEC.md section 10 for the original v0.4.0 design and section 12
+    # for why v0.5.1 stopped embedding it directly.
+    raw_json = f"<details data-bom-ref='{_esc(entry.get('bom-ref', ''))}'><summary>Raw JSON</summary><pre class='raw-json'></pre></details>"
+
+    bom_ref = entry.get("bom-ref", "")
+    supply_chain_html = _render_reachable_list(
+        bom_ref, ctx["supply_chains"], "reachable", "Depends on",
+        "Everything this component itself relies on, transitively -- an exact graph traversal, not a guess.",
+    )
+    blast_radius_html = _render_reachable_list(
+        bom_ref, ctx["blast_radii"], "reachable", "Blast radius",
+        "Everything that would be affected if this component were compromised -- the reverse of "
+        "\"Depends on\" above, an exact graph traversal over the same recorded relationships.",
+    )
 
     return (
         f"<div class='entry' data-class='{_esc(cls)}' data-search='{_esc(_search_blob(entry, cls))}'>"
         f"<div class='entry-header'>{' '.join(header_bits)}"
-        f" <span class='small'>{_esc(entry.get('bom-ref', ''))}</span></div>"
+        f" <span class='small'>{_esc(bom_ref)}</span></div>"
         f"{surface_line}"
         f"{endpoints_html}"
         f"{_render_props_table(single)}"
-        f"{_render_blast_radius(entry.get('bom-ref', ''), blast_radii)}"
+        f"{blast_radius_html}"
+        f"{supply_chain_html}"
         f"{_render_relationships(relationships)}"
         f"{raw_json}"
         "</div>"
@@ -424,8 +525,8 @@ def _group_by_class(entries: list[dict]) -> dict[str, list[dict]]:
     return grouped
 
 
-def _render_group(cls: str, entries: list[dict], blast_radii: dict[str, dict]) -> str:
-    body = "".join(_render_entry(e, cls, blast_radii) for e in sorted(entries, key=lambda e: e.get("name", "")))
+def _render_group(cls: str, entries: list[dict], ctx: dict) -> str:
+    body = "".join(_render_entry(e, cls, ctx) for e in sorted(entries, key=lambda e: e.get("name", "")))
     return (
         f"<details open class='group' data-class='{_esc(cls)}'>"
         f"<summary>{_class_dot(cls)}{_esc(cls)} <span class='count'>({len(entries)})</span></summary>"
@@ -434,12 +535,12 @@ def _render_group(cls: str, entries: list[dict], blast_radii: dict[str, dict]) -
     )
 
 
-def _render_groups(grouped: dict[str, list[dict]], preferred_order: tuple[str, ...], blast_radii: dict[str, dict]) -> str:
+def _render_groups(grouped: dict[str, list[dict]], preferred_order: tuple[str, ...], ctx: dict) -> str:
     # Preferred classes first, in a fixed reading order; anything this
     # renderer doesn't specifically know about still gets shown, appended
     # afterward rather than silently dropped -- see module docstring.
     order = list(preferred_order) + sorted(set(grouped) - set(preferred_order))
-    return "".join(_render_group(cls, grouped[cls], blast_radii) for cls in order if cls in grouped)
+    return "".join(_render_group(cls, grouped[cls], ctx) for cls in order if cls in grouped)
 
 
 def _render_kpi_row(tiles: list[tuple[str, int]]) -> str:
@@ -588,13 +689,15 @@ def _render_architecture_graph(graph: dict) -> str:
         stroke = "var(--fg)" if is_root else f"var({_class_color_var(node)})"
         x = cx - box_w / 2
         # Clickable (v0.4.0): jumps to and filters the Components/Services
-        # section to this class -- goToClass('') on the root node clears
-        # the filter instead, since "harness root" isn't a real
-        # componentClass anything below is filterable by.
+        # section to this class, via a delegated click listener reading
+        # `data-goto` (v0.5.1 -- see _JS's own comment for why this isn't
+        # a server-rendered `onclick` attribute). An empty `data-goto` on
+        # the root node clears the filter instead, since "harness root"
+        # isn't a real componentClass anything below is filterable by.
         target = "" if is_root else node
         tooltip = "reset filter" if is_root else f"filter to {label}"
         box_svg.append(
-            f"<g onclick=\"goToClass('{_esc(target)}')\">"
+            f"<g data-goto='{_esc(target)}'>"
             f"<title>{_esc(label)}: {count} ({tooltip})</title>"
             f"<rect x='{x}' y='{top}' width='{box_w}' height='{box_h}' rx='8' "
             f"class='arch-box' data-node='{_esc(node)}' style='stroke:{stroke}'/>"
@@ -667,13 +770,19 @@ def _render_risk_observations(bom: dict) -> str:
         return (
             "<p class='risk-clean'>✓ No configured risk rule fired against this document.</p>"
             "<p class='muted'>This reflects only the specific, named rules this scanner checks "
-            "(world-readable secrets, plaintext/unauthenticated MCP transport, unpinned dependency "
-            "packages, models with no content digest) &mdash; not a general clean bill of health.</p>"
+            "(world-readable secrets, at both confidence tiers; plaintext/unauthenticated MCP "
+            "transport; unpinned MCP launcher packages; Python packages missing a version; models "
+            "with no content digest) &mdash; not a general clean bill of health.</p>"
         )
     items = "".join(
         "<li>"
         f"<span class='risk-badge {_SEVERITY_CSS_CLASS.get(o['severity'], 'sev-warning')}'>"
         f"{_esc(_SEVERITY_LABEL.get(o['severity'], o['severity'].upper()))}</span>"
+        # o['rule'] itself, not just its prose summary -- confirmed real
+        # gap: this section's own intro text says "each observation names
+        # the exact rule that fired", but the rule name never actually
+        # reached the page; only the free-text summary did.
+        f"<code class='small'>{_esc(o['rule'])}</code>"
         f"<span>{_esc(o['summary'])}</span>"
         f"<span class='small'>{_esc(', '.join(c for c in o['components'] if c))}</span>"
         "</li>"
@@ -825,11 +934,15 @@ def _render_empty_cyclonedx_section(bom: dict, key: str, message: str) -> str:
     return f"<p class='muted'><em>{_esc(message)}</em></p>"
 
 
-def _render_raw_bom(bom: dict) -> str:
-    text = json.dumps(bom, indent=2)
+def _render_raw_bom(compact_size: int) -> str:
+    # Lazily populated from the shared #bom-data blob (see _JS and
+    # render_html) via the sentinel ref "__bom__", not embedded again
+    # here -- `compact_size` is the one real copy's own byte count
+    # (compact, not pretty-printed, since that's what's actually shipped
+    # in the file), shown so the summary line stays honest about size.
     return (
-        f"<details><summary>Raw CycloneDX AIBOM ({len(text)} bytes)</summary>"
-        f"<pre class='raw-json'>{_esc(text)}</pre></details>"
+        f"<details data-bom-ref='__bom__'><summary>Raw CycloneDX AIBOM ({compact_size} bytes, compact)</summary>"
+        "<pre class='raw-json'></pre></details>"
     )
 
 
@@ -891,14 +1004,31 @@ def render_html(bom: dict) -> str:
     ]
     class_counts = {cls: len(entries) for cls, entries in all_groups.items()}
     architecture_graph = security.build_architecture_graph(bom)
-    # The ref->dependsOn adjacency map is built once here and reused for
-    # every entry's blast radius below -- compute_blast_radius() would
-    # otherwise rebuild it from bom["dependencies"] on every single call.
+    # Every per-entry adjacency map / lookup is built exactly once here
+    # and reused for every rendered entry below -- security.py's own
+    # per-call functions would otherwise rebuild each from scratch once
+    # per entry (O(entries x edges) instead of O(entries + edges)).
+    # `supply_chains` (forward: what a component depends on) and
+    # `blast_radii` (backward: what depends on a component -- the
+    # correct "what's affected if this is compromised" direction, v0.5.1)
+    # are deliberately two different traversals over the same edges, not
+    # one function pretending to answer both questions -- see SPEC.md
+    # section 11.
     dependency_children = security.build_dependency_children(bom)
-    blast_radii = {
-        ref: security.compute_blast_radius(bom, ref, dependency_children)
-        for entry in components + services
-        if (ref := entry.get("bom-ref"))
+    dependency_parents = security.build_dependency_parents(bom)
+    mcp_servers = security.index_mcp_servers(bom)
+    ctx = {
+        "mcp_servers": mcp_servers,
+        "supply_chains": {
+            ref: security.compute_supply_chain(bom, ref, dependency_children)
+            for entry in components + services
+            if (ref := entry.get("bom-ref"))
+        },
+        "blast_radii": {
+            ref: security.compute_blast_radius(bom, ref, dependency_parents)
+            for entry in components + services
+            if (ref := entry.get("bom-ref"))
+        },
     }
 
     summary_rows = "".join(
@@ -920,6 +1050,19 @@ def render_html(bom: dict) -> str:
         if deterministic_input
         else f"Generated by agent-harness-aibom · {_esc(datetime.now(timezone.utc).isoformat(timespec='seconds'))}"
     )
+
+    # The one real copy of the whole document, embedded once (compact,
+    # not pretty-printed) for every "Raw JSON" reveal (per-entry and the
+    # top-level Raw BOM) to render lazily from client-side -- see _JS.
+    # `.replace("</", "<\\/")`: a `</script` substring inside the JSON
+    # (a component name/property value could contain literal text like
+    # that) would otherwise be read by the HTML *parser* as this
+    # <script> tag's own closing tag, truncating the embedded data and
+    # leaving whatever followed to render as page markup instead of
+    # JSON -- `\/` is a valid JSON escape for `/`, so this changes
+    # nothing about the parsed value, only how the raw bytes look to the
+    # HTML tokenizer before JSON.parse ever sees them.
+    bom_data_json = json.dumps(bom, separators=(",", ":")).replace("</", "<\\/")
 
     return f"""<!doctype html>
 <html lang="en">
@@ -994,12 +1137,12 @@ def render_html(bom: dict) -> str:
 <section id="components">
   <h2>Components</h2>
   {_render_skill_category_breakdown(comp_groups.get("skill", []))}
-  {_render_groups(comp_groups, _COMPONENT_CLASS_ORDER, blast_radii) or "<p><em>none found</em></p>"}
+  {_render_groups(comp_groups, _COMPONENT_CLASS_ORDER, ctx) or "<p><em>none found</em></p>"}
 </section>
 
 <section id="services">
   <h2>Services</h2>
-  {_render_groups(svc_groups, _SERVICE_CLASS_ORDER, blast_radii) or "<p><em>none found</em></p>"}
+  {_render_groups(svc_groups, _SERVICE_CLASS_ORDER, ctx) or "<p><em>none found</em></p>"}
 </section>
 
 <section id="metadata">
@@ -1027,13 +1170,14 @@ def render_html(bom: dict) -> str:
 
 <section id="raw-bom">
   <h2>Raw BOM</h2>
-  {_render_raw_bom(bom)}
+  {_render_raw_bom(len(bom_data_json))}
 </section>
 
 <footer class="muted">
   {generated_line} ·
   every property of every component is rendered, nothing summarized away.
 </footer>
+<script type="application/json" id="bom-data">{bom_data_json}</script>
 <script>{_JS}</script>
 </body>
 </html>

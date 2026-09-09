@@ -303,26 +303,82 @@ def test_architecture_nodes_are_clickable_and_filter_to_their_class():
     doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
     doc.add(Component(component_class="skill", name="a"), "loads")
     html_text = render_html(to_cyclonedx(doc))
-    assert "onclick=\"goToClass('skill')\"" in html_text
+    assert "data-goto='skill'" in html_text
     # the root node resets the filter, not "filters to a class called harness"
-    assert "onclick=\"goToClass('')\"" in html_text
+    assert "data-goto=''" in html_text
+    # v0.5.1: never a server-rendered onclick handler for this -- see the
+    # dedicated XSS regression test below for why.
+    assert "onclick=" not in html_text
 
 
-def test_raw_json_reveal_exists_per_entry_and_contains_real_data():
+def test_architecture_node_click_survives_a_componentclass_containing_a_quote():
+    # Regression test: an independent reviewer found that a componentClass
+    # value containing a single quote broke out of the old
+    # onclick="goToClass('...')" JS string literal -- html.escape() is the
+    # wrong escaper for "a value embedded in a JS string that is itself
+    # inside an HTML attribute" (the browser HTML-decodes the attribute,
+    # turning &#x27; back into a literal ', *before* the JS parser ever
+    # sees it). Reproduced exactly: rendering a hand-crafted document (not
+    # one this scanner itself produced -- collectors are restricted to a
+    # fixed componentClass vocabulary, but `report` accepts any JSON file)
+    # with a malicious class used to execute injected script. `data-goto`
+    # (read via getAttribute(), never re-parsed as JS) has no such
+    # nested-grammar problem in the first place.
+    bom = {
+        "bomFormat": "CycloneDX", "specVersion": "1.6", "version": 1,
+        "metadata": {"component": {"type": "application", "bom-ref": "harness-root", "name": "evil@test"}},
+        "components": [{
+            "type": "application", "bom-ref": "c1", "name": "x",
+            "properties": [{"name": "harness-aibom:componentClass", "value": "x'); alert(document.domain); //"}],
+        }],
+        "dependencies": [{"ref": "harness-root", "dependsOn": ["c1"]}],
+    }
+    html_text = render_html(bom)
+    assert "alert(document.domain)" not in html_text.split("data-goto='")[1].split("'")[0]
+    assert "onclick=" not in html_text
+    # the value still reaches the page, safely, as an HTML-attribute value
+    assert "data-goto='x&#x27;); alert(document.domain); //'" in html_text
+
+
+def test_raw_json_reveal_exists_per_entry_with_a_lazy_populated_pre_block():
+    # v0.5.1: no longer server-embedded (see the file-size regression
+    # test below) -- populated client-side from the shared #bom-data
+    # blob, so the server-rendered <pre> starts empty.
     html_text = render_html(_doc_with_everything())
     assert "Raw JSON" in html_text
-    assert "class='raw-json'" in html_text
-    # the raw JSON goes through the same html.escape() as everything else
-    # on the page (never raw, even inside a <pre> block) -- quotes come
-    # out as &quot; entities, not literal characters.
-    assert "&quot;name&quot;: &quot;qwen3:8b&quot;" in html_text
+    assert "<pre class='raw-json'></pre>" in html_text
+    assert "data-bom-ref=" in html_text
+    # the one real copy is the compact #bom-data blob, not a second
+    # pretty-printed copy per entry
+    assert '"name":"qwen3:8b"' in html_text  # compact json.dumps has no space after ":"
 
 
-def test_raw_bom_section_contains_the_full_document():
+def test_raw_bom_section_is_lazy_and_references_the_shared_data_blob():
     bom = _doc_with_everything()
     html_text = render_html(bom)
     assert "Raw CycloneDX AIBOM" in html_text
-    assert bom["serialNumber"] in html_text
+    assert "data-bom-ref='__bom__'" in html_text
+    assert bom["serialNumber"] in html_text  # present once, in #bom-data
+
+
+def test_report_does_not_duplicate_entry_data_into_a_second_pretty_json_copy():
+    # Regression test: an independent reviewer measured a real report at
+    # roughly 6x the size of the same document's v0.3.0 report, because
+    # every entry embedded its own full pretty-printed json.dumps(...,
+    # indent=2) copy *and* the top-level Raw BOM section embedded a
+    # second full pretty copy of the whole document. Confirmed by
+    # counting: a document with N entries should carry the entry's own
+    # data only once (in the single compact #bom-data blob), not N+1
+    # times.
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    for i in range(20):
+        doc.add(Component(component_class="skill", name=f"skill-{i}"), "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    # each skill's name would appear in a per-entry pretty copy AND the
+    # raw-bom copy under the old design (2x); now it appears once, inside
+    # the compact #bom-data blob, plus once more in the entry's own
+    # visible name/search-blob text -- never a third, JSON-shaped copy.
+    assert html_text.count('"name":"skill-0"') == 1
 
 
 def test_metadata_section_shows_bom_format_and_spec_version():
@@ -384,18 +440,26 @@ def test_entry_shows_capability_and_reachability_line():
     assert "reachability:" in html_text
 
 
-def test_blast_radius_reveal_shown_for_a_component_with_real_children():
+def test_supply_chain_reveal_shown_for_a_component_with_real_dependencies():
     doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
     endpoint = doc.add(Component(component_class="model_endpoint", name="http://x"), "uses")
     model = doc.add_child(Component(component_class="model", name="qwen3:8b"), endpoint, "uses")
     html_text = render_html(to_cyclonedx(doc))
 
-    assert "Blast radius (1 reachable, observed)" in html_text
+    assert "Depends on (1 reachable, observed)" in html_text
     assert model.bom_ref in html_text
 
 
-def test_blast_radius_reveal_absent_for_a_leaf_component():
+def test_blast_radius_reveal_shown_for_a_leaf_component_via_the_harness_root():
+    # v0.5.1: blast radius is the reverse of "Depends on" -- what would
+    # be affected if this were compromised, not what it relies on. Even
+    # a leaf (a skill with nothing downstream of it) has the harness
+    # root depend on it, so "Blast radius" is never simply absent the
+    # way "Depends on" legitimately is for a leaf.
     doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
     doc.add(Component(component_class="skill", name="lonely-skill"), "loads")
     html_text = render_html(to_cyclonedx(doc))
-    assert "Blast radius" not in html_text
+    assert "Blast radius (1 reachable, observed)" in html_text
+    # "Depends on" as a cross-reference inside the blast-radius blurb is
+    # fine -- what must be absent is the "Depends on" reveal itself.
+    assert "<summary>Depends on" not in html_text

@@ -56,6 +56,30 @@ def test_document_with_no_services_is_still_valid():
     _assert_schema_valid(to_cyclonedx(doc))
 
 
+def test_obfuscated_author_email_never_produces_an_invalid_document():
+    # Regression guard, same discipline as this file's own docstring:
+    # an independent reviewer found a package's Author-email written as
+    # a deliberately-obfuscated non-address ("Jane Doe <jane at example
+    # dot com>", a real pattern used to dodge scrapers) reached
+    # CycloneDX's native contact.email field unchecked, producing a
+    # document that failed strict schema validation (the real schema
+    # requires idn-email format there) while this package's own
+    # hand-rolled `validate` command reported it valid regardless --
+    # exactly the class of gap this file exists to catch.
+    from harness_aibom.collectors.deps import _parse_metadata
+    from harness_aibom.model import Component
+
+    meta = _parse_metadata("Name: oddpkg\nVersion: 1.0\nAuthor-email: Jane Doe <jane at example dot com>\n\nbody\n")
+    dep = Component(component_class="dependency", name=meta.name)
+    dep.version = meta.version
+    dep.set("supplierName", meta.supplier_name)
+    dep.set("supplierEmail", meta.supplier_email)
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    doc.add(dep, "uses")
+    _assert_schema_valid(to_cyclonedx(doc))
+
+
 def test_deterministic_output_is_still_valid_cyclonedx():
     # serialNumber and metadata.timestamp are both optional in the real
     # schema -- confirmed here rather than assumed, since getting this

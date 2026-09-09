@@ -139,12 +139,31 @@ def compute_risk_observations(bom: dict) -> list[dict]:
         e for e in entries
         if _component_class(e) == "secrets_surface" and _properties(e).get("harness-aibom:worldReadable") == "True"
     ]
-    if world_readable:
+    # Split by classify_secret_confidence() instead of one rule over all
+    # of them -- confirmed real bug fixed here: `*token*`/`*.sqlite`
+    # heuristic matches (secrets.py's own noisy tier, see
+    # HEURISTIC_PATTERNS) were reported at the same "high" severity as an
+    # exact `.env`/`*.pem`/`*.key` match, and classify_secret_confidence()
+    # -- written for exactly this distinction -- was never actually
+    # called anywhere. A heuristic-tier match is real evidence, just
+    # weaker evidence, so it still gets its own observation (never
+    # silently dropped), at a lower severity and under its own rule name.
+    world_readable_high = [e for e in world_readable if classify_secret_confidence(e) == "high"]
+    world_readable_heuristic = [e for e in world_readable if classify_secret_confidence(e) == "heuristic"]
+    if world_readable_high:
         observations.append({
-            "rule": "world_readable_secret",
+            "rule": "world_readable_secret_high_confidence",
             "severity": "high",
-            "summary": f"{len(world_readable)} secrets-surface file(s) are world-readable",
-            "components": [e.get("bom-ref") for e in world_readable],
+            "summary": f"{len(world_readable_high)} secrets-surface file(s) (high-confidence match) are world-readable",
+            "components": [e.get("bom-ref") for e in world_readable_high],
+        })
+    if world_readable_heuristic:
+        observations.append({
+            "rule": "world_readable_secret_heuristic",
+            "severity": "medium",
+            "summary": f"{len(world_readable_heuristic)} secrets-surface file(s) (heuristic filename match, e.g. "
+                       "*token*/*.sqlite -- verify before acting) are world-readable",
+            "components": [e.get("bom-ref") for e in world_readable_heuristic],
         })
 
     mcp_servers = [e for e in entries if _component_class(e) == "mcp_server"]
@@ -171,19 +190,42 @@ def compute_risk_observations(bom: dict) -> list[dict]:
             "components": [e.get("bom-ref") for e in unauth_mcp],
         })
 
-    # Python packages found via deps.py always carry a version (they're
-    # read straight from an already-installed dist-info, which always
-    # names its own version) -- a `dependency` component with none is,
-    # by construction, an MCP launcher package that resolves "latest" at
-    # every invocation (mcp.py only sets `.version` when the launcher
-    # spec pinned one).
-    unpinned = [e for e in entries if _component_class(e) == "dependency" and "version" not in e]
-    if unpinned:
+    # `origin` (mcp.py / deps.py, both set it) distinguishes an MCP
+    # launcher package from a Python package found via deps.py --
+    # confirmed real bug fixed here: this used to infer "MCP launcher,
+    # resolves latest every invocation" purely from *absence* of a
+    # version field, on the false assumption that a deps.py-discovered
+    # Python package (read from an already-installed dist-info) could
+    # never lack one -- a METADATA file missing its own Version: header
+    # is malformed but real, and would have been silently merged into
+    # the same "floating launcher" finding. The two are now genuinely
+    # different rules: an unpinned MCP launcher is a real "resolves
+    # differently every run" risk; a Python package with no version is a
+    # data-quality problem (this scanner couldn't read a version that's
+    # supposed to exist), not the same finding at all.
+    dependencies = [e for e in entries if _component_class(e) == "dependency"]
+    unpinned_launchers = [
+        e for e in dependencies
+        if _properties(e).get("harness-aibom:origin") == "mcp-launcher" and "version" not in e
+    ]
+    if unpinned_launchers:
         observations.append({
-            "rule": "unpinned_dependency",
+            "rule": "unpinned_mcp_launcher",
             "severity": "low",
-            "summary": f"{len(unpinned)} dependency package(s) resolve without a pinned version",
-            "components": [e.get("bom-ref") for e in unpinned],
+            "summary": f"{len(unpinned_launchers)} MCP launcher package(s) resolve without a pinned version",
+            "components": [e.get("bom-ref") for e in unpinned_launchers],
+        })
+    unversioned_python_packages = [
+        e for e in dependencies
+        if _properties(e).get("harness-aibom:origin") == "python-package" and "version" not in e
+    ]
+    if unversioned_python_packages:
+        observations.append({
+            "rule": "python_package_missing_version",
+            "severity": "low",
+            "summary": f"{len(unversioned_python_packages)} Python package(s) had no Version: header in their own "
+                       "METADATA (malformed metadata, not a floating dependency)",
+            "components": [e.get("bom-ref") for e in unversioned_python_packages],
         })
 
     no_digest_models = [
@@ -265,9 +307,9 @@ def compute_coverage(bom: dict) -> dict:
 
 #: Fixed, explainable capability tag per componentClass -- what that kind
 #: of thing inherently *is*, not a guess at its actual runtime behavior.
-#: `tool` is deliberately absent here: it already has a real, specific
-#: signal (`riskClass`, from mcp.py's own name-heuristic) more precise
-#: than a fixed per-class default would be -- see `classify_capabilities`.
+#: `tool` and `mcp_server` are deliberately absent here: both have a
+#: real, per-instance signal more precise than a fixed per-class default
+#: would be -- see `classify_capabilities`.
 _CLASS_CAPABILITY = {
     "runtime": "execute",
     "configuration": "read",
@@ -277,7 +319,6 @@ _CLASS_CAPABILITY = {
     "secrets_surface": "credential",
     "dependency": "read",
     "model_endpoint": "network",
-    "mcp_server": "network",
 }
 
 #: `tool`'s riskClass (mcp.py, a name-only heuristic -- see model.py's
@@ -291,14 +332,23 @@ def classify_capabilities(entry: dict) -> str:
     """One capability tag: read / write / execute / network / credential
     / inference / unknown. Explainable by construction -- every class's
     tag is a fixed, documented mapping (above), never inferred from
-    behavior this scanner didn't observe. `tool` reuses its own
-    `riskClass` instead of the class-level default, since that's already
-    a more specific, per-instance signal.
+    behavior this scanner didn't observe.
+
+    Two classes consult their own recorded properties instead of the
+    fixed per-class default, since both already carry something more
+    specific: `tool` reuses its own `riskClass`. `mcp_server` reuses its
+    own `transport` -- confirmed real bug fixed here: the fixed map used
+    to say "network" unconditionally, contradicting a stdio server's own
+    `classify_reachability()` result ("process") on the very same row. A
+    stdio server has no network capability at all; only an http/sse one
+    does.
     """
     cls = _component_class(entry)
+    props = _properties(entry)
     if cls == "tool":
-        risk = _properties(entry).get("harness-aibom:riskClass", "unknown")
-        return _TOOL_RISK_TO_CAPABILITY.get(risk, "unknown")
+        return _TOOL_RISK_TO_CAPABILITY.get(props.get("harness-aibom:riskClass", "unknown"), "unknown")
+    if cls == "mcp_server":
+        return "process" if props.get("harness-aibom:transport") == "stdio" else "network"
     return _CLASS_CAPABILITY.get(cls, "unknown")
 
 
@@ -320,7 +370,16 @@ def _endpoint_url(entry: dict, props: dict[str, str]) -> str | None:
     return None
 
 
-def classify_reachability(entry: dict) -> str:
+def index_mcp_servers(bom: dict) -> dict[str, dict]:
+    """MCP server name -> its own raw entry, for `classify_reachability()`
+    to look up a `tool`'s parent. Built once per `compute_attack_surface()`
+    call (or by a caller rendering many entries, e.g. report.py) rather
+    than once per tool, same reasoning as `build_dependency_children()`.
+    """
+    return {e.get("name", ""): e for e in _entries(bom) if _component_class(e) == "mcp_server"}
+
+
+def classify_reachability(entry: dict, mcp_servers: dict[str, dict] | None = None) -> str:
     """Where this component sits, in terms an attack-surface map cares
     about: filesystem / process / loopback / network / credential-store
     / model-provider / unknown. Deliberately conservative about
@@ -329,6 +388,17 @@ def classify_reachability(entry: dict) -> str:
     the string alone (no DNS/routing check is performed) -- so it's
     labeled "network", never "internet-reachable", which would be a
     claim this scanner can't actually back up.
+
+    `mcp_servers` (name -> entry, from `index_mcp_servers()`) is how a
+    `tool`'s reachability is decided -- confirmed real bug fixed here: a
+    `tool` used to get a fixed guess from its own `riskClass` alone (a
+    remote HTTPS server's `read`/`write` tools read as "filesystem",
+    while a local stdio server's `network`-tagged tool read as
+    "network" -- both backwards). Reachability and capability are
+    different axes: capability says *what* a tool does; reachability
+    says *how it's reached*, which is entirely a property of the MCP
+    server it belongs to, not of the tool itself -- so a `tool` simply
+    inherits its parent server's own reachability.
     """
     cls = _component_class(entry)
     props = _properties(entry)
@@ -344,7 +414,8 @@ def classify_reachability(entry: dict) -> str:
     if cls == "model":
         return "model-provider"
     if cls == "tool":
-        return {"execute": "process", "network": "network"}.get(classify_capabilities(entry), "filesystem")
+        server = (mcp_servers or {}).get(props.get("harness-aibom:server", ""))
+        return classify_reachability(server, mcp_servers) if server is not None else "unknown"
     if cls in ("model_endpoint", "mcp_server"):
         if props.get("harness-aibom:transport") == "stdio":
             return "process"
@@ -363,45 +434,42 @@ def compute_attack_surface(bom: dict) -> dict:
     SERVICE" distinction an independent reviewer asked for, expressed as
     real, checkable groupings rather than another hand-drawn diagram.
     """
+    mcp_servers = index_mcp_servers(bom)
     by_tier: dict[str, list[str]] = {}
     for entry in _entries(bom):
-        tier = classify_reachability(entry)
+        tier = classify_reachability(entry, mcp_servers)
         by_tier.setdefault(tier, []).append(entry.get("bom-ref", ""))
     return {"by_tier": by_tier, "crosses_network_boundary": sorted(by_tier.get("network", []))}
 
 
-# ---- 8. Blast radius (v0.5.0) --------------------------------------------
+# ---- 8. Supply chain and blast radius (v0.5.0, direction fixed in v0.5.1) --
 
 
 def build_dependency_children(bom: dict) -> dict[str, list[str]]:
     """ref -> its direct `dependsOn` targets, built once from
-    `bom["dependencies"]`. A caller computing blast radius for many refs
+    `bom["dependencies"]`. A caller computing supply chain for many refs
     from the same document (report.py renders one per component) should
-    build this once and pass it to every `compute_blast_radius()` call,
+    build this once and pass it to every `compute_supply_chain()` call,
     rather than paying the O(edges) cost again on every single call.
     """
     return {dep.get("ref", ""): dep.get("dependsOn", []) for dep in bom.get("dependencies", [])}
 
 
-def compute_blast_radius(bom: dict, bom_ref: str, children: dict[str, list[str]] | None = None) -> dict:
-    """Everything reachable from `bom_ref` by following the document's
-    own real `dependencies[]` edges (a plain BFS) -- direct children and
-    the full transitive set. Every result here is labeled "observed" by
-    construction: these are edges a collector actually recorded (via
-    `HarnessDocument.add()`/`add_child()`), never a guessed or inferred
-    path. There is no "inferred" tier yet -- that needs something like
-    skill-content parsing (linking a skill to servers/models its own
-    `SKILL.md` prose references), which this scanner doesn't do (SPEC.md
-    section 5) -- so blast radius is complete only up to what the
-    dependency graph itself already contains.
-
-    `children` is optional -- built fresh from `bom` via
-    `build_dependency_children()` if omitted, for a single-call use.
+def build_dependency_parents(bom: dict) -> dict[str, list[str]]:
+    """ref -> every ref that directly `dependsOn` it -- the inverse of
+    `build_dependency_children()`. Built once and reused the same way,
+    for `compute_blast_radius()`.
     """
-    if children is None:
-        children = build_dependency_children(bom)
+    parents: dict[str, list[str]] = {}
+    for dep in bom.get("dependencies", []):
+        ref = dep.get("ref", "")
+        for target in dep.get("dependsOn", []):
+            parents.setdefault(target, []).append(ref)
+    return parents
 
-    direct = children.get(bom_ref, [])
+
+def _bfs(adjacency: dict[str, list[str]], start: str) -> tuple[list[str], list[str]]:
+    direct = adjacency.get(start, [])
     visited: set[str] = set()
     queue = list(direct)
     while queue:
@@ -409,6 +477,45 @@ def compute_blast_radius(bom: dict, bom_ref: str, children: dict[str, list[str]]
         if node in visited:
             continue
         visited.add(node)
-        queue.extend(children.get(node, []))
+        queue.extend(adjacency.get(node, []))
+    return direct, sorted(visited)
 
-    return {"direct_children": direct, "reachable": sorted(visited)}
+
+def compute_supply_chain(bom: dict, bom_ref: str, children: dict[str, list[str]] | None = None) -> dict:
+    """Everything `bom_ref` itself depends on, transitively -- a plain
+    BFS forward over the document's own real `dependencies[]` edges.
+    This answers "what does this rely on", i.e. this component's own
+    supply chain -- see `compute_blast_radius()` for the (different,
+    security-relevant) reverse question. `children` is optional, built
+    fresh via `build_dependency_children()` if omitted.
+    """
+    if children is None:
+        children = build_dependency_children(bom)
+    direct, reachable = _bfs(children, bom_ref)
+    return {"direct_children": direct, "reachable": reachable}
+
+
+def compute_blast_radius(bom: dict, bom_ref: str, parents: dict[str, list[str]] | None = None) -> dict:
+    """Everything that would be affected if `bom_ref` were compromised --
+    a plain BFS *backward* over the document's own real `dependencies[]`
+    edges (who depends on this, transitively). This is what "blast
+    radius" means in a security context, and confirmed real bug fixed
+    here: the original v0.5.0 implementation traversed `dependsOn`
+    forward instead (a component's own supply chain, see
+    `compute_supply_chain()` above) -- every leaf (a skill, a
+    secrets_surface file, most dependencies) reported zero reachable,
+    when leaves are exactly what gets compromised first and a poisoned
+    skill or a leaked credential file having "zero blast radius" is the
+    least useful possible answer. Every result here is still labeled
+    "observed" by construction -- these are edges a collector actually
+    recorded (`HarnessDocument.add()`/`add_child()`), never a guessed or
+    inferred path; there is no "inferred" tier yet (that needs
+    skill-content parsing, SPEC.md section 5, still not done).
+
+    `parents` is optional, built fresh via `build_dependency_parents()`
+    if omitted.
+    """
+    if parents is None:
+        parents = build_dependency_parents(bom)
+    direct, reachable = _bfs(parents, bom_ref)
+    return {"direct_dependents": direct, "reachable": reachable}

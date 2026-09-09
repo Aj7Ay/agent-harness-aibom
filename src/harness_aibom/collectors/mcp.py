@@ -244,6 +244,18 @@ def extract_mcp_servers(config: dict) -> list[tuple[Component, list[Component], 
             if pkg_version:
                 package.version = pkg_version
             package.set("purl", purl)
+            # Distinguishes this from a deps.py-discovered Python package
+            # (origin="python-package") -- confirmed real bug this fixes:
+            # security.py's unpinned_dependency risk rule used to infer
+            # "this is an MCP launcher with no pinned version" purely
+            # from the *absence* of a `version` field, on the assumption
+            # that a Python package (always read from an already-
+            # installed dist-info) could never lack one. A METADATA file
+            # missing its own Version: header is malformed but real, and
+            # would have been silently misreported as a floating MCP
+            # launcher. `origin` makes the two cases distinguishable by
+            # a real, recorded fact instead of an inferred absence.
+            package.set("origin", "mcp-launcher")
 
         env = entry.get("env") or {}
         auth_env_keys = sorted(k for k in env if _CREDENTIAL_ENV_PATTERN.search(k))

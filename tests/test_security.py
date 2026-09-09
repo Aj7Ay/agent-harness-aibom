@@ -1,5 +1,5 @@
 from harness_aibom.collectors.secrets import SECRET_NAME_PATTERNS
-from harness_aibom.cyclonedx import to_cyclonedx
+from harness_aibom.cyclonedx import ROOT_BOM_REF, to_cyclonedx
 from harness_aibom.model import Component, HarnessDocument
 from harness_aibom.security import (
     HEURISTIC_PATTERNS,
@@ -14,6 +14,8 @@ from harness_aibom.security import (
     compute_coverage,
     compute_risk_observations,
     compute_security_summary,
+    compute_supply_chain,
+    index_mcp_servers,
 )
 
 
@@ -97,7 +99,7 @@ def test_security_summary_fingerprinted_counts_only_hashed_entries():
 # ---- risk observations ---------------------------------------------------
 
 
-def test_world_readable_secret_is_flagged_high():
+def test_world_readable_secret_high_confidence_match_is_flagged_high():
     doc = _doc()
     secret = Component(component_class="secrets_surface", name=".env")
     secret.set("worldReadable", True)
@@ -105,8 +107,29 @@ def test_world_readable_secret_is_flagged_high():
     bom = to_cyclonedx(doc)
 
     [obs] = compute_risk_observations(bom)
-    assert obs["rule"] == "world_readable_secret"
+    assert obs["rule"] == "world_readable_secret_high_confidence"
     assert obs["severity"] == "high"
+
+
+def test_world_readable_secret_heuristic_match_is_flagged_separately_at_lower_severity():
+    # Regression test: an independent reviewer found classify_secret_
+    # confidence() was dead code -- a *token*/*.sqlite heuristic match
+    # (secrets.py's own noisy tier) was reported at the same "high"
+    # severity as an exact .env/*.pem/*.key match.
+    doc = _doc()
+    high = Component(component_class="secrets_surface", name=".env")
+    high.set("worldReadable", True)
+    doc.add(high, "accesses")
+    heuristic = Component(component_class="secrets_surface", name="npm-token.1")
+    heuristic.set("worldReadable", True)
+    doc.add(heuristic, "accesses")
+    bom = to_cyclonedx(doc)
+
+    by_rule = {o["rule"]: o for o in compute_risk_observations(bom)}
+    assert by_rule["world_readable_secret_high_confidence"]["severity"] == "high"
+    assert by_rule["world_readable_secret_high_confidence"]["components"] == [high.bom_ref]
+    assert by_rule["world_readable_secret_heuristic"]["severity"] == "medium"
+    assert by_rule["world_readable_secret_heuristic"]["components"] == [heuristic.bom_ref]
 
 
 def test_no_observations_when_nothing_matches_any_rule():
@@ -156,25 +179,47 @@ def test_mcp_server_without_auth_is_flagged():
     assert "mcp_no_auth" in rules
 
 
-def test_unpinned_dependency_package_is_flagged():
+def test_unpinned_mcp_launcher_package_is_flagged():
     doc = _doc()
     dep = Component(component_class="dependency", name="some-pkg")  # no .version
+    dep.set("origin", "mcp-launcher")
     doc.add(dep, "uses")
     bom = to_cyclonedx(doc)
 
     rules = {o["rule"] for o in compute_risk_observations(bom)}
-    assert "unpinned_dependency" in rules
+    assert "unpinned_mcp_launcher" in rules
+    assert "python_package_missing_version" not in rules
+
+
+def test_python_package_missing_version_is_flagged_as_a_different_rule():
+    # Regression test: an independent reviewer found this rule used to
+    # infer "unpinned MCP launcher" purely from the *absence* of a
+    # version field -- a Python package with malformed METADATA missing
+    # its own Version: header (a real, if rare, case) would have been
+    # silently merged into that same finding. `origin` (set by mcp.py vs
+    # deps.py) makes the two genuinely distinguishable rules.
+    doc = _doc()
+    dep = Component(component_class="dependency", name="some-pkg")  # no .version
+    dep.set("origin", "python-package")
+    doc.add(dep, "uses")
+    bom = to_cyclonedx(doc)
+
+    rules = {o["rule"] for o in compute_risk_observations(bom)}
+    assert "python_package_missing_version" in rules
+    assert "unpinned_mcp_launcher" not in rules
 
 
 def test_pinned_dependency_package_is_not_flagged():
     doc = _doc()
     dep = Component(component_class="dependency", name="some-pkg")
     dep.version = "1.2.3"
+    dep.set("origin", "mcp-launcher")
     doc.add(dep, "uses")
     bom = to_cyclonedx(doc)
 
     rules = {o["rule"] for o in compute_risk_observations(bom)}
-    assert "unpinned_dependency" not in rules
+    assert "unpinned_mcp_launcher" not in rules
+    assert "python_package_missing_version" not in rules
 
 
 def test_model_without_digest_is_flagged():
@@ -261,6 +306,18 @@ def test_model_endpoint_and_mcp_server_capability_is_network():
         assert classify_capabilities(entry) == "network"
 
 
+def test_stdio_mcp_server_capability_is_process_not_network():
+    # Regression test: an independent reviewer found mcp_server's
+    # capability was a fixed "network" regardless of transport,
+    # contradicting classify_reachability()'s already-correct "process"
+    # for the very same stdio server on the very same row.
+    entry = {"properties": [
+        {"name": "harness-aibom:componentClass", "value": "mcp_server"},
+        {"name": "harness-aibom:transport", "value": "stdio"},
+    ]}
+    assert classify_capabilities(entry) == "process"
+
+
 # ---- reachability / attack surface (v0.5.0) --------------------------------
 
 
@@ -293,6 +350,63 @@ def test_remote_mcp_server_endpoint_is_network():
     assert classify_reachability(entry) == "network"
 
 
+def test_tool_reachability_is_inherited_from_its_parent_mcp_server_not_guessed():
+    # Regression test: an independent reviewer found a tool's
+    # reachability used to come from its own riskClass alone -- a
+    # read/write tool on a remote HTTPS server read as "filesystem" (the
+    # opposite of true), and a network-tagged tool on a local stdio
+    # server read as "network" (also backwards). Reachability is a
+    # property of the *server* a tool belongs to, not of the tool.
+    doc = _doc()
+    remote = Component(component_class="mcp_server", name="remote-tls")
+    remote.set("transport", "http")
+    remote.set("endpoint", "https://mcp.corp.lab:8443")
+    doc.add(remote, "uses")
+    local = Component(component_class="mcp_server", name="stdio-srv")
+    local.set("transport", "stdio")
+    doc.add(local, "uses")
+    bom = to_cyclonedx(doc)
+
+    servers = index_mcp_servers(bom)
+    remote_tool = {"properties": [
+        {"name": "harness-aibom:componentClass", "value": "tool"},
+        {"name": "harness-aibom:server", "value": "remote-tls"},
+        {"name": "harness-aibom:riskClass", "value": "read"},
+    ]}
+    local_tool = {"properties": [
+        {"name": "harness-aibom:componentClass", "value": "tool"},
+        {"name": "harness-aibom:server", "value": "stdio-srv"},
+        {"name": "harness-aibom:riskClass", "value": "network"},
+    ]}
+    assert classify_reachability(remote_tool, servers) == "network"
+    assert classify_reachability(local_tool, servers) == "process"
+
+
+def test_tool_reachability_is_unknown_without_a_resolvable_parent_server():
+    entry = {"properties": [
+        {"name": "harness-aibom:componentClass", "value": "tool"},
+        {"name": "harness-aibom:server", "value": "no-such-server"},
+    ]}
+    assert classify_reachability(entry, {}) == "unknown"
+
+
+def test_attack_surface_uses_the_correct_tool_reachability_end_to_end():
+    doc = _doc()
+    server = Component(component_class="mcp_server", name="remote-tls")
+    server.set("transport", "http")
+    server.set("endpoint", "https://mcp.corp.lab:8443")
+    tool = Component(component_class="tool", name="remote-tls/search")
+    tool.set("server", "remote-tls")
+    tool.set("riskClass", "read")
+    doc.add(server, "uses")
+    doc.add_child(tool, server, "uses")
+    bom = to_cyclonedx(doc)
+
+    surface = compute_attack_surface(bom)
+    assert tool.bom_ref in surface["by_tier"]["network"]
+    assert tool.bom_ref in surface["crosses_network_boundary"]
+
+
 def test_attack_surface_groups_entries_by_reachability_tier():
     doc = _doc()
     secret = Component(component_class="secrets_surface", name=".env")
@@ -318,10 +432,10 @@ def test_attack_surface_loopback_entries_dont_cross_a_network_boundary():
     assert endpoint.bom_ref in surface["by_tier"]["loopback"]
 
 
-# ---- blast radius (v0.5.0) -------------------------------------------------
+# ---- supply chain: what a component depends on (v0.5.0) -------------------
 
 
-def test_blast_radius_is_the_real_transitive_dependency_set():
+def test_supply_chain_is_the_real_transitive_dependency_set():
     doc = _doc()
     config = Component(component_class="configuration", name="config.yaml")
     doc.add(config, "loads")
@@ -331,22 +445,68 @@ def test_blast_radius_is_the_real_transitive_dependency_set():
     doc.add_child(model, endpoint, "uses")
     bom = to_cyclonedx(doc)
 
-    radius = compute_blast_radius(bom, config.bom_ref)
-    assert radius["direct_children"] == [endpoint.bom_ref]
-    assert set(radius["reachable"]) == {endpoint.bom_ref, model.bom_ref}
+    chain = compute_supply_chain(bom, config.bom_ref)
+    assert chain["direct_children"] == [endpoint.bom_ref]
+    assert set(chain["reachable"]) == {endpoint.bom_ref, model.bom_ref}
 
 
-def test_blast_radius_of_a_leaf_component_is_empty():
+def test_supply_chain_of_a_leaf_component_is_empty():
+    doc = _doc()
+    skill = Component(component_class="skill", name="lonely-skill")
+    doc.add(skill, "loads")
+    bom = to_cyclonedx(doc)
+
+    chain = compute_supply_chain(bom, skill.bom_ref)
+    assert chain["direct_children"] == []
+    assert chain["reachable"] == []
+
+
+def test_supply_chain_of_an_unknown_ref_is_empty_not_an_error():
+    bom = to_cyclonedx(_doc())
+    assert compute_supply_chain(bom, "no-such-ref") == {"direct_children": [], "reachable": []}
+
+
+# ---- blast radius: what depends on a component (v0.5.1, direction fixed) --
+
+
+def test_blast_radius_is_the_reverse_of_supply_chain():
+    # Regression test: an independent reviewer found the original v0.5.0
+    # compute_blast_radius() followed dependsOn *forward* (a component's
+    # own supply chain -- what it relies on), so a poisoned leaf
+    # component always reported zero blast radius, the least useful
+    # possible answer to "what's affected if this is compromised".
+    doc = _doc()
+    config = Component(component_class="configuration", name="config.yaml")
+    doc.add(config, "loads")
+    endpoint = Component(component_class="model_endpoint", name="http://x")
+    doc.add_child(endpoint, config, "uses")
+    model = Component(component_class="model", name="qwen3:8b")
+    doc.add_child(model, endpoint, "uses")
+    bom = to_cyclonedx(doc)
+
+    # Compromising the model affects the endpoint and configuration that
+    # depend on it -- the reverse of the model's own (empty) supply chain.
+    radius = compute_blast_radius(bom, model.bom_ref)
+    assert radius["direct_dependents"] == [endpoint.bom_ref]
+    assert set(radius["reachable"]) == {endpoint.bom_ref, config.bom_ref, ROOT_BOM_REF}
+    assert compute_supply_chain(bom, model.bom_ref) == {"direct_children": [], "reachable": []}
+
+
+def test_blast_radius_of_a_leaf_component_reaches_the_harness_root():
+    # A leaf still has something depend on it -- the harness root itself,
+    # via HarnessDocument.add(). "Zero blast radius" for a compromised
+    # skill or secrets file would be exactly as misleading as the
+    # original forward-only bug.
     doc = _doc()
     skill = Component(component_class="skill", name="lonely-skill")
     doc.add(skill, "loads")
     bom = to_cyclonedx(doc)
 
     radius = compute_blast_radius(bom, skill.bom_ref)
-    assert radius["direct_children"] == []
-    assert radius["reachable"] == []
+    assert radius["direct_dependents"] == [ROOT_BOM_REF]
+    assert radius["reachable"] == [ROOT_BOM_REF]
 
 
 def test_blast_radius_of_an_unknown_ref_is_empty_not_an_error():
     bom = to_cyclonedx(_doc())
-    assert compute_blast_radius(bom, "no-such-ref") == {"direct_children": [], "reachable": []}
+    assert compute_blast_radius(bom, "no-such-ref") == {"direct_dependents": [], "reachable": []}

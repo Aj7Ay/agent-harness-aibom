@@ -44,6 +44,28 @@ _METADATA_PLACEHOLDERS = frozenset({"", "UNKNOWN"})
 #: address.
 _NAME_EMAIL_RE = re.compile(r"^(?P<name>.*?)\s*<(?P<email>[^<>]+)>\s*$")
 
+#: A loose shape check, not full RFC 5321/6531 validation -- just enough
+#: to reject something that obviously isn't an email address before it
+#: reaches CycloneDX's native `contact.email` field, which the real
+#: schema validates against the `idn-email` format. Confirmed real bug:
+#: some packages write a deliberately-obfuscated, human-readable
+#: non-address in `Author-email` (e.g. "jane at example dot com", to
+#: dodge scrapers) -- with no check, that string flowed straight through
+#: into a native CycloneDX field and produced a document that failed
+#: strict schema validation while this package's own hand-rolled
+#: `validate` command still reported it valid (that command only checks
+#: envelope/componentClass shape, never CycloneDX's own format
+#: constraints -- see SPEC.md section 5's "No JSON Schema file of our
+#: own" limitation). Deliberately permissive on the *character set*
+#: (idn-email allows non-ASCII local parts and domains) and strict only
+#: on *shape*: exactly one "@", a non-empty local part, and a domain
+#: with at least one ".".
+_EMAIL_RE = re.compile(r"^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$")
+
+
+def _looks_like_email(value: str) -> bool:
+    return bool(_EMAIL_RE.match(value))
+
 
 class _Metadata(NamedTuple):
     name: str | None
@@ -64,15 +86,23 @@ def _split_name_email(value: str | None) -> tuple[str | None, str | None]:
     """"Jane Doe <jane@example.com>" -> ("Jane Doe", "jane@example.com");
     a bare email or a bare name (no angle brackets) passes through as
     (None, value) / (value, None) respectively -- never guessed further
-    than the RFC 822 form actually present.
+    than the RFC 822 form actually present. A value that doesn't look
+    like a real email (see `_EMAIL_RE`) is dropped, not guessed at or
+    passed through anyway -- a name extracted from the "Name <...>" form
+    is still kept even when its email half is garbled, since the two are
+    independent facts.
     """
     value = _clean(value)
     if value is None:
         return None, None
     match = _NAME_EMAIL_RE.match(value)
     if match:
-        return _clean(match.group("name")), match.group("email").strip()
-    return (None, value) if "@" in value else (value, None)
+        name = _clean(match.group("name"))
+        email = match.group("email").strip()
+        return name, (email if _looks_like_email(email) else None)
+    if "@" in value:
+        return None, (value if _looks_like_email(value) else None)
+    return value, None
 
 
 def _parse_metadata(text: str) -> _Metadata:
@@ -180,6 +210,11 @@ def discover_python_dependencies(install_dir: Path) -> list[Component]:
             name = meta.name
 
             comp = Component(component_class="dependency", name=name)
+            # Distinguishes this from an MCP launcher package (mcp.py
+            # sets origin="mcp-launcher") -- see mcp.py's own comment for
+            # why the distinction matters to security.py's
+            # unpinned_dependency risk rule.
+            comp.set("origin", "python-package")
             comp.set("path", str(dist_info))
             comp.set("distDir", relative_to_or_none(dist_info, install_dir))
             site_packages_rel = relative_to_or_none(site_packages, install_dir)

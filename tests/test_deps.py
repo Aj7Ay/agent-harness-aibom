@@ -125,6 +125,29 @@ def test_license_and_author_email_are_captured(tmp_path):
     assert comp.properties["supplierEmail"] == "me@kennethreitz.org"
 
 
+def test_obfuscated_non_email_author_email_is_dropped_not_passed_through(tmp_path):
+    # Regression test: an independent reviewer found a deliberately-
+    # obfuscated, human-readable non-address (a real pattern some
+    # packages use in Author-email to dodge scrapers) flowed straight
+    # through into supplierEmail and, from there, into CycloneDX's
+    # native contact.email field -- producing a document that failed
+    # strict schema validation (idn-email format) while this package's
+    # own `validate` command still reported it valid. The name half of
+    # the same "Name <...>" form is still kept -- it's a real name,
+    # independent of whether the email half is garbled.
+    install_dir = tmp_path / "install"
+    site_packages = install_dir / "site-packages"
+    dist_info = site_packages / "oddpkg-1.0.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(
+        "Name: oddpkg\nVersion: 1.0\nAuthor-email: Jane Doe <jane at example dot com>\n\nbody\n"
+    )
+
+    [comp] = discover_python_dependencies(install_dir)
+    assert comp.properties["supplierName"] == "Jane Doe"
+    assert "supplierEmail" not in comp.properties
+
+
 def test_bare_author_and_bare_author_email_are_both_captured(tmp_path):
     install_dir = tmp_path / "install"
     site_packages = install_dir / "site-packages"

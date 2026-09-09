@@ -501,7 +501,7 @@ claimed otherwise.
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 | `tool` | `application` | `server` (parent server's name), `riskClass` (`read`/`write`/`exec`/`network`/`unknown`, a heuristic over the tool's own *name* — see below) | one per name in a `mcp_server` entry's `tools` list |
-| `dependency` | `library` | `version`, native `purl` (see below); Python packages only -- one component per `(site_packages, name)` pair, never deduplicated across different `site_packages` directories, so two disagreeing copies both show up rather than one silently masking the other (v0.2.2); `path` (the exact dist-info directory found) and `distDir` (the same, relative to `installDir`); `relPath` is deliberately `<site_packages relative to installDir>::<name>`, NOT the dist-info directory -- a dist-info directory's name embeds its own version, so using it as the diffable identity made every version bump read as removed+added instead of `changed` (v0.2.3); native `licenses[]` from `METADATA`'s `License:`, native `supplier` from `Author:`/`Author-email:` (falling back to `Maintainer:`/`Maintainer-email:`) -- Python packages only (v0.2.4) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
+| `dependency` | `library` | `version`, native `purl` (see below); Python packages only -- one component per `(site_packages, name)` pair, never deduplicated across different `site_packages` directories, so two disagreeing copies both show up rather than one silently masking the other (v0.2.2); `path` (the exact dist-info directory found) and `distDir` (the same, relative to `installDir`); `relPath` is deliberately `<site_packages relative to installDir>::<name>`, NOT the dist-info directory -- a dist-info directory's name embeds its own version, so using it as the diffable identity made every version bump read as removed+added instead of `changed` (v0.2.3); native `licenses[]` from `METADATA`'s `License:`, native `supplier` from `Author:`/`Author-email:` (falling back to `Maintainer:`/`Maintainer-email:`) -- Python packages only (v0.2.4); `origin` (`"mcp-launcher"` or `"python-package"`, set by `mcp.py`/`deps.py` respectively) distinguishes the two sources this table's own "Source" column names, by a real recorded fact rather than an inferred absence -- security.py's `unpinned_dependency`-family risk rules key on it (v0.5.1, §12) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
 
@@ -1128,3 +1128,147 @@ better done deliberately on its own than folded into this release. Until
 then, "observed" (blast radius) versus a real "inferred" tier (v0.6.0's
 skill-content analysis) is the only provenance-adjacent distinction this
 scanner makes.
+
+## 12. Six defects in v0.4.0/v0.5.0, fixed in v0.5.1
+
+An independent reviewer's follow-up review found one real vulnerability
+in the new report JavaScript, three logic errors in v0.5.0's capability/
+reachability/blast-radius model, a real file-size regression, and
+confirmed the entire v0.3.0 backlog (five items) was still open. All six
+verified before fixing, per this project's standing discipline.
+
+**1. High -- JavaScript injection through a crafted componentClass,
+confirmed by executing it.** The architecture diagram wrote a
+componentClass value into a JS string literal inside an HTML attribute:
+`onclick="goToClass('{_esc(target)}')"`. `_esc()` (`html.escape`) is the
+wrong escaper for that context -- the browser HTML-decodes the attribute
+(`&#x27;` back to a literal `'`) *before* handing its text to the JS
+parser, so a componentClass containing a quote broke out of the string
+and ran arbitrary script. Reproduced by rendering a hand-crafted document
+(not one this scanner's own collectors could ever produce --
+`Component.__post_init__` restricts `component_class` to a fixed
+vocabulary, but `report` accepts *any* JSON file) with a malicious class
+and confirming, in an actual headless-Chrome click, that it executed.
+Fixed by removing the nested-grammar problem entirely: architecture
+nodes now carry `data-goto="<class>"` (still `_esc()`-escaped, but read
+back via `getAttribute()`, which returns the exact decoded string with
+no further parsing step) and a single delegated `click` listener in
+`_JS`. `goToClass()` itself no longer builds a CSS selector by string
+concatenation either (`findGroupForClass()` compares `data-class` values
+in a loop instead) -- the same class of mistake, flagged even though the
+`<select>`-sourced value reaching it couldn't itself carry a `"` past
+the HTML-attribute boundary that produced it.
+- Re-verified the fix the same way: the crafted payload, clicked in
+  headless Chrome, no longer executes.
+
+**2. Medium -- a `tool`'s reachability ignored its parent MCP server's
+transport, in both directions.** `classify_reachability()` used to map a
+`read`/`write` tool straight to `filesystem` regardless of where its
+server actually runs, and a `network`-tagged tool on a local stdio
+server read as `network` -- both backwards, confirmed by reproducing a
+remote-HTTPS server's tools reading as `filesystem` and a stdio server's
+tools reading as `network`. Capability and reachability are different
+axes: capability says *what* a tool does; reachability says *how it's
+reached*, which is entirely a property of the MCP server it belongs to.
+Fixed: `classify_reachability()` now takes an optional `mcp_servers`
+lookup (`index_mcp_servers()`, name -> entry) and a `tool` simply
+inherits its parent server's own reachability, looked up by the tool's
+own `server` property.
+
+**3. Medium -- `mcp_server`'s capability was a fixed "network" even for
+stdio.** `_CLASS_CAPABILITY` mapped every `mcp_server` to `"network"`
+unconditionally, contradicting `classify_reachability()`'s already-
+correct `"process"` for the very same stdio server on the very same row.
+Fixed: `mcp_server` (like `tool`) now consults its own `transport`
+property instead of the class-level default.
+
+**4. Medium -- `compute_blast_radius()` traversed the wrong direction
+for what its name promises.** The v0.5.0 implementation followed
+`dependsOn` *forward* (what a component itself relies on -- its own
+supply chain), so every leaf (a skill, a `secrets_surface` file, most
+dependencies) reported zero reachable, the least useful possible answer
+to "what's affected if this is compromised" -- confirmed by reproducing
+exactly that on a poisoned skill and a world-readable credentials file.
+Fixed by keeping both, labeled honestly, rather than one function
+pretending to answer two different questions: `compute_supply_chain()`
+(forward -- what this depends on, the original v0.5.0 behavior, renamed)
+and `compute_blast_radius()` (backward -- what depends on this,
+transitively, via a new `build_dependency_parents()` inverse adjacency
+map). A leaf component's blast radius is (almost) never empty in
+practice -- the harness root itself depends on every top-level thing via
+`HarnessDocument.add()`, so it's the minimum non-trivial answer, not a
+false "nothing" the way the forward traversal gave. `report.py` renders
+both per entry ("Depends on" / "Blast radius"), each only when non-empty.
+
+**5. Medium -- the report was roughly 6x the size of the same document's
+v0.3.0 report** (measured: 348 KB -> 2.03 MB on a 405-package fixture).
+Every entry embedded its own full `json.dumps(entry, indent=2)` copy
+*and* the top-level Raw BOM section embedded a second full pretty copy
+of the whole document -- for N entries, the document's own data was
+present roughly N+1 times. Fixed per the reviewer's own suggested
+approach: exactly one compact copy of the whole document
+(`json.dumps(bom, separators=(",", ":"))`) is embedded once, in a
+`<script type="application/json" id="bom-data">` blob (with `"</":
+"<\\/"` replaced first -- `\/` is a valid JSON escape for `/`, so this
+changes nothing about the parsed value, but stops a `</script`
+substring inside the data, e.g. inside a component name, from being
+read by the HTML *parser* as this script tag's own closing tag and
+truncating everything after it). Both the per-entry "Raw JSON" reveal
+and the top-level "Raw BOM" section now populate their `<pre>` lazily,
+client-side, from that one shared blob, the first time their `<details>`
+is actually opened (a `toggle` event listener registered with
+`capture: true`, since `toggle` doesn't bubble) -- looked up by bom-ref,
+with the whole-document view using the sentinel ref `"__bom__"`. Same
+"needs JavaScript, no fallback" precedent search/filter already set in
+v0.4.0. Verified in headless Chrome by actually dispatching a real
+`toggle`/opening a `<details>` element and confirming the populated
+`<pre>` parses back as valid JSON.
+
+**6. The full v0.3.0 backlog, confirmed still open and fixed here --
+one change (a) closes two items at once:**
+- **(a) `classify_secret_confidence()` was dead code**, never called
+  from anywhere in `report.py`, and **the `world_readable_secret` rule
+  reported every world-readable match at "high" severity regardless of
+  confidence tier** -- a `*token*`/`*.sqlite` heuristic match (secrets.py's
+  own noisy tier) read exactly the same as an exact `.env`/`*.pem`/`*.key`
+  match. Both fixed together: `compute_risk_observations()` now splits
+  world-readable secrets by `classify_secret_confidence()` into two
+  separate, honestly-labeled observations --
+  `world_readable_secret_high_confidence` (severity `high`) and
+  `world_readable_secret_heuristic` (severity `medium`, with the summary
+  text saying to verify before acting) -- rather than one rule silently
+  treating both tiers as equally certain.
+- **(b) A rendered risk observation never actually showed `o["rule"]`**,
+  even though the section's own intro prose says "each observation names
+  the exact rule that fired" -- confirmed by grepping the rendered HTML
+  for `world_readable_secret` and finding it nowhere. Fixed:
+  `_render_risk_observations()` now renders the rule name (`<code>`)
+  alongside the severity badge and summary.
+- **(c) `unpinned_dependency` merged two different things under one false
+  invariant** -- "a `dependency` component with no version is, by
+  construction, an MCP launcher package", true only because a
+  `deps.py`-discovered Python package is *usually* read from an
+  already-installed dist-info that always names its own version, not
+  because it's actually guaranteed (a METADATA file missing its own
+  `Version:` header is malformed but real). Fixed with a new `origin`
+  property (`"mcp-launcher"` set by `mcp.py`, `"python-package"` set by
+  `deps.py`) so the two cases are distinguished by a real, recorded fact
+  instead of an inferred absence: `unpinned_mcp_launcher` (a genuine
+  "resolves differently every run" risk) and
+  `python_package_missing_version` (a data-quality problem, not the same
+  finding) are now two separate rules.
+- **(d) The `idn-email` defect reproduced exactly**: `Author-email: Jane
+  Doe <jane at example dot com>` (a real, deliberately-obfuscated
+  non-address some packages use to dodge scrapers) produced a document
+  that failed strict CycloneDX 1.6 validation (the schema's
+  `contact.email` requires `idn-email` format) while `harness-aibom
+  validate` reported it valid regardless -- confirmed with both
+  validators directly. Fixed in `deps.py`'s `_split_name_email()`: a
+  loose shape check (`_EMAIL_RE`, one `@`, non-empty local part, a domain
+  with at least one `.` -- permissive on character set since `idn-email`
+  allows non-ASCII, strict only on shape) rejects an obvious non-address
+  before it ever reaches `supplierEmail`, and from there CycloneDX's
+  native `contact.email` field. The *name* half of the same "Name
+  <email>" form is still kept even when the email half is garbled, since
+  the two are independent facts -- only the invalid email is dropped, not
+  guessed at or silently passed through anyway.

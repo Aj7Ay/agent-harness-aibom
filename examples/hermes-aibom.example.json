@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:b6a152e8-fb6c-4b9f-8c34-86d8ae48f29c",
+  "serialNumber": "urn:uuid:a42865a5-509a-4c92-80ee-ec9ab9ce8f5a",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.5.0"
+          "version": "0.5.1"
         }
       ]
     },
@@ -52,7 +52,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-09T11:27:48+00:00"
+    "timestamp": "2026-09-09T12:07:26+00:00"
   },
   "components": [
     {
@@ -236,6 +236,10 @@
         {
           "name": "harness-aibom:purl",
           "value": "pkg:npm/%40modelcontextprotocol/server-filesystem"
+        },
+        {
+          "name": "harness-aibom:origin",
+          "value": "mcp-launcher"
         }
       ]
     },
