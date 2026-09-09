@@ -503,3 +503,69 @@ def test_blast_radius_reveal_shown_for_a_leaf_component_via_the_harness_root():
     # "Depends on" as a cross-reference inside the blast-radius blurb is
     # fine -- what must be absent is the "Depends on" reveal itself.
     assert "<summary>Depends on" not in html_text
+
+
+# ---- v0.7.0: report --baseline / Baseline diff section --------------------
+
+
+def test_baseline_diff_section_absent_by_default():
+    html_text = render_html(_doc_with_everything())
+    section = html_text.split('id="baseline-diff"')[1].split('id="raw-bom"')[0]
+    assert "No baseline supplied" in section
+
+
+def test_baseline_diff_section_shows_added_removed_changed():
+    from harness_aibom.diff import diff_documents
+
+    before_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    kept = Component(component_class="skill", name="kept")
+    kept.set("sha256", "aaa")
+    before_doc.add(kept, "loads")
+    removed = Component(component_class="skill", name="removed-skill")
+    before_doc.add(removed, "loads")
+    before = to_cyclonedx(before_doc)
+
+    after_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    kept2 = Component(component_class="skill", name="kept")
+    kept2.set("sha256", "bbb")
+    after_doc.add(kept2, "loads")
+    added = Component(component_class="skill", name="added-skill")
+    after_doc.add(added, "loads")
+    after = to_cyclonedx(after_doc)
+
+    diff_result = diff_documents(before, after)
+    html_text = render_html(after, diff_result=diff_result)
+    section = html_text.split('id="baseline-diff"')[1].split('id="raw-bom"')[0]
+
+    assert "skill:added-skill" in section
+    assert "skill:removed-skill" in section
+    assert "skill:kept" in section
+    assert "No baseline supplied" not in section
+
+
+def test_baseline_diff_clean_state_when_nothing_changed():
+    from harness_aibom.diff import diff_documents
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    doc.add(Component(component_class="skill", name="unchanged"), "loads")
+    bom = to_cyclonedx(doc)
+
+    diff_result = diff_documents(bom, bom)
+    html_text = render_html(bom, diff_result=diff_result)
+    section = html_text.split('id="baseline-diff"')[1].split('id="raw-bom"')[0]
+    assert "No changes since the baseline" in section
+
+
+def test_security_summary_baseline_line_reflects_real_diff_counts():
+    from harness_aibom.diff import diff_documents
+
+    before_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    before = to_cyclonedx(before_doc)
+    after_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    after_doc.add(Component(component_class="skill", name="new-skill"), "loads")
+    after = to_cyclonedx(after_doc)
+
+    diff_result = diff_documents(before, after)
+    html_text = render_html(after, diff_result=diff_result)
+    assert "1 added" in html_text
+    assert "not available for a single scan" not in html_text

@@ -32,7 +32,7 @@ from pathlib import Path
 
 from ..fingerprint import sha256_file
 from ..model import Component
-from ..paths import relative_to_or_none
+from ..paths import is_symlink_outside_home, relative_to_or_none
 
 #: Exact filenames only, matched case-sensitively -- both are
 #: conventionally written with this exact casing; a loose
@@ -61,6 +61,15 @@ def find_prompt_surface(directory: Path, home: Path) -> list[Component]:
             comp = Component(component_class="prompt_surface", name=str(file_path.relative_to(directory)))
             comp.set("path", str(file_path))
             comp.set("relPath", relative_to_or_none(file_path, home))
+            # symlink/pathOutsideHome (v0.6.1): the same check hooks.py
+            # has made since v0.1.9 -- confirmed real gap fixed here, an
+            # instruction file whose real content lives outside the
+            # harness tree (e.g. a prompt-injection payload swapped in
+            # via a symlink escaping --home) is exactly the case worth
+            # naming, the same shape as the hook bug this mirrors.
+            comp.set("symlink", file_path.is_symlink())
+            if is_symlink_outside_home(file_path, home):
+                comp.set("pathOutsideHome", True)
             # None (unreadable -- missing, permission denied) is a no-op
             # via Component.set(), same as every other opportunistic
             # fingerprint in this codebase; presence is still recorded

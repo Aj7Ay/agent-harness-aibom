@@ -190,6 +190,13 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .mcp-tool-list li { background: var(--code-bg); border-radius: 4px; padding: 0.1rem 0.45rem; font-size: 0.78rem; }
 .coverage-list { list-style: none; margin: 0.3rem 0; padding: 0; }
 .coverage-list li { padding: 0.15rem 0; font-size: 0.85rem; }
+/* v0.7.0 baseline diff -- same status palette as risk badges (good/critical),
+   text wears the status color, never a background fill, since these are
+   plain list rows, not pills. */
+.diff-list { list-style: none; margin: 0.3rem 0 1rem; padding: 0; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+.diff-list li { padding: 0.1rem 0; }
+.diff-added { color: #0ca30c; }
+.diff-removed { color: #d03b3b; }
 .explorer-nav {
   position: sticky; top: 0; z-index: 10; background: var(--bg);
   border-bottom: 1px solid var(--border); margin: 0 -1.25rem 1rem; padding: 0.6rem 1.25rem;
@@ -722,7 +729,21 @@ def _render_architecture_graph(graph: dict) -> str:
     )
 
 
-def _render_security_summary(bom: dict) -> str:
+def _render_baseline_comparison_line(diff_result: dict | None) -> str:
+    # Honest either way (v0.3.0's original discipline, kept): a single
+    # scan genuinely has nothing to compare against, so it says so
+    # explicitly rather than a bare "0" that would look like a verified
+    # "nothing changed" -- the exact failure mode this project has fixed
+    # elsewhere. With --baseline (v0.7.0), the real counts replace it.
+    if diff_result is None:
+        return "not available for a single scan &mdash; use <code>harness-aibom diff</code> or <code>report --baseline</code>"
+    added, removed, changed = len(diff_result["added"]), len(diff_result["removed"]), len(diff_result["changed"])
+    if not (added or removed or changed):
+        return "no changes since baseline"
+    return f"{added} added &middot; {removed} removed &middot; {changed} changed since baseline"
+
+
+def _render_security_summary(bom: dict, diff_result: dict | None = None) -> str:
     s = security.compute_security_summary(bom)
     coverage = security.compute_coverage(bom)
     found, total = coverage["score"]
@@ -760,7 +781,7 @@ def _render_security_summary(bom: dict) -> str:
         <tr><th colspan="2">Integrity</th></tr>
         <tr><td>Fingerprinted components</td><td>{s['fingerprinted']} / {fingerprintable}</td></tr>
         <tr><td>AIBOM coverage</td><td>{found} / {total} known categories</td></tr>
-        <tr><td>Baseline comparison</td><td class="muted">not available for a single scan &mdash; use <code>harness-aibom diff</code></td></tr>
+        <tr><td>Baseline comparison</td><td class="muted">{_render_baseline_comparison_line(diff_result)}</td></tr>
       </table>
     </div>
     <details><summary>AIBOM coverage detail ({found} / {total})</summary>
@@ -875,6 +896,7 @@ _EXPLORER_NAV_LINKS = (
     ("#external-references", "External refs"),
     ("#vulnerabilities", "Vulnerabilities"),
     ("#compositions", "Compositions"),
+    ("#baseline-diff", "Baseline diff"),
     ("#raw-bom", "Raw BOM"),
 )
 
@@ -1037,8 +1059,57 @@ def _render_attack_surface(bom: dict) -> str:
     return f"{table}{boundary_note}"
 
 
-def render_html(bom: dict) -> str:
-    """Build the full HTML document for a harness-aibom CycloneDX dict."""
+def _render_baseline_diff(diff_result: dict | None) -> str:
+    """`diff`'s own output (diff.py's diff_documents()), rendered --
+    v0.7.0. Reuses that function's exact result rather than a second
+    diff implementation, so `harness-aibom diff` and `report --baseline`
+    can never disagree about what counts as a change. Same "always show
+    the section, be explicit about absence" principle as the
+    External-references/Vulnerabilities/Compositions sections.
+    """
+    if diff_result is None:
+        return (
+            "<p class='muted'><em>No baseline supplied -- render with "
+            "<code>harness-aibom report after.json --baseline before.json</code> "
+            "to see what changed since a prior scan.</em></p>"
+        )
+    added, removed, changed = diff_result["added"], diff_result["removed"], diff_result["changed"]
+    if not added and not removed and not changed:
+        return "<p class='risk-clean'>✓ No changes since the baseline.</p>"
+
+    sections = []
+    if added:
+        items = "".join(f"<li class='diff-added'>+ {_esc(ref)}</li>" for ref in added)
+        sections.append(f"<h3>Added ({len(added)})</h3><ul class='diff-list'>{items}</ul>")
+    if removed:
+        items = "".join(f"<li class='diff-removed'>&minus; {_esc(ref)}</li>" for ref in removed)
+        sections.append(f"<h3>Removed ({len(removed)})</h3><ul class='diff-list'>{items}</ul>")
+    if changed:
+        rows = "".join(
+            "<tr>"
+            f"<td>{_esc(c['component'])}</td>"
+            f"<td>{'&#10003;' if c.get('fingerprint_changed') else ''}</td>"
+            f"<td>{_esc(', '.join(sorted(c['fields'])))}</td>"
+            "</tr>"
+            for c in changed
+        )
+        sections.append(
+            f"<h3>Changed ({len(changed)})</h3>"
+            "<table class='summary'><tr><th>component</th><th>fingerprint changed</th><th>fields</th></tr>"
+            f"{rows}</table>"
+        )
+    return "".join(sections)
+
+
+def render_html(bom: dict, diff_result: dict | None = None) -> str:
+    """Build the full HTML document for a harness-aibom CycloneDX dict.
+
+    `diff_result` (v0.7.0) -- the output of `diff.diff_documents()`
+    against some earlier baseline document, if the caller has one (see
+    cli.py's `report --baseline`). `None` (the default) renders exactly
+    as before: a single-scan report with an honest "not available"
+    baseline-comparison line, same as every release before v0.7.0.
+    """
     metadata = bom.get("metadata", {})
     root = metadata.get("component", {})
     root_single, root_relationships = _split_properties(root)
@@ -1158,7 +1229,7 @@ def render_html(bom: dict) -> str:
 
 <section id="security-summary">
   <h2>Security summary</h2>
-  {_render_security_summary(bom)}
+  {_render_security_summary(bom, diff_result)}
 </section>
 
 <section id="risk">
@@ -1227,6 +1298,13 @@ def render_html(bom: dict) -> str:
     AIBOM coverage detail under Security summary above for what this scanner does and doesn't
     include.</p>
   {_render_empty_cyclonedx_section(bom, "compositions", "Composition/completeness declarations are not collected by this scanner.")}
+</section>
+
+<section id="baseline-diff">
+  <h2>Baseline diff</h2>
+  <p class="muted">diff's own output (<code>harness-aibom diff</code>), rendered -- pass
+    <code>--baseline before.json</code> to <code>report</code> to see it here.</p>
+  {_render_baseline_diff(diff_result)}
 </section>
 
 <section id="raw-bom">

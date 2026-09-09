@@ -112,6 +112,13 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .mcp-tool-list li { background: var(--code-bg); border-radius: 4px; padding: 0.1rem 0.45rem; font-size: 0.78rem; }
 .coverage-list { list-style: none; margin: 0.3rem 0; padding: 0; }
 .coverage-list li { padding: 0.15rem 0; font-size: 0.85rem; }
+/* v0.7.0 baseline diff -- same status palette as risk badges (good/critical),
+   text wears the status color, never a background fill, since these are
+   plain list rows, not pills. */
+.diff-list { list-style: none; margin: 0.3rem 0 1rem; padding: 0; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+.diff-list li { padding: 0.1rem 0; }
+.diff-added { color: #0ca30c; }
+.diff-removed { color: #d03b3b; }
 .explorer-nav {
   position: sticky; top: 0; z-index: 10; background: var(--bg);
   border-bottom: 1px solid var(--border); margin: 0 -1.25rem 1rem; padding: 0.6rem 1.25rem;
@@ -143,12 +150,12 @@ pre.raw-json {
   <p class="muted">
     runtime: <strong>openclaw</strong> ·
     host: <strong>Ajays-MacBook-Pro.local</strong> ·
-    scanned: 2026-09-09T12:32:31+00:00 ·
-    serial: urn:uuid:5335bdb0-460f-441f-913c-636aacfaa70e
+    scanned: 2026-09-09T12:58:16+00:00 ·
+    serial: urn:uuid:b9731a37-84a2-43b2-bfac-8657a1eb3d14
   </p>
 </header>
 
-<nav class='explorer-nav'><a href='#architecture'>Architecture</a><a href='#security-summary'>Security</a><a href='#risk'>Risk</a><a href='#attack-surface'>Attack surface</a><a href='#mcp'>MCP</a><a href='#components'>Components</a><a href='#services'>Services</a><a href='#metadata'>Metadata</a><a href='#external-references'>External refs</a><a href='#vulnerabilities'>Vulnerabilities</a><a href='#compositions'>Compositions</a><a href='#raw-bom'>Raw BOM</a></nav>
+<nav class='explorer-nav'><a href='#architecture'>Architecture</a><a href='#security-summary'>Security</a><a href='#risk'>Risk</a><a href='#attack-surface'>Attack surface</a><a href='#mcp'>MCP</a><a href='#components'>Components</a><a href='#services'>Services</a><a href='#metadata'>Metadata</a><a href='#external-references'>External refs</a><a href='#vulnerabilities'>Vulnerabilities</a><a href='#compositions'>Compositions</a><a href='#baseline-diff'>Baseline diff</a><a href='#raw-bom'>Raw BOM</a></nav>
 
 <div class='scan-warnings'><strong>⚠ 2 scan warnings</strong> <span class='muted'>(this document may be incomplete)</span><ul><li>openclaw binary not found on PATH; runtime component skipped</li><li>configured model &#x27;qwen3:8b&#x27; not found via Ollama /api/tags; recorded from config only</li></ul></div>
 
@@ -172,7 +179,7 @@ pre.raw-json {
         <tr><th colspan="2">Integrity</th></tr>
         <tr><td>Fingerprinted components</td><td>1 / 5</td></tr>
         <tr><td>AIBOM coverage</td><td>5 / 12 known categories</td></tr>
-        <tr><td>Baseline comparison</td><td class="muted">not available for a single scan &mdash; use <code>harness-aibom diff</code></td></tr>
+        <tr><td>Baseline comparison</td><td class="muted">not available for a single scan &mdash; use <code>harness-aibom diff</code> or <code>report --baseline</code></td></tr>
       </table>
     </div>
     <details><summary>AIBOM coverage detail (5 / 12)</summary>
@@ -237,7 +244,7 @@ pre.raw-json {
 
 <section id="metadata">
   <h2>Metadata</h2>
-  <table class='summary'><tr><td>bomFormat</td><td>CycloneDX</td></tr><tr><td>specVersion</td><td>1.6</td></tr><tr><td>version</td><td>1</td></tr><tr><td>serialNumber</td><td>urn:uuid:5335bdb0-460f-441f-913c-636aacfaa70e</td></tr><tr><td>timestamp</td><td>2026-09-09T12:32:31+00:00</td></tr><tr><td>root bom-ref</td><td>harness-root</td></tr></table><table class='summary'><tr><th>generating tool</th><th>version</th></tr><tr><td>agent-harness-aibom</td><td>0.6.0</td></tr></table>
+  <table class='summary'><tr><td>bomFormat</td><td>CycloneDX</td></tr><tr><td>specVersion</td><td>1.6</td></tr><tr><td>version</td><td>1</td></tr><tr><td>serialNumber</td><td>urn:uuid:b9731a37-84a2-43b2-bfac-8657a1eb3d14</td></tr><tr><td>timestamp</td><td>2026-09-09T12:58:16+00:00</td></tr><tr><td>root bom-ref</td><td>harness-root</td></tr></table><table class='summary'><tr><th>generating tool</th><th>version</th></tr><tr><td>agent-harness-aibom</td><td>0.7.0</td></tr></table>
 </section>
 
 <section id="external-references">
@@ -258,16 +265,23 @@ pre.raw-json {
   <p class='muted'><em>Composition/completeness declarations are not collected by this scanner.</em></p>
 </section>
 
+<section id="baseline-diff">
+  <h2>Baseline diff</h2>
+  <p class="muted">diff's own output (<code>harness-aibom diff</code>), rendered -- pass
+    <code>--baseline before.json</code> to <code>report</code> to see it here.</p>
+  <p class='muted'><em>No baseline supplied -- render with <code>harness-aibom report after.json --baseline before.json</code> to see what changed since a prior scan.</em></p>
+</section>
+
 <section id="raw-bom">
   <h2>Raw BOM</h2>
   <details data-bom-ref='__bom__'><summary>Raw CycloneDX AIBOM (3511 bytes, compact)</summary><pre class='raw-json'></pre></details>
 </section>
 
 <footer class="muted">
-  Generated by agent-harness-aibom · 2026-09-09T12:32:31+00:00 ·
+  Generated by agent-harness-aibom · 2026-09-09T12:58:17+00:00 ·
   every property of every component is rendered, nothing summarized away.
 </footer>
-<script type="application/json" id="bom-data">{"bomFormat":"CycloneDX","specVersion":"1.6","serialNumber":"urn:uuid:5335bdb0-460f-441f-913c-636aacfaa70e","version":1,"metadata":{"tools":{"components":[{"type":"application","name":"agent-harness-aibom","version":"0.6.0"}]},"component":{"type":"application","bom-ref":"harness-root","name":"openclaw@Ajays-MacBook-Pro.local","properties":[{"name":"harness-aibom:componentClass","value":"harness"},{"name":"harness-aibom:runtimeKind","value":"openclaw"},{"name":"harness-aibom:hostname","value":"Ajays-MacBook-Pro.local"},{"name":"harness-aibom:warning","value":"openclaw binary not found on PATH; runtime component skipped"},{"name":"harness-aibom:warning","value":"configured model 'qwen3:8b' not found via Ollama /api/tags; recorded from config only"},{"name":"harness-aibom:relationship","value":"loads:configuration:openclaw.json"},{"name":"harness-aibom:relationship","value":"accesses:secrets_surface:openclaw-agent.sqlite"}]},"timestamp":"2026-09-09T12:32:31+00:00"},"components":[{"type":"file","bom-ref":"configuration:openclaw.json","name":"openclaw.json","hashes":[{"alg":"SHA-256","content":"3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"}],"properties":[{"name":"harness-aibom:componentClass","value":"configuration"},{"name":"harness-aibom:path","value":"/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json"},{"name":"harness-aibom:relPath","value":".openclaw/openclaw.json"},{"name":"harness-aibom:sha256","value":"3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"},{"name":"harness-aibom:relationship","value":"uses:model_endpoint:http-127.0.0.1-11434"},{"name":"harness-aibom:relationship","value":"uses:mcp_server:local-fs"}]},{"type":"machine-learning-model","bom-ref":"model:qwen3-8b","name":"qwen3:8b","version":"qwen3:8b","properties":[{"name":"harness-aibom:componentClass","value":"model"},{"name":"harness-aibom:version","value":"qwen3:8b"}]},{"type":"data","bom-ref":"secrets_surface:openclaw-agent.sqlite","name":"openclaw-agent.sqlite","properties":[{"name":"harness-aibom:componentClass","value":"secrets_surface"},{"name":"harness-aibom:path","value":"/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite"},{"name":"harness-aibom:relPath","value":".openclaw/agents/main/agent/openclaw-agent.sqlite"},{"name":"harness-aibom:note","value":"per-agent provider credential store (SQLite); contents never read"}]}],"services":[{"bom-ref":"model_endpoint:http-127.0.0.1-11434","name":"http://127.0.0.1:11434","endpoints":["http://127.0.0.1:11434"],"properties":[{"name":"harness-aibom:componentClass","value":"model_endpoint"},{"name":"harness-aibom:provider","value":"ollama"},{"name":"harness-aibom:relationship","value":"uses:model:qwen3-8b"}]},{"bom-ref":"mcp_server:local-fs","name":"local-fs","endpoints":["http://127.0.0.1:9001"],"properties":[{"name":"harness-aibom:componentClass","value":"mcp_server"},{"name":"harness-aibom:transport","value":"http"},{"name":"harness-aibom:endpoint","value":"http://127.0.0.1:9001"},{"name":"harness-aibom:tls","value":"False"},{"name":"harness-aibom:authConfigured","value":"False"}]}],"dependencies":[{"ref":"harness-root","dependsOn":["configuration:openclaw.json","secrets_surface:openclaw-agent.sqlite"]},{"ref":"configuration:openclaw.json","dependsOn":["model_endpoint:http-127.0.0.1-11434","mcp_server:local-fs"]},{"ref":"model_endpoint:http-127.0.0.1-11434","dependsOn":["model:qwen3-8b"]}]}</script>
+<script type="application/json" id="bom-data">{"bomFormat":"CycloneDX","specVersion":"1.6","serialNumber":"urn:uuid:b9731a37-84a2-43b2-bfac-8657a1eb3d14","version":1,"metadata":{"tools":{"components":[{"type":"application","name":"agent-harness-aibom","version":"0.7.0"}]},"component":{"type":"application","bom-ref":"harness-root","name":"openclaw@Ajays-MacBook-Pro.local","properties":[{"name":"harness-aibom:componentClass","value":"harness"},{"name":"harness-aibom:runtimeKind","value":"openclaw"},{"name":"harness-aibom:hostname","value":"Ajays-MacBook-Pro.local"},{"name":"harness-aibom:warning","value":"openclaw binary not found on PATH; runtime component skipped"},{"name":"harness-aibom:warning","value":"configured model 'qwen3:8b' not found via Ollama /api/tags; recorded from config only"},{"name":"harness-aibom:relationship","value":"loads:configuration:openclaw.json"},{"name":"harness-aibom:relationship","value":"accesses:secrets_surface:openclaw-agent.sqlite"}]},"timestamp":"2026-09-09T12:58:16+00:00"},"components":[{"type":"file","bom-ref":"configuration:openclaw.json","name":"openclaw.json","hashes":[{"alg":"SHA-256","content":"3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"}],"properties":[{"name":"harness-aibom:componentClass","value":"configuration"},{"name":"harness-aibom:path","value":"/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json"},{"name":"harness-aibom:relPath","value":".openclaw/openclaw.json"},{"name":"harness-aibom:sha256","value":"3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"},{"name":"harness-aibom:relationship","value":"uses:model_endpoint:http-127.0.0.1-11434"},{"name":"harness-aibom:relationship","value":"uses:mcp_server:local-fs"}]},{"type":"machine-learning-model","bom-ref":"model:qwen3-8b","name":"qwen3:8b","version":"qwen3:8b","properties":[{"name":"harness-aibom:componentClass","value":"model"},{"name":"harness-aibom:version","value":"qwen3:8b"}]},{"type":"data","bom-ref":"secrets_surface:openclaw-agent.sqlite","name":"openclaw-agent.sqlite","properties":[{"name":"harness-aibom:componentClass","value":"secrets_surface"},{"name":"harness-aibom:path","value":"/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite"},{"name":"harness-aibom:relPath","value":".openclaw/agents/main/agent/openclaw-agent.sqlite"},{"name":"harness-aibom:note","value":"per-agent provider credential store (SQLite); contents never read"}]}],"services":[{"bom-ref":"model_endpoint:http-127.0.0.1-11434","name":"http://127.0.0.1:11434","endpoints":["http://127.0.0.1:11434"],"properties":[{"name":"harness-aibom:componentClass","value":"model_endpoint"},{"name":"harness-aibom:provider","value":"ollama"},{"name":"harness-aibom:relationship","value":"uses:model:qwen3-8b"}]},{"bom-ref":"mcp_server:local-fs","name":"local-fs","endpoints":["http://127.0.0.1:9001"],"properties":[{"name":"harness-aibom:componentClass","value":"mcp_server"},{"name":"harness-aibom:transport","value":"http"},{"name":"harness-aibom:endpoint","value":"http://127.0.0.1:9001"},{"name":"harness-aibom:tls","value":"False"},{"name":"harness-aibom:authConfigured","value":"False"}]}],"dependencies":[{"ref":"harness-root","dependsOn":["configuration:openclaw.json","secrets_surface:openclaw-agent.sqlite"]},{"ref":"configuration:openclaw.json","dependsOn":["model_endpoint:http-127.0.0.1-11434","mcp_server:local-fs"]},{"ref":"model_endpoint:http-127.0.0.1-11434","dependsOn":["model:qwen3-8b"]}]}</script>
 <script>
 function normalizeText(s) { return (s || '').toLowerCase(); }
 

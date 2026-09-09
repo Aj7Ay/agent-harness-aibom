@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:19ff034f-4e68-4c1b-b1ee-691986b20ae8",
+  "serialNumber": "urn:uuid:2b036bbb-0071-46e0-9446-7f7cb1e00e78",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.6.0"
+          "version": "0.7.0"
         }
       ]
     },
@@ -60,7 +60,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-09T12:32:30+00:00"
+    "timestamp": "2026-09-09T12:58:16+00:00"
   },
   "components": [
     {
@@ -367,6 +367,10 @@
           "value": ".hermes/AGENTS.md"
         },
         {
+          "name": "harness-aibom:symlink",
+          "value": "False"
+        },
+        {
           "name": "harness-aibom:sha256",
           "value": "98f2d3acc171b51e1d9a8635f888be402ad30231f2cf92364b01f113d70e71b8"
         }
@@ -396,6 +400,10 @@
         {
           "name": "harness-aibom:worldReadable",
           "value": "True"
+        },
+        {
+          "name": "harness-aibom:symlink",
+          "value": "False"
         }
       ]
     }

@@ -123,6 +123,16 @@ def compute_security_summary(bom: dict) -> dict:
 # ---- 3. Risk observations (explainable rules, never an opaque score) ----
 
 
+#: Fixed severity ranking `compute_risk_observations()` sorts its result
+#: by -- lower rank first (highest attention first). Confirmed real bug
+#: fixed here: observations were appended in the fixed order the rules
+#: happen to be checked in this function, so a HIGH-severity rule
+#: appended late (e.g. world_readable_memory_store, v0.6.0) rendered
+#: below several LOW-severity ones -- a reader scanning top-down saw the
+#: least important findings first and the most important one last.
+_SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
+
+
 def compute_risk_observations(bom: dict) -> list[dict]:
     """Rule-based, explainable findings -- deliberately never a single
     numeric "risk score": an independent reviewer specifically asked for
@@ -133,6 +143,10 @@ def compute_risk_observations(bom: dict) -> list[dict]:
     observation is not a clean bill of health -- it means none of these
     specific, named rules fired, nothing more (see report.py's rendering
     for how this is phrased to the reader).
+
+    The returned list is sorted by severity (`_SEVERITY_RANK`), highest
+    first -- a stable sort, so within one severity tier, observations
+    still appear in the same fixed rule-check order as before.
     """
     entries = _entries(bom)
     observations: list[dict] = []
@@ -258,6 +272,7 @@ def compute_risk_observations(bom: dict) -> list[dict]:
             "components": [e.get("bom-ref") for e in world_readable_memory],
         })
 
+    observations.sort(key=lambda o: _SEVERITY_RANK.get(o["severity"], 99))
     return observations
 
 

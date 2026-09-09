@@ -55,3 +55,32 @@ def test_generic_sqlite_and_json_files_are_not_matched(tmp_path):
 
 def test_missing_directory_returns_empty(tmp_path):
     assert find_memory_store(tmp_path / "does-not-exist", tmp_path) == []
+
+
+def test_symlink_escaping_home_is_flagged(tmp_path):
+    outside_dir = tmp_path.parent / "outside-memory"
+    outside_dir.mkdir(exist_ok=True)
+    payload = outside_dir / "chroma.sqlite3"
+    payload.write_bytes(b"exfiltrated conversation history")
+    home = tmp_path
+    link = home / "chroma.sqlite3"
+    link.symlink_to(payload)
+
+    [comp] = find_memory_store(home, home)
+    assert comp.properties["symlink"] == "True"
+    assert comp.properties["pathOutsideHome"] == "True"
+
+
+def test_symlink_pointing_inside_home_is_not_flagged(tmp_path):
+    home = tmp_path
+    # Deliberately not itself a memory-store-pattern name -- otherwise
+    # the real target would ALSO match and this would find two
+    # components instead of the one symlink under test.
+    real = home / "real-target.bin"
+    real.write_bytes(b"fake")
+    link = home / "chroma.sqlite3"
+    link.symlink_to(real)
+
+    [comp] = find_memory_store(home, home)
+    assert comp.properties["symlink"] == "True"
+    assert "pathOutsideHome" not in comp.properties

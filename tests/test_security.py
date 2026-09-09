@@ -231,6 +231,28 @@ def test_model_without_digest_is_flagged():
     assert "model_no_digest" in rules
 
 
+def test_risk_observations_are_sorted_by_severity_not_insertion_order():
+    # Regression test: an independent reviewer found observations were
+    # returned in the fixed order this function happens to check its
+    # rules in -- a HIGH-severity rule appended late (world_readable_
+    # memory_store, v0.6.0) rendered after several LOW-severity ones. A
+    # reader scanning top to bottom must see the most serious finding
+    # first.
+    doc = _doc()
+    dep = Component(component_class="dependency", name="pkg")  # low: unpinned_mcp_launcher
+    dep.set("origin", "mcp-launcher")
+    doc.add(dep, "uses")
+    mem = Component(component_class="memory_store", name="chroma.sqlite3")  # high
+    mem.set("worldReadable", True)
+    doc.add(mem, "accesses")
+    doc.add(Component(component_class="model", name="mystery-model"), "uses")  # low
+    bom = to_cyclonedx(doc)
+
+    severities = [o["severity"] for o in compute_risk_observations(bom)]
+    assert severities == sorted(severities, key=lambda s: {"high": 0, "medium": 1, "low": 2}[s])
+    assert severities[0] == "high"
+
+
 # ---- secrets confidence tiers --------------------------------------------
 
 

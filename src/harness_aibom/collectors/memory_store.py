@@ -31,7 +31,7 @@ import stat
 from pathlib import Path
 
 from ..model import Component
-from ..paths import relative_to_or_none
+from ..paths import is_symlink_outside_home, relative_to_or_none
 
 #: Filename/extension patterns for specific, real, well-known AI-memory
 #: artifacts. Deliberately NOT "*.sqlite" or "*.json" generally -- both
@@ -65,5 +65,12 @@ def find_memory_store(directory: Path, home: Path) -> list[Component]:
             comp.set("relPath", relative_to_or_none(file_path, home))
             comp.set("mode", oct(mode))
             comp.set("worldReadable", bool(mode & stat.S_IROTH))
+            # symlink/pathOutsideHome (v0.6.1) -- same check as hooks.py
+            # (v0.1.9) and prompt_surface.py (this same release); a
+            # memory store swapped in via a symlink escaping --home is
+            # the same shape of gap.
+            comp.set("symlink", file_path.is_symlink())
+            if is_symlink_outside_home(file_path, home):
+                comp.set("pathOutsideHome", True)
             found.append(comp)
     return found

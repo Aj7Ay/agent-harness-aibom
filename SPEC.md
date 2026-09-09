@@ -504,8 +504,8 @@ dependency graph. That's a real remaining gap, not claimed otherwise.
 | `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description`; `referencedServers`/`urls`/`shellIndicators`/`envVarReferences` (v0.6.0, opportunistic -- only set when `analyze_skill_content()` actually finds something; a *text mention* in the skill's own `SKILL.md` prose, never confirmation the skill invokes it at runtime -- see §13) | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
-| `prompt_surface` (v0.6.0) | `file` | `path`, `relPath`, `sha256` (fingerprinted -- an instruction file's content is meant to be read, not kept private) | recursive filesystem scan for exact filenames `AGENTS.md`/`CLAUDE.md` under the harness's own directory -- real, cross-project conventions (agents.md; Claude Code's own), not confirmed specifically for Hermes/OpenClaw, recorded on the same "absence isn't an error, presence doesn't over-claim relevance" basis as `secrets_surface` |
-| `memory_store` (v0.6.0) | `data` | `path`, `relPath`, `mode`, `worldReadable` -- never fingerprinted, never opened to read content at all, same secrets-never-leak discipline as `secrets_surface` (§3) | recursive filesystem scan for `chroma.sqlite3` (Chroma's own literal default filename), `*.faiss`/`*.index` (FAISS's own index-file extensions) -- deliberately narrower than a generic `*.sqlite`/`*.json` pattern |
+| `prompt_surface` (v0.6.0) | `file` | `path`, `relPath`, `sha256` (fingerprinted -- an instruction file's content is meant to be read, not kept private), `symlink` (bool, v0.7.0), `pathOutsideHome` (bool, v0.7.0 -- set only when `symlink` is true and its *resolved* target lands outside `--home`, same `is_symlink_outside_home()` helper `hook` uses) | recursive filesystem scan for exact filenames `AGENTS.md`/`CLAUDE.md` under the harness's own directory -- real, cross-project conventions (agents.md; Claude Code's own), not confirmed specifically for Hermes/OpenClaw, recorded on the same "absence isn't an error, presence doesn't over-claim relevance" basis as `secrets_surface` |
+| `memory_store` (v0.6.0) | `data` | `path`, `relPath`, `mode`, `worldReadable` -- never fingerprinted, never opened to read content at all, same secrets-never-leak discipline as `secrets_surface` (§3); `symlink`, `pathOutsideHome` (v0.7.0, same semantics as `prompt_surface` above) | recursive filesystem scan for `chroma.sqlite3` (Chroma's own literal default filename), `*.faiss`/`*.index` (FAISS's own index-file extensions) -- deliberately narrower than a generic `*.sqlite`/`*.json` pattern |
 | `tool` | `application` | `server` (parent server's name), `riskClass` (`read`/`write`/`exec`/`network`/`unknown`, a heuristic over the tool's own *name* — see below) | one per name in a `mcp_server` entry's `tools` list |
 | `dependency` | `library` | `version`, native `purl` (see below); Python packages only -- one component per `(site_packages, name)` pair, never deduplicated across different `site_packages` directories, so two disagreeing copies both show up rather than one silently masking the other (v0.2.2); `path` (the exact dist-info directory found) and `distDir` (the same, relative to `installDir`); `relPath` is deliberately `<site_packages relative to installDir>::<name>`, NOT the dist-info directory -- a dist-info directory's name embeds its own version, so using it as the diffable identity made every version bump read as removed+added instead of `changed` (v0.2.3); native `licenses[]` from `METADATA`'s `License:`, native `supplier` from `Author:`/`Author-email:` (falling back to `Maintainer:`/`Maintainer-email:`) -- Python packages only (v0.2.4); `origin` (`"mcp-launcher"` or `"python-package"`, set by `mcp.py`/`deps.py` respectively) distinguishes the two sources this table's own "Source" column names, by a real recorded fact rather than an inferred absence -- security.py's `unpinned_dependency`-family risk rules key on it (v0.5.1, §12) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
 
@@ -1394,3 +1394,101 @@ common `SecurityEvidence` object (still blocked on the same per-property
 source-tracking work named as deferred in v0.5.0, §11); vulnerability
 integration (no real data source -- `report`'s Vulnerabilities section
 stays an honest empty-state stub until one exists).
+
+## 14. Policy gating and baseline diff (v0.7.0), plus two v0.6.0 fixes
+
+An independent reviewer's pass over v0.6.0's two new collectors found two
+real defects and named the two highest-priority items still open from the
+original persisted roadmap. All four ship together here rather than
+splitting the two fixes into a v0.6.1 patch, since the reviewer's own
+framing treated the whole set as one piece of work: "the last two items
+from the original plan, and the two that most change how the tool reads
+in a lab."
+
+**Fix: risk observations were unsorted.** `compute_risk_observations()`
+(§9) built its list in rule-definition order, not severity order -- a
+`report`'s Risk observations section and a `policy` run's own console
+output could both put a `low` finding ahead of a `high` one, purely
+because of which rule happened to run first in the source file. Fixed
+with a single `_SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}` sort
+key applied once, at the end of `compute_risk_observations()` itself, so
+every consumer (the report, `diff`, the new `policy` command below)
+inherits the same order for free rather than each having to re-sort.
+Regression test asserts the returned list is actually sorted, not just
+that high-severity findings exist.
+
+**Fix: symlink detection was inconsistent across the three file
+collectors.** `hook`'s collector already recorded `symlink`/
+`pathOutsideHome` (§2); the two new v0.6.0 collectors, `prompt_surface`
+and `memory_store`, did not -- an attacker (or a misconfigured agent)
+symlinking `AGENTS.md` or a `chroma.sqlite3` path to a file outside
+`--home` went undetected by exactly the two collectors added most
+recently. Fixed by extracting the shared logic hook's collector had
+inlined into a standalone `paths.is_symlink_outside_home(file_path,
+home)`, and wiring it into both new collectors the same way. The helper
+only calls `.resolve()` when `file_path.is_symlink()` is actually true --
+confirmed empirically (`Path(tempfile.mkdtemp())` vs. its own `.resolve()`
+differ on macOS, `/var/folders/...` vs. `/private/var/folders/...`) that
+unconditionally resolving both sides would produce a false
+`pathOutsideHome` on the ordinary non-symlink case whenever a caller
+passes an unresolved `home`. Both collectors now set `symlink` on every
+matched file and `pathOutsideHome` only when it's actually a symlink
+resolving outside `--home`, mirroring `hook`'s own field names and
+semantics exactly (§2's taxonomy table rows updated to match).
+
+**`report --baseline <file>` / the Baseline diff section
+(`cli.py`, `report.py`).** `diff` (§4) was already this project's
+strongest "what changed" output, but it only spoke JSON on a terminal --
+there was no way to hand a security reviewer one document that shows both
+the current state and what changed since a prior scan. `report` now
+accepts an optional second document; when given, `diff_documents()` runs
+the same way `diff` itself does (reused directly, not reimplemented, so
+the two commands can never disagree about what counts as a change), and
+the result renders in a new "Baseline diff" section (Added/Removed/
+Changed, with a `fingerprint changed` column) plus updates the Security
+summary's previously-permanent "not available for a single scan"
+disclaimer with the real counts. With no `--baseline`, both the section
+and the disclaimer render exactly as before -- fully backward compatible.
+Verified end-to-end, not just at the unit level: a real before/after pair
+generated from `tests/fixtures/hermes_home` with a deliberately added
+skill and a deliberately modified `AGENTS.md`, rendered through the real
+CLI, and inspected both in the raw HTML output and via a headless-Chrome
+screenshot, confirming the nav link, the section content, and the
+Security summary line all reflect the same real diff.
+
+**`policy` (`cli.py`'s `_run_policy`).** The other of the two named
+priority items: a CI-gating command that reuses `compute_risk_observations()`
+directly (never a second rule engine) so `policy` and the report's own
+Risk observations section can never disagree about what counts as a
+finding. `--fail-on {low,medium,high}` (default `medium`) fails the
+process (exit 1) if any finding at or above that severity exists.
+`--baseline <file>` changes the question from "does anything qualify" to
+"did this scan make things worse than the baseline" -- a finding is
+counted only if its `(rule, component)` pair doesn't already appear in
+the baseline's own risk observations, so a pre-existing, already-accepted
+risk doesn't fail CI forever just for continuing to exist. This is a
+deliberate, scoped interpretation of the roadmap's original "severity in
+diff" phrasing: it stays keyed off security.py's own rule identity rather
+than teaching `diff.py`'s component-level diff about severity, so the
+two features (`diff`'s structural comparison, `policy`'s risk-rule
+comparison) stay independent and neither has to model the other's
+concerns. In `--baseline` mode, console output names the specific
+new component(s) per finding (`    new: <ref>, <ref>`), not just the
+rule's own aggregate summary text -- caught while writing the test for
+this, not by a reviewer: printing only the summary would have told a CI
+reader a rule fired again without ever saying which component was
+actually new.
+
+**Deliberately not attempted in v0.7.0**: report file size returning to
+roughly 2MB at high component counts, raised in the same reviewer pass
+that named the four items above -- explicitly called "not a defect" by
+the reviewer and left out of their own stated priority order, so not
+actioned here; still open, tracked in the roadmap memory file for a
+future pass focused specifically on report payload size. Also still
+deferred, unchanged from §13: promoting a skill's text references into
+real `inferred` graph edges; a common `SecurityEvidence`/provenance
+object; vulnerability integration (no real data source yet); SARIF/
+sidecar-JSON security output, a supply-chain timeline view, compliance
+mapping, and cosign signing -- all still-open original-roadmap items
+`policy` and `report --baseline` were the two highest-priority picks
+from, not full closure of the roadmap.

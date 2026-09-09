@@ -278,3 +278,135 @@ def test_deterministic_report_is_byte_identical_across_renders(tmp_path):
 
     assert html_a.read_text() == html_b.read_text()
     assert "no render timestamp" in html_a.read_text()
+
+
+# ---- v0.7.0: report --baseline / policy ------------------------------------
+
+
+def test_report_baseline_renders_the_diff_section(tmp_path):
+    before = tmp_path / "before.json"
+    after = tmp_path / "after.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(before), "--deterministic"])
+    main(["scan", "--runtime", "openclaw", "--home", str(OPENCLAW_HOME), "--output", str(after), "--deterministic"])
+
+    html_out = tmp_path / "diff.html"
+    exit_code = main(["report", str(after), "--baseline", str(before), "--output", str(html_out)])
+    assert exit_code == 0
+
+    html_text = html_out.read_text()
+    assert "No baseline supplied" not in html_text
+    assert "not available for a single scan" not in html_text
+
+
+def test_report_baseline_missing_file_is_a_clean_error(tmp_path, capsys):
+    out = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out)])
+
+    exit_code = main(["report", str(out), "--baseline", "/no/such/before.json", "--output", str(tmp_path / "x.html")])
+    assert exit_code == 1
+    assert "no such file" in capsys.readouterr().err
+
+
+def test_policy_passes_when_nothing_qualifies(tmp_path, capsys):
+    # A minimal, purpose-built clean document -- not the real hermes_home
+    # fixture, which (correctly) has real findings of its own as of
+    # v0.6.0 (a world-readable memory store, a plaintext/unauthenticated
+    # MCP server), so scanning it isn't a "nothing qualifies" case.
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    out = tmp_path / "aibom.json"
+    out.write_text(json.dumps(to_cyclonedx(doc)))
+
+    exit_code = main(["policy", str(out)])
+    assert exit_code == 0
+    assert "policy: passed" in capsys.readouterr().out
+
+
+def test_policy_fails_on_a_qualifying_finding(tmp_path, capsys):
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    secret = Component(component_class="secrets_surface", name=".env")
+    secret.set("worldReadable", True)
+    doc.add(secret, "accesses")
+    out = tmp_path / "aibom.json"
+    out.write_text(json.dumps(to_cyclonedx(doc)))
+
+    exit_code = main(["policy", str(out)])
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "policy: FAILED" in captured.err
+    assert "world_readable_secret_high_confidence" in captured.out
+
+
+def test_policy_fail_on_threshold_is_honored(tmp_path):
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    doc.add(Component(component_class="model", name="mystery-model"), "uses")  # low
+    out = tmp_path / "aibom.json"
+    out.write_text(json.dumps(to_cyclonedx(doc)))
+
+    assert main(["policy", str(out)]) == 0  # default --fail-on medium: a LOW finding doesn't fail
+    assert main(["policy", str(out), "--fail-on", "low"]) == 1
+
+
+def test_policy_baseline_only_fails_on_genuinely_new_findings(tmp_path, capsys):
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    baseline_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    old_secret = Component(component_class="secrets_surface", name=".env")
+    old_secret.set("worldReadable", True)
+    baseline_doc.add(old_secret, "accesses")
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps(to_cyclonedx(baseline_doc)))
+
+    # Same pre-existing finding, plus one genuinely new one.
+    current_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    same_secret = Component(component_class="secrets_surface", name=".env")
+    same_secret.set("worldReadable", True)
+    current_doc.add(same_secret, "accesses")
+    new_secret = Component(component_class="secrets_surface", name="newly-exposed.env")
+    new_secret.set("worldReadable", True)
+    current_doc.add(new_secret, "accesses")
+    current = tmp_path / "current.json"
+    current.write_text(json.dumps(to_cyclonedx(current_doc)))
+
+    # Without --baseline: fails on both (both currently exist).
+    assert main(["policy", str(current)]) == 1
+
+    # With --baseline: only the genuinely new finding counts.
+    exit_code = main(["policy", str(current), "--baseline", str(baseline)])
+    assert exit_code == 1
+    assert "newly-exposed.env" in capsys.readouterr().out
+
+
+def test_policy_baseline_passes_when_nothing_new_since_baseline(tmp_path):
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    secret = Component(component_class="secrets_surface", name=".env")
+    secret.set("worldReadable", True)
+    doc.add(secret, "accesses")
+    bom_text = json.dumps(to_cyclonedx(doc))
+
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    baseline.write_text(bom_text)
+    current.write_text(bom_text)  # identical -- nothing new
+
+    assert main(["policy", str(current), "--baseline", str(baseline)]) == 0
+
+
+def test_policy_rejects_non_dict_json(tmp_path, capsys):
+    bad = tmp_path / "not-a-document.json"
+    bad.write_text("[]")
+    exit_code = main(["policy", str(bad)])
+    assert exit_code == 1
+    assert "not a CycloneDX document" in capsys.readouterr().err
