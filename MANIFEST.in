@@ -1,0 +1,12 @@
+# tests/ is deliberately excluded from the sdist, not partially included.
+# An independent reviewer found the default sdist shipped every test .py
+# file but none of tests/fixtures/'s non-.py support files (YAML, JSON,
+# shell scripts, a symlink) -- 26 of 104 tests then failed for anyone
+# installing from the sdist, with failures that read as defects in the
+# code rather than a packaging gap. Nothing in this project's actual
+# workflow (CI, `uv sync --extra dev`, README's own instructions) tests
+# from a downloaded sdist -- only from a git checkout -- so there's
+# nothing to preserve by including tests/ at all, and "ship it correctly
+# or not at all" is a smaller surface to get wrong than "ship it and
+# enumerate every fixture file type as we add them."
+prune tests

@@ -27,58 +27,84 @@ FINGERPRINT_FIELDS = ("harness-aibom:sha256", "harness-aibom:digest")
 IGNORED_FIELDS = frozenset({"harness-aibom:path"})
 
 
-def _index(doc: dict) -> dict[tuple[str, str], dict[str, str]]:
-    # Group first, key second: a base identity that turns out to be
-    # shared by more than one entry within *this* document needs
-    # disambiguating (see below) before it can become a dict key at all.
-    grouped: dict[tuple[str, str], list[dict[str, str]]] = {}
+def _raw_entries(doc: dict) -> list[dict]:
     # model_endpoint and mcp_server live in "services", not "components"
-    # (see model.py SERVICE_CLASSES) -- both arrays get indexed the same
-    # way, keyed by componentClass, so a diff doesn't silently go blind to
-    # a changed MCP server just because of which array it's stored in.
-    for entry in doc.get("components", []) + doc.get("services", []):
+    # (see model.py SERVICE_CLASSES) -- both arrays get read the same way,
+    # keyed by componentClass, so a diff doesn't silently go blind to a
+    # changed MCP server just because of which array it's stored in.
+    return doc.get("components", []) + doc.get("services", [])
+
+
+def _base_identity(props: dict[str, str], entry: dict) -> tuple[str, str]:
+    # Prefer relPath (path relative to --home) over the absolute path,
+    # over `name`, in that order:
+    #   - `name` alone isn't unique: the recursive secrets scan means
+    #     two different `.env` files in different directories both
+    #     have `name == ".env"` -- keying on `name` collapsed them
+    #     into one dict entry, silently hiding a real change to
+    #     whichever one lost that collision.
+    #   - the absolute `path` fixes that, but breaks comparing two
+    #     different machines against each other (a golden baseline vs.
+    #     a lab VM, or student A's box vs. student B's) -- `/home/alice`
+    #     and `/home/bob` share no absolute paths, so every entry would
+    #     read as both added and removed.
+    #   - relPath fixes both: unique like `path`, but host-independent.
+    #     Not every entry has one (OpenClaw's env_dir defaults to
+    #     /opt/openclaw, entirely outside --home) -- those fall back to
+    #     `path`, which is still unique, just not portable.
+    # Deliberately NOT bom-ref: its numeric "-2" disambiguation suffix
+    # is insertion-order-dependent, so a new component added earlier in
+    # a later scan can shift every following bom-ref and make
+    # untouched files look renamed.
+    identity = props.get("harness-aibom:relPath") or props.get("harness-aibom:path") or entry.get("name", "")
+    return (props.get("harness-aibom:componentClass", "unknown"), identity)
+
+
+def _ambiguous_keys(before: dict, after: dict) -> set[tuple[str, str]]:
+    """Base identities that need disambiguating (see `_index`) -- computed
+    once, jointly, from *both* documents, not separately per document.
+
+    Confirmed real bug fixed here: computing this per document meant a
+    name unique in `before` (one entry, no disambiguator) but duplicated
+    in `after` (two entries, both disambiguated) never matched at all --
+    the unchanged server read as "removed", and *both* after-side entries
+    read as "added", even though one of them was the exact same server
+    persisting unchanged. Deciding ambiguity from the union of both scans
+    means the same logical key gets the same treatment on both sides.
+    """
+    ambiguous: set[tuple[str, str]] = set()
+    for doc in (before, after):
+        counts: dict[tuple[str, str], int] = {}
+        for entry in _raw_entries(doc):
+            props = {p["name"]: p["value"] for p in entry.get("properties", [])}
+            key = _base_identity(props, entry)
+            counts[key] = counts.get(key, 0) + 1
+        ambiguous |= {key for key, n in counts.items() if n > 1}
+    return ambiguous
+
+
+def _index(doc: dict, ambiguous_keys: set[tuple[str, str]]) -> dict[tuple[str, str], dict[str, str]]:
+    grouped: dict[tuple[str, str], list[dict[str, str]]] = {}
+    for entry in _raw_entries(doc):
         props = {p["name"]: p["value"] for p in entry.get("properties", [])}
-        # Prefer relPath (path relative to --home) over the absolute path,
-        # over `name`, in that order:
-        #   - `name` alone isn't unique: the recursive secrets scan means
-        #     two different `.env` files in different directories both
-        #     have `name == ".env"` -- keying on `name` collapsed them
-        #     into one dict entry, silently hiding a real change to
-        #     whichever one lost that collision.
-        #   - the absolute `path` fixes that, but breaks comparing two
-        #     different machines against each other (a golden baseline vs.
-        #     a lab VM, or student A's box vs. student B's) -- `/home/alice`
-        #     and `/home/bob` share no absolute paths, so every entry would
-        #     read as both added and removed.
-        #   - relPath fixes both: unique like `path`, but host-independent.
-        #     Not every entry has one (OpenClaw's env_dir defaults to
-        #     /opt/openclaw, entirely outside --home) -- those fall back to
-        #     `path`, which is still unique, just not portable.
-        # Deliberately NOT bom-ref: its numeric "-2" disambiguation suffix
-        # is insertion-order-dependent, so a new component added earlier in
-        # a later scan can shift every following bom-ref and make
-        # untouched files look renamed.
-        identity = (
-            props.get("harness-aibom:relPath") or props.get("harness-aibom:path") or entry.get("name", "")
-        )
-        key = (props.get("harness-aibom:componentClass", "unknown"), identity)
-        grouped.setdefault(key, []).append(props)
+        grouped.setdefault(_base_identity(props, entry), []).append(props)
 
     out: dict[tuple[str, str], dict[str, str]] = {}
     for key, props_list in grouped.items():
-        if len(props_list) == 1:
+        if key not in ambiguous_keys:
+            # Not ambiguous in *either* document -- always exactly one
+            # entry here in that case anyway.
             out[key] = props_list[0]
             continue
-        # Two or more entries share this identity within the same
-        # document -- confirmed real for mcp_server: it's a *service*
-        # (§1), so it has neither `path` nor `relPath` to fall back on,
-        # and two servers can share a config `name` the same way two
-        # `.env` files could share a basename. Disambiguate each with
-        # whatever distinguishing, content-derived property it has --
-        # `endpoint` for a URL-based server, `command`+`args` for a
-        # stdio one -- falling back to position only as a last resort so
-        # nothing is silently dropped. This is a per-document grouping,
-        # not a stable cross-scan id: if a server's own `endpoint`
+        # This base identity is shared by more than one entry in at least
+        # one of the two documents -- confirmed real for mcp_server: it's
+        # a *service* (§1), so it has neither `path` nor `relPath` to
+        # fall back on, and two servers can share a config `name` the
+        # same way two `.env` files could share a basename. Disambiguate
+        # each with whatever distinguishing, content-derived property it
+        # has -- `endpoint` for a URL-based server, `command`+`args` for
+        # a stdio one -- falling back to position only as a last resort
+        # so nothing is silently dropped. If a server's own `endpoint`
         # happens to be the only thing that changed between scans, that
         # reads as one entry removed and one added rather than one
         # changed -- still visible, which is what matters, just not as
@@ -92,8 +118,9 @@ def _index(doc: dict) -> dict[tuple[str, str], dict[str, str]]:
 
 
 def diff_documents(before: dict, after: dict) -> dict:
-    before_index = _index(before)
-    after_index = _index(after)
+    ambiguous_keys = _ambiguous_keys(before, after)
+    before_index = _index(before, ambiguous_keys)
+    after_index = _index(after, ambiguous_keys)
     before_keys, after_keys = set(before_index), set(after_index)
 
     added = sorted(f"{k[0]}:{k[1]}" for k in after_keys - before_keys)

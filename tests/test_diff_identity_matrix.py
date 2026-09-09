@@ -124,3 +124,62 @@ def test_uniquely_named_mcp_server_keeps_plain_changed_semantics():
     assert result["removed"] == []
     [change] = result["changed"]
     assert change["component"] == "mcp_server:corp-docs"
+
+
+def test_name_unique_in_before_but_duplicated_in_after_matches_the_persisting_server():
+    # Regression test: an independent reviewer found that computing
+    # ambiguity separately per document meant a name unique in `before`
+    # (one bare-keyed entry) never matched either of `after`'s two
+    # disambiguated entries once a second same-named server appeared --
+    # the unchanged server read as removed, and BOTH after-side entries
+    # read as added, even though one of them was the exact same server
+    # persisting untouched. Fixed by deciding ambiguity from the union of
+    # both scans, so the persisting server gets the same disambiguated
+    # key on both sides and only the genuinely new one shows as added.
+    before_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    before_doc.add(Component(component_class="mcp_server", name="fs").set("endpoint", "https://x.example.com"), "uses")
+    before = to_cyclonedx(before_doc)
+
+    after_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    after_doc.add(Component(component_class="mcp_server", name="fs").set("endpoint", "https://x.example.com"), "uses")
+    after_doc.add(Component(component_class="mcp_server", name="fs").set("endpoint", "https://y.example.com"), "uses")
+    after = to_cyclonedx(after_doc)
+
+    result = diff_documents(before, after)
+    assert result["added"] == ["mcp_server:fs#https://y.example.com"]
+    assert result["removed"] == []
+    assert result["changed"] == []
+
+
+def test_hook_replaced_by_a_symlink_escaping_home_is_visible_in_diff():
+    # These two hook behaviors (symlink, pathOutsideHome) were previously
+    # covered only by unit tests on the collector, not by anything
+    # exercising diff.py against them -- added here per an independent
+    # reviewer's suggestion, while the behavior is fresh. A hook that was
+    # a real file inside --home, later replaced by a symlink pointing
+    # outside it, changes identity (relPath present, then absent) -- so
+    # this shows as one hook removed and a new, clearly-flagged one
+    # added, rather than matching as "changed". Still visible, which is
+    # what matters: pathOutsideHome on the new entry is exactly the
+    # signal an operator needs to see.
+    before_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    legit = Component(component_class="hook", name="audit.sh")
+    legit.set("path", "/home/u/.hermes/hooks/audit.sh")
+    legit.set("relPath", ".hermes/hooks/audit.sh")
+    legit.set("sha256", "aaa")
+    before_doc.add(legit, "approves")
+    before = to_cyclonedx(before_doc)
+
+    after_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    escaped = Component(component_class="hook", name="audit.sh")
+    escaped.set("path", "/tmp/evil/payload.sh")
+    escaped.set("symlink", True)
+    escaped.set("pathOutsideHome", True)
+    escaped.set("sha256", "bbb")
+    after_doc.add(escaped, "approves")
+    after = to_cyclonedx(after_doc)
+
+    result = diff_documents(before, after)
+    assert result["removed"] == ["hook:.hermes/hooks/audit.sh"]
+    assert result["added"] == ["hook:/tmp/evil/payload.sh"]
+    assert result["changed"] == []

@@ -185,6 +185,36 @@ introduced, plus one further defect:
 Both confirmed against the reviewer's exact reproductions, both before
 and after fixing.
 
+**v0.1.11 update:** shipped `tests/test_hook_parsing_matrix.py` and
+`tests/test_diff_identity_matrix.py`, consolidating every hook-output
+shape and diff-identity edge case found so far into two table-driven
+suites (§7), specifically to close the gap that let the v0.1.9
+regression through — a fix for one shape was never checked against the
+others already known to matter.
+
+**v0.1.12 update:** the same reviewer found that v0.1.11's own sdist
+didn't actually ship what it claimed to: `tests/*.py` was included by
+setuptools' default sdist file list, but `tests/fixtures/`'s non-`.py`
+support files (YAML, JSON, shell scripts, a symlink) weren't — 26 of 104
+tests then failed for anyone installing from the sdist, in a way that
+reads as defects in the code rather than a packaging gap. Nothing in this
+project's actual workflow (CI, `uv sync --extra dev`, this README) ever
+tests from a downloaded sdist, only from a git checkout, so there was
+nothing to preserve by including `tests/` at all — fixed by excluding it
+from the sdist entirely (`MANIFEST.in`: `prune tests`) rather than trying
+to enumerate every fixture file type going forward.
+
+The same review also found that the disambiguation added in v0.1.10 was
+computed separately per document, which broke exactly the case it hadn't
+been tested against: an MCP server `name` unique in `before` (one entry,
+undisambiguated) but duplicated in `after` (two entries, both
+disambiguated) never matched on either side — the persisting server read
+as removed, and *both* after-side entries read as added. Fixed by
+deciding which base identities need disambiguating from the union of
+*both* documents (`diff._ambiguous_keys()`), not from each document in
+isolation, so the same logical server gets the same treatment regardless
+of which scan happens to have the duplicate. See §4.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -324,17 +354,27 @@ two services can share a config `name` the same way two `.env` files
 could share a basename (confirmed real by an independent reviewer: two
 `mcp_server` entries both named `"fs"` collapsed into one `diff` entry,
 and a TLS downgrade on one of them vanished silently). `_index()`
-disambiguates *within one document* when a name turns out to be shared,
-using each entry's `endpoint` (or `command`+`args` for a stdio server,
-§2) as a content-derived tiebreaker, falling back to position only as a
-genuine last resort. This is deliberately a per-document grouping, not a
-stable cross-scan id — if the tiebreaking field itself is what changed
-between two scans (e.g. a duplicate-named server's own `endpoint`), that
-reads as one entry removed and one added rather than one changed. Still
-visible, which is what matters — silence was the actual bug — just not
-as precise as an unambiguous name would allow. A server whose `name` is
-unique in the document is entirely unaffected by any of this and keeps
-plain `changed` semantics for an endpoint change, same as always.
+disambiguates when a name turns out to be shared, using each entry's
+`endpoint` (or `command`+`args` for a stdio server, §2) as a
+content-derived tiebreaker, falling back to position only as a genuine
+last resort. If the tiebreaking field itself is what changed between two
+scans (e.g. a duplicate-named server's own `endpoint`), that reads as one
+entry removed and one added rather than one changed. Still visible,
+which is what matters — silence was the actual bug — just not as precise
+as an unambiguous name would allow. A server whose `name` is unique in
+the document is entirely unaffected by any of this and keeps plain
+`changed` semantics for an endpoint change, same as always.
+
+Whether a name "turns out to be shared" is decided from **the union of
+both documents being compared** (`diff._ambiguous_keys()`), not from each
+document checked in isolation — confirmed real bug fixed in v0.1.12: a
+per-document check meant a name unique in `before` (one entry, no
+disambiguator needed there) but duplicated in `after` (two entries,
+disambiguated there) got a *different* key shape on each side and never
+matched at all, so the persisting server read as removed and both
+after-side entries read as added. Deciding from the union means the same
+logical server gets the same disambiguated identity on both sides
+regardless of which particular scan happens to hold the duplicate.
 
 ## 5. Known limitations (v0.1)
 
