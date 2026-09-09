@@ -31,11 +31,18 @@ def fake_fetch(url):
     return TAGS_RESPONSE
 
 
+def fake_show_fetch(base_url, model_name):
+    # Never a real network call in this suite -- see test_ollama.py for
+    # dedicated /api/show enrichment tests.
+    raise ConnectionError("no /api/show enrichment in this fixture")
+
+
 def collect() -> HarnessDocument:
     collector = OpenClawCollector(
         home=FIXTURE_HOME,
         run=fake_run,
         fetch=fake_fetch,
+        show_fetch=fake_show_fetch,
         env_dir=FIXTURE_HOME / "opt-openclaw-does-not-exist",
     )
     assert collector.is_present()

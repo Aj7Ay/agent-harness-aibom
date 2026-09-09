@@ -499,7 +499,7 @@ dependency graph. That's a real remaining gap, not claimed otherwise.
 | `componentClass` | CDX `type` | Key properties | Source |
 |---|---|---|---|
 | `runtime` | `application` | `version`, `installDir`, `installMethod`, `upstreamHash`, `pythonVersion`, `sdkVersion` | `hermes --version` / `openclaw --version` |
-| `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest`, `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx` | Ollama `GET /api/tags`, cross-referenced against the configured default model |
+| `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest` (`digestConfidence: "observed"` alongside it -- v0.9.0, §20), `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx`; `promptTemplate`, `declaredParameters`, `capabilities`, `parentModel`, `modelfileFormat`, `architecture` (v0.9.0, §22 -- opportunistic, from `POST /api/show`, only when this scanner's own real, fetched-and-verified field names are present in the response) | Ollama `GET /api/tags`, cross-referenced against the configured default model; `POST /api/show` (v0.9.0, optional, §22) |
 | `configuration` | `file` | `path`, `relPath` (path relative to `--home`; see §4), `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
 | `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description` (`descriptionSource`: `"frontmatter"` when a real `description:` field won, `"heading"` when it fell back to the first markdown heading -- v0.8.2); `referencedServers`/`urls`/`shellIndicators`/`envVarReferences` (v0.6.0, opportunistic -- only set when `analyze_skill_content()` actually finds something; a *text mention* in the skill's own `SKILL.md` prose, never confirmation the skill invokes it at runtime -- see §13); `frontmatterName`/`license`/`allowedTools` (v0.8.2, opportunistic -- only set when the SKILL.md's own `---`-delimited YAML frontmatter declares them; `frontmatterName` is informational only, `comp.name` itself stays directory-derived, the real bom-ref/diff identity) | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
@@ -2133,3 +2133,81 @@ v0.8.2 Raw BOM search box, §16).
 Returns nothing for every other componentClass and for a skill whose
 content analysis found nothing to infer (no fabricated empty evidence
 chain) -- confirmed by a dedicated regression test.
+
+## 22. Tokenizer/prompt-template metadata via Ollama /api/show (v0.9.0)
+
+`collectors/ollama.py` previously only called Ollama's `GET /api/tags`.
+Ollama's own real API is publicly documented at
+`github.com/ollama/ollama/blob/main/docs/api.md` -- fetched directly
+before writing a line of this feature, not recalled from memory. The
+real, current doc confirms `POST /api/show`'s request shape
+(`{"model": "<name>", "verbose": <bool>}`) and its response's exact
+field names, reproduced verbatim in `ollama.py`'s own module docstring
+and in `tests/test_ollama.py`'s `REAL_SHOW_RESPONSE_EXAMPLE` (Ollama's
+own documented example response, not a guessed one): `modelfile`,
+`parameters`, `template`, `details` (`parent_model`, `format`, `family`,
+`families`, `parameter_size`, `quantization_level`), `model_info` (a
+large, architecture-dependent dict), `capabilities` (a real array, e.g.
+`["completion", "vision"]`).
+
+**Only genuinely new, confirmed fields are recorded** -- `family`/
+`parameter_size`/`quantization_level` are already captured from
+`/api/tags`'s own `details`, so only the two `/api/show`-only `details`
+fields (`parent_model`, `format`) are added here, alongside `template`
+(-> `promptTemplate`), `parameters` (-> `declaredParameters`), and
+`capabilities`. **`model_info` is deliberately read for exactly one
+key**, `general.architecture` -- the only one confirmed
+architecture-agnostic in Ollama's own documented example; every other
+key there (`llama.attention.head_count`, etc.) is namespaced to one
+specific model family, and reading it as if it generalized to every
+model would be inventing a schema Ollama itself doesn't fix across
+architectures.
+
+**A clearly-optional collection step, with real graceful degradation** --
+`enrich_model_with_show_info()` never raises: a network error, an older
+Ollama without this endpoint, or a response missing an expected field
+all just mean "nothing added for this model," never a crash and never a
+dropped model. `discover_models()` takes an injectable `show_fetch`
+(mirroring `fetch`'s own existing test-injection pattern) that a caller
+can pass `None` to skip entirely. `HermesCollector`/`OpenClawCollector`
+both wire it through with the same real-by-default constructor pattern
+`fetch` already has -- confirmed this doesn't slow down or risk the
+existing test suite: every existing fixture with a non-empty `/api/tags`
+model list now explicitly injects a fake `show_fetch` too (same
+discipline as injecting `fake_fetch`), and every fixture with an empty
+model list is entirely unaffected (the loop `show_fetch` would run
+inside never executes).
+
+**Honesty about verification, exactly as this project's own standing bar
+requires**: this was implemented strictly against Ollama's real,
+published, fetched API doc. **It was NOT verified against a live Ollama
+server** -- no Ollama instance was available in the sandbox this was
+built in, and `brew`/disk space were available to install one but doing
+so (installing the binary, pulling even a small real model, running the
+server) was judged too large a time cost against this pass's remaining
+scope, not attempted lightly. If a live box becomes available later,
+the thing most worth re-confirming is whether `model_info`'s key names
+are exactly as documented for a real, currently-pulled model -- that's
+the one field this module reads that Ollama's own doc describes as
+varying by architecture in practice, even though the one key this
+module actually reads (`general.architecture`) is documented as a fixed
+name.
+
+## 23. Dataset/model provenance beyond §22 (v0.9.0) -- nothing additional found
+
+Same real data source as §22 (`POST /api/show`). Ollama's own real,
+fetched API doc was searched specifically for a `license` or model-card-
+adjacent field on this endpoint's response. **None exists**: `license`
+appears in the docs only as a request-side field on the unrelated
+`POST /api/create` endpoint (a string or list of strings the *caller*
+supplies when creating a model), never as a field `/api/show` or
+`/api/tags` returns about an existing model. A real Ollama Modelfile can
+embed a `LICENSE` directive as free text inside the `modelfile` string
+`/api/show` already returns (§22) -- but extracting that reliably would
+mean parsing Ollama's own Modelfile DSL (a `FROM`/`TEMPLATE`/`PARAMETER`/
+`LICENSE`-directive text format this scanner has no parser for), which
+this project's "verify a real, checkable source or convention" standard
+doesn't stretch to cover from a doc search alone. **Nothing added for
+this item** -- explicitly reporting "no additional real field found"
+rather than fabricating a dataset-provenance schema Ollama doesn't
+actually expose, per this section's own scope.
