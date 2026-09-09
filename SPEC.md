@@ -345,14 +345,11 @@ itself, plus three smaller gaps:
   from 1.99.1 to 2.0.0 and diffing produced no `dependency:openai` entry
   at all, in either scan. Fixed by no longer deduplicating across
   directories: one component per `(site_packages, name)` pair, each
-  carrying `path`/`relPath` to its own dist-info directory (§2), so two
-  disagreeing copies both show up, distinguishably, and nothing is ever
-  silently dropped. Since a dist-info directory's name embeds the version
-  (pip deletes the old one and creates a new one on upgrade, rather than
-  mutating it in place), a version bump on the real copy now reads as one
-  entry removed and a new one added -- still fully visible, which is what
-  matters, the same accepted trade-off as a hook replaced by a symlink
-  (§4).
+  carrying `path` to its own dist-info directory (§2), so two disagreeing
+  copies both show up, distinguishably, and nothing is ever silently
+  dropped. (This bullet's original `relPath` design used the dist-info
+  directory itself as the diffable identity -- corrected in v0.2.3, §2,
+  once that turned out to have its own real problem.)
 - **A component's top-level `version` field wasn't itself compared by
   `diff`.** `diff.py` only ever compares `properties[]`; a version change
   was only visible if it happened to also change some other compared
@@ -381,6 +378,34 @@ itself, plus three smaller gaps:
   uncorrected, the next person to read it would conclude the native field
   was impossible and leave it alone. Fixed to state plainly that the
   `dependency` component gets the real native field.
+
+**v0.2.3 update:** the same reviewer re-tested v0.2.2 and found the fix
+above for the masking bug had traded it for a different, real problem in
+the same code:
+
+- **A `dependency`'s diff identity was the dist-info directory itself,
+  which embeds the package's own version** (`openai-2.0.0.dist-info`) --
+  and pip upgrades a package by deleting the old dist-info directory and
+  creating a new one, never renaming in place. So the identity itself
+  changed on every single version bump, before `diff` ever got to compare
+  `version`: every upgrade read as one entry removed and an unrelated-
+  looking one added, never as `changed`. Concretely, an N-package upgrade
+  produced 2N diff lines instead of N, each pair needing to be manually
+  matched back up by a human reader -- and the `harness-aibom:version`
+  mirror added in v0.2.2 specifically to make version changes visible to
+  `diff` almost never actually fired for a `dependency`, the class it was
+  aimed at, since pip never mutates a dist-info directory's `version`
+  field in place the way this scanner's own test had (unrealistically)
+  assumed.
+- Fixed by keying `relPath` (§2) on the *containing* `site_packages`
+  directory plus the package name (`<site_packages>::<name>`) instead of
+  the dist-info directory -- stable across an in-place upgrade, since
+  `site_packages` itself doesn't move or get renamed. The exact dist-info
+  directory a scan found is still recorded, just under a new property,
+  `distDir`, no longer as the diff identity. Two disagreeing copies in
+  *different* `site_packages` directories are still fully distinguishable
+  (that's what v0.2.2 fixed, and it still holds): their `relPath` differs
+  on the `site_packages` half.
 
 ## 1. Format: CycloneDX 1.6, extended
 
@@ -444,7 +469,7 @@ claimed otherwise.
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 | `tool` | `application` | `server` (parent server's name), `riskClass` (`read`/`write`/`exec`/`network`/`unknown`, a heuristic over the tool's own *name* — see below) | one per name in a `mcp_server` entry's `tools` list |
-| `dependency` | `library` | `version`, native `purl` (see below), `path`/`relPath` (the dist-info directory, Python packages only -- one component per `(site_packages, name)` pair, never deduplicated across different `site_packages` directories, so two disagreeing copies both show up rather than one silently masking the other) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
+| `dependency` | `library` | `version`, native `purl` (see below); Python packages only -- one component per `(site_packages, name)` pair, never deduplicated across different `site_packages` directories, so two disagreeing copies both show up rather than one silently masking the other (v0.2.2); `path` (the exact dist-info directory found) and `distDir` (the same, relative to `installDir`); `relPath` is deliberately `<site_packages relative to installDir>::<name>`, NOT the dist-info directory -- a dist-info directory's name embeds its own version, so using it as the diffable identity made every version bump read as removed+added instead of `changed` (v0.2.3) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
 

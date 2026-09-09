@@ -323,31 +323,75 @@ def test_a_dependency_version_bump_is_visible_in_diff_even_with_a_second_stale_c
     # dedup -- a real version bump to the real copy produced *no diff
     # entry at all*, since the only component ever recorded was the
     # unchanging stale one. Fixed in deps.py by emitting one component
-    # per (site_packages, name) with a real relPath -- confirmed here at
-    # the diff level (not just the collector level) that the bump is now
-    # fully visible: the real copy's dist-info directory name changes on
-    # upgrade (pip deletes the old one, creates a new one), so this reads
-    # as one entry removed and a new one added, not "changed" -- still
-    # visible, which is what matters; see SPEC.md §4 for the same
-    # trade-off already accepted for a hook replaced by a symlink.
+    # per (site_packages, name), keyed by relPath = "<site_packages>::
+    # <name>" -- version-independent, unlike the dist-info directory name
+    # itself -- so the bump now reads as a clean "changed" entry, not a
+    # removed+added pair (a second reviewer pass caught that the
+    # dist-info-path version of this fix still broke "changed" semantics
+    # for every upgrade; see deps.py's own comment for the full story).
     def build(real_version: str) -> dict:
         doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
         stale = Component(component_class="dependency", name="openai")
         stale.version = "0.1.0"
         stale.set("path", "/install/other/lib/site-packages/openai-0.1.0.dist-info")
-        stale.set("relPath", "other/lib/site-packages/openai-0.1.0.dist-info")
+        stale.set("distDir", "other/lib/site-packages/openai-0.1.0.dist-info")
+        stale.set("relPath", "other/lib/site-packages::openai")
         stale.set("purl", "pkg:pypi/openai@0.1.0")
         doc.add(stale, "uses")
 
         real = Component(component_class="dependency", name="openai")
         real.version = real_version
         real.set("path", f"/install/venv/lib/site-packages/openai-{real_version}.dist-info")
-        real.set("relPath", f"venv/lib/site-packages/openai-{real_version}.dist-info")
+        real.set("distDir", f"venv/lib/site-packages/openai-{real_version}.dist-info")
+        real.set("relPath", "venv/lib/site-packages::openai")
         real.set("purl", f"pkg:pypi/openai@{real_version}")
         doc.add(real, "uses")
         return to_cyclonedx(doc)
 
     result = diff_documents(build("1.99.1"), build("2.0.0"))
-    assert result["added"] == ["dependency:venv/lib/site-packages/openai-2.0.0.dist-info"]
-    assert result["removed"] == ["dependency:venv/lib/site-packages/openai-1.99.1.dist-info"]
-    assert result["changed"] == []
+    assert result["added"] == []
+    assert result["removed"] == []
+    [change] = result["changed"]
+    assert change["component"] == "dependency:venv/lib/site-packages::openai"
+    assert change["fields"]["harness-aibom:version"] == {"before": "1.99.1", "after": "2.0.0"}
+    assert change["fields"]["harness-aibom:purl"] == {
+        "before": "pkg:pypi/openai@1.99.1",
+        "after": "pkg:pypi/openai@2.0.0",
+    }
+    assert change["fields"]["harness-aibom:distDir"] == {
+        "before": "venv/lib/site-packages/openai-1.99.1.dist-info",
+        "after": "venv/lib/site-packages/openai-2.0.0.dist-info",
+    }
+
+
+def test_a_multi_package_upgrade_reads_as_n_changed_entries_not_2n_add_remove_pairs():
+    # The exact bulk-upgrade complaint from the same review: N packages
+    # upgraded in place used to produce 2N diff lines (N removed, N
+    # added) that a reviewer had to manually re-pair by hand, since every
+    # dist-info directory's name embeds its own version. Now: each
+    # upgrade is exactly one "changed" entry, keyed on the
+    # version-independent relPath.
+    def build(versions: dict[str, str]) -> dict:
+        doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+        for name, version in versions.items():
+            comp = Component(component_class="dependency", name=name)
+            comp.version = version
+            comp.set("distDir", f"venv/site-packages/{name}-{version}.dist-info")
+            comp.set("relPath", f"venv/site-packages::{name}")
+            comp.set("purl", f"pkg:pypi/{name.lower()}@{version}")
+            doc.add(comp, "uses")
+        return to_cyclonedx(doc)
+
+    before = build({"PyYAML": "6.0.3", "openai": "3.0.0", "pydantic_core": "2.23.4"})
+    after = build({"PyYAML": "6.0.4", "openai": "4.0.0", "pydantic_core": "2.24.0"})
+
+    result = diff_documents(before, after)
+    assert result["added"] == []
+    assert result["removed"] == []
+    assert len(result["changed"]) == 3
+    changed_names = {c["component"] for c in result["changed"]}
+    assert changed_names == {
+        "dependency:venv/site-packages::PyYAML",
+        "dependency:venv/site-packages::openai",
+        "dependency:venv/site-packages::pydantic_core",
+    }

@@ -25,6 +25,11 @@ def test_finds_packages_under_a_venv_style_site_packages(tmp_path):
     assert pyyaml.version == "6.0.1"
     assert pyyaml.properties["purl"] == "pkg:pypi/pyyaml@6.0.1"
     assert pyyaml.component_class == "dependency"
+    # relPath is version-independent (site_packages::name), distDir is the
+    # exact, version-bearing dist-info directory -- see discover_python_
+    # dependencies()'s comment for why identity can't be the dist-info dir.
+    assert pyyaml.properties["relPath"] == "lib/python3.11/site-packages::PyYAML"
+    assert pyyaml.properties["distDir"] == "lib/python3.11/site-packages/PyYAML-6.0.1.dist-info"
 
 
 def test_missing_install_dir_returns_empty(tmp_path):
@@ -54,8 +59,8 @@ def test_duplicate_package_across_two_site_packages_dirs_is_not_silently_collaps
     assert len(matches) == 2
     rel_paths = {c.properties["relPath"] for c in matches}
     assert rel_paths == {
-        "venv-a/site-packages/requests-2.31.0.dist-info",
-        "venv-b/site-packages/requests-2.31.0.dist-info",
+        "venv-a/site-packages::requests",
+        "venv-b/site-packages::requests",
     }
 
 
@@ -72,8 +77,8 @@ def test_a_version_bump_masked_by_a_second_site_packages_copy_is_now_visible(tmp
 
     before = {(c.properties.get("relPath"), c.version) for c in discover_python_dependencies(install_dir) if c.name == "openai"}
     assert before == {
-        ("other/lib/site-packages/openai-0.1.0.dist-info", "0.1.0"),
-        ("venv/lib/python3.12/site-packages/openai-1.99.1.dist-info", "1.99.1"),
+        ("other/lib/site-packages::openai", "0.1.0"),
+        ("venv/lib/python3.12/site-packages::openai", "1.99.1"),
     }
 
     # Bump only the real copy -- pip deletes the old dist-info and
@@ -85,13 +90,14 @@ def test_a_version_bump_masked_by_a_second_site_packages_copy_is_now_visible(tmp
 
     after = {(c.properties.get("relPath"), c.version) for c in discover_python_dependencies(install_dir) if c.name == "openai"}
     assert after == {
-        ("other/lib/site-packages/openai-0.1.0.dist-info", "0.1.0"),
-        ("venv/lib/python3.12/site-packages/openai-2.0.0.dist-info", "2.0.0"),
+        ("other/lib/site-packages::openai", "0.1.0"),
+        ("venv/lib/python3.12/site-packages::openai", "2.0.0"),
     }
-    # The stale copy is unaffected and the real bump is fully visible --
-    # neither masked the other.
-    assert before - after == {("venv/lib/python3.12/site-packages/openai-1.99.1.dist-info", "1.99.1")}
-    assert after - before == {("venv/lib/python3.12/site-packages/openai-2.0.0.dist-info", "2.0.0")}
+    # The stale copy is unaffected; the real bump keeps the *same*
+    # relPath identity across the upgrade (unlike the dist-info path,
+    # which changed) -- exactly one entry differs, by version only.
+    assert before - after == {("venv/lib/python3.12/site-packages::openai", "1.99.1")}
+    assert after - before == {("venv/lib/python3.12/site-packages::openai", "2.0.0")}
 
 
 def test_dist_info_without_a_readable_metadata_file_is_skipped(tmp_path):

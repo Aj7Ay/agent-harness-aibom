@@ -65,12 +65,34 @@ def discover_python_dependencies(install_dir: Path) -> list[Component]:
     # version bump to the *actually-running* copy could be invisible to
     # `diff` if the discarded copy happened to sort first and never
     # changed -- exactly the kind of drift a dependency inventory exists
-    # to catch. Now: one component per (site_packages, name) pair, each
-    # carrying `path`/`relPath` to the exact dist-info directory it came
-    # from, so two disagreeing copies both show up, distinguishably, and
-    # `diff` (which falls back to relPath/path once more than one entry
-    # shares a name, same as it already does for mcp_server -- see
-    # diff.py) never has to silently pick a winner either.
+    # to catch. Now: one component per (site_packages, name) pair, so two
+    # disagreeing copies both show up, distinguishably, and `diff` never
+    # has to silently pick a winner.
+    #
+    # `relPath` -- the identity `diff` actually keys on (diff.py prefers
+    # relPath over path over bare name) -- is deliberately NOT the
+    # dist-info directory itself, even though that's the real, literal
+    # thing on disk. Confirmed real bug from an earlier version of *this*
+    # fix that used the dist-info path as relPath: a dist-info directory
+    # name embeds its own version (`openai-2.0.0.dist-info`), and pip
+    # upgrades a package by deleting the old directory and creating a new
+    # one, never renaming in place -- so relPath itself changed on every
+    # single version bump, before `diff` ever got to compare `version`.
+    # Every upgrade read as one entry removed and a new, unrelated-looking
+    # one added, never as a "changed" entry -- which defeated the
+    # `harness-aibom:version` comparison added for exactly this class, and
+    # turned an N-package upgrade into 2N noisy diff lines a reviewer has
+    # to manually re-pair by hand. Fixed by keying identity on the
+    # `site_packages` directory (stable across an in-place upgrade) plus
+    # the package name (needed since one site_packages dir holds many
+    # packages), joined with "::" since a package name can itself contain
+    # "/" (a namespace package) and would otherwise be ambiguous as a
+    # path segment. The real dist-info path is kept too, as `distDir`, so
+    # nothing about exactly which directory a given scan found is lost --
+    # it's just no longer what identity is computed from. Two disagreeing
+    # copies in *different* site_packages directories are still fully
+    # distinguishable, since their relPath differs on the site_packages
+    # part.
     #
     # rglob is safe here specifically because install_dir is a scoped,
     # single-package install directory (confirmed from `--version`
@@ -89,7 +111,10 @@ def discover_python_dependencies(install_dir: Path) -> list[Component]:
 
             comp = Component(component_class="dependency", name=name)
             comp.set("path", str(dist_info))
-            comp.set("relPath", relative_to_or_none(dist_info, install_dir))
+            comp.set("distDir", relative_to_or_none(dist_info, install_dir))
+            site_packages_rel = relative_to_or_none(site_packages, install_dir)
+            if site_packages_rel is not None:
+                comp.set("relPath", f"{site_packages_rel}::{name}")
             if version:
                 comp.version = version
                 comp.set("purl", f"pkg:pypi/{name.lower().replace('_', '-')}@{version}")
