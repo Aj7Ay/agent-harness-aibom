@@ -151,3 +151,111 @@ def test_no_warnings_means_no_banner():
     doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
     html_text = render_html(to_cyclonedx(doc))
     assert "<div class='scan-warnings'>" not in html_text
+
+
+# ---- v0.3.0: architecture / security summary / risk / MCP security -------
+
+
+def test_architecture_section_shows_class_level_nodes_not_instance_level():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    for name in ("a", "b", "c"):
+        doc.add(Component(component_class="skill", name=name), "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    architecture_section = html_text.split("Architecture")[1].split("Security summary")[0]
+
+    assert "Architecture" in html_text
+    # the aggregate node label "skill" with its count, not three
+    # separately-named skill boxes
+    assert re.search(r">skill<.*?>3<", architecture_section, re.DOTALL)
+    assert ">a<" not in architecture_section
+
+
+def test_architecture_section_on_a_near_empty_document_says_nothing_to_diagram():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "nothing to diagram" in html_text
+
+
+def test_security_summary_shows_real_counts():
+    html_text = render_html(_doc_with_everything())
+    assert "Security summary" in html_text
+    assert re.search(r"Models</td><td>1</td>", html_text)
+
+
+def test_security_summary_baseline_line_is_honest_about_a_single_scan():
+    # Must never claim "0 changes" -- report has no baseline to compare
+    # against, unlike `diff`. A fabricated "0" would look verified when
+    # it isn't.
+    html_text = render_html(_doc_with_everything())
+    assert "not available for a single scan" in html_text
+    assert "harness-aibom diff" in html_text
+
+
+def test_risk_observations_clean_state_is_explicit_not_silent():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "No configured risk rule fired" in html_text
+    assert "not a general clean bill of health" in html_text
+
+
+def test_risk_observation_renders_with_a_severity_badge():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    secret = Component(component_class="secrets_surface", name=".env")
+    secret.set("worldReadable", True)
+    doc.add(secret, "accesses")
+    html_text = render_html(to_cyclonedx(doc))
+
+    assert "sev-critical" in html_text
+    assert "world-readable" in html_text
+
+
+def test_mcp_security_empty_state_is_explicit():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "No MCP servers discovered" in html_text
+
+
+def test_mcp_security_card_shows_tls_and_auth_status():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    server = Component(component_class="mcp_server", name="corp-docs")
+    server.set("transport", "http")
+    server.set("tls", True)
+    server.set("authConfigured", True)
+    doc.add(server, "uses")
+    html_text = render_html(to_cyclonedx(doc))
+
+    assert "mcp-card" in html_text
+    assert "status-pill ok'>TLS" in html_text
+    assert "auth configured" in html_text
+
+
+def test_mcp_security_card_flags_stdio_as_not_applicable_not_bad():
+    # tls="n/a" for stdio must never render as the "bad" (no TLS) pill --
+    # there's no network transport for stdio to secure in the first place.
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    server = Component(component_class="mcp_server", name="local-fs")
+    server.set("transport", "stdio")
+    server.set("tls", "n/a")
+    doc.add(server, "uses")
+    html_text = render_html(to_cyclonedx(doc))
+
+    assert "status-pill na'>n/a (stdio)" in html_text
+    assert "status-pill bad" not in html_text
+
+
+def test_skill_category_breakdown_groups_by_real_category_property():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    for name, category in (("a", "devops"), ("b", "devops"), ("c", "research")):
+        skill = Component(component_class="skill", name=name)
+        skill.set("category", category)
+        doc.add(skill, "loads")
+    html_text = render_html(to_cyclonedx(doc))
+
+    assert "Skills by category" in html_text
+    assert re.search(r"devops</td><td>2</td>", html_text)
+    assert re.search(r"research</td><td>1</td>", html_text)
+
+
+def test_skill_category_breakdown_absent_when_no_skills():
+    html_text = render_html(_doc_with_everything())  # no skills in this fixture
+    assert "Skills by category" not in html_text

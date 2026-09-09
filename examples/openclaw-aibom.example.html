@@ -80,6 +80,34 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 @media (prefers-color-scheme: dark) { .scan-warnings { background: #3a2f13; } }
 .scan-warnings ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 .scan-warnings li { font-size: 0.9rem; }
+.arch-card svg { display: block; width: 100%; height: auto; }
+.arch-box { fill: var(--surface); stroke-width: 2; }
+.arch-label { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 12px; font-weight: 600; fill: var(--fg); }
+.arch-count { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 11px; fill: var(--secondary); }
+.arch-edge { stroke: var(--baseline); stroke-width: 1.5; }
+.security-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 0.75rem 0 1.25rem; }
+.security-grid table.summary th { background: var(--surface); }
+/* Status palette (dataviz skill, fixed -- never themed, never reused for
+   series identity): good #0ca30c, warning #fab219, serious #ec835a,
+   critical #d03b3b. Always paired with a text label, never color alone. */
+.risk-list { list-style: none; margin: 0.5rem 0; padding: 0; }
+.risk-list li { padding: 0.5rem 0; border-top: 1px solid var(--border); display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
+.risk-list li:first-child { border-top: none; }
+.risk-badge { display: inline-block; border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; flex: none; }
+.risk-badge.sev-critical { background: #d03b3b; color: #fff; }
+.risk-badge.sev-serious { background: #ec835a; color: #fff; }
+.risk-badge.sev-warning { background: #fab219; color: #1a1a19; }
+.risk-clean { color: #0ca30c; font-weight: 600; }
+.mcp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
+.mcp-card-header { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.4rem; }
+.status-pill { display: inline-block; border-radius: 4px; padding: 0.05rem 0.45rem; font-size: 0.72rem; font-weight: 600; }
+.status-pill.ok { background: rgba(12,163,12,0.15); color: #0ca30c; }
+.status-pill.bad { background: rgba(208,59,59,0.15); color: #d03b3b; }
+.status-pill.na { background: var(--code-bg); color: var(--secondary); }
+.mcp-tool-list { list-style: none; margin: 0.4rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.mcp-tool-list li { background: var(--code-bg); border-radius: 4px; padding: 0.1rem 0.45rem; font-size: 0.78rem; }
+.coverage-list { list-style: none; margin: 0.3rem 0; padding: 0; }
+.coverage-list li { padding: 0.15rem 0; font-size: 0.85rem; }
 </style>
 </head>
 <body>
@@ -88,12 +116,53 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
   <p class="muted">
     runtime: <strong>openclaw</strong> ·
     host: <strong>Ajays-MacBook-Pro.local</strong> ·
-    scanned: 2026-09-09T08:00:29+00:00 ·
-    serial: urn:uuid:934e71de-c96f-4200-9911-cfc13bf8030d
+    scanned: 2026-09-09T10:15:35+00:00 ·
+    serial: urn:uuid:532f0d5d-4f07-4916-a139-19fd151f885d
   </p>
 </header>
 
 <div class='scan-warnings'><strong>⚠ 2 scan warnings</strong> <span class='muted'>(this document may be incomplete)</span><ul><li>openclaw binary not found on PATH; runtime component skipped</li><li>configured model &#x27;qwen3:8b&#x27; not found via Ollama /api/tags; recorded from config only</li></ul></div>
+
+<section>
+  <h2>Architecture</h2>
+  <p class="muted">What this agent is made of and how the pieces connect &mdash; one box per
+    category (not per component), positioned by real depth in the document's own dependency
+    graph. See Components/Services below for every individual instance.</p>
+  <div class="arch-card chart-card"><svg viewBox='0 0 406 342' role='img' aria-label='Harness architecture'><line x1='106.0' y1='134' x2='106.0' y2='156' class='arch-edge'/><line x1='106.0' y1='134' x2='300.0' y2='156' class='arch-edge'/><line x1='203.0' y1='66' x2='106.0' y2='88' class='arch-edge'/><line x1='203.0' y1='66' x2='300.0' y2='88' class='arch-edge'/><line x1='300.0' y1='202' x2='203.0' y2='224' class='arch-edge'/><g><title>harness root: 1</title><rect x='117.0' y='20' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--fg)'/><text x='203.0' y='37.0' text-anchor='middle' class='arch-label'>harness root</text><text x='203.0' y='55.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>configuration: 1</title><rect x='20.0' y='88' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-configuration)'/><text x='106.0' y='105.0' text-anchor='middle' class='arch-label'>configuration</text><text x='106.0' y='123.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>secrets_surface: 1</title><rect x='214.0' y='88' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-secrets_surface)'/><text x='300.0' y='105.0' text-anchor='middle' class='arch-label'>secrets_surface</text><text x='300.0' y='123.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>mcp_server: 1</title><rect x='20.0' y='156' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-mcp_server)'/><text x='106.0' y='173.0' text-anchor='middle' class='arch-label'>mcp_server</text><text x='106.0' y='191.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>model_endpoint: 1</title><rect x='214.0' y='156' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-model_endpoint)'/><text x='300.0' y='173.0' text-anchor='middle' class='arch-label'>model_endpoint</text><text x='300.0' y='191.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>model: 1</title><rect x='117.0' y='224' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-model)'/><text x='203.0' y='241.0' text-anchor='middle' class='arch-label'>model</text><text x='203.0' y='259.0' text-anchor='middle' class='arch-count'>1</text></g></svg></div>
+</section>
+
+<section>
+  <h2>Security summary</h2>
+  
+    <div class="security-grid">
+      <table class="summary">
+        <tr><th colspan="2">Inventory</th></tr>
+        <tr><td>Agent runtime</td><td>0</td></tr><tr><td>Model endpoints</td><td>1</td></tr><tr><td>Models</td><td>1</td></tr><tr><td>Skills</td><td>0</td></tr><tr><td>MCP servers</td><td>1</td></tr><tr><td>MCP tools</td><td>0</td></tr><tr><td>Hooks</td><td>0</td></tr><tr><td>Executable tools</td><td>0</td></tr><tr><td>Secrets surfaces</td><td>1</td></tr><tr><td>Dependencies</td><td>0</td></tr>
+      </table>
+      <table class="summary">
+        <tr><th colspan="2">Integrity</th></tr>
+        <tr><td>Fingerprinted components</td><td>1 / 5</td></tr>
+        <tr><td>AIBOM coverage</td><td>5 / 12 known categories</td></tr>
+        <tr><td>Baseline comparison</td><td class="muted">not available for a single scan &mdash; use <code>harness-aibom diff</code></td></tr>
+      </table>
+    </div>
+    <details><summary>AIBOM coverage detail (5 / 12)</summary>
+      <ul class="coverage-list"><li>✓ model_endpoint</li><li>✓ model</li><li>✓ configuration</li><li>✓ mcp_server</li><li>✓ secrets_surface</li><li>· runtime <span class='muted'>(none found)</span></li><li>· skill <span class='muted'>(none found)</span></li><li>· tool <span class='muted'>(none found)</span></li><li>· hook <span class='muted'>(none found)</span></li><li>· dependency <span class='muted'>(none found)</span></li><li>✗ prompt_surface <span class='muted'>(not collected)</span></li><li>✗ memory_store <span class='muted'>(not collected)</span></li></ul>
+    </details>
+    
+</section>
+
+<section>
+  <h2>Risk observations</h2>
+  <p class="muted">Explainable, rule-based findings only &mdash; never a single opaque risk score.
+    Each observation names the exact rule that fired; verify it against the components listed.</p>
+  <ul class='risk-list'><li><span class='risk-badge sev-serious'>MEDIUM</span><span>1 MCP server(s) use a network transport without TLS</span><span class='small'>mcp_server:local-fs</span></li><li><span class='risk-badge sev-serious'>MEDIUM</span><span>1 MCP server(s) have no authentication configured</span><span class='small'>mcp_server:local-fs</span></li><li><span class='risk-badge sev-warning'>LOW</span><span>1 model(s) have no content digest recorded</span><span class='small'>model:qwen3-8b</span></li></ul>
+</section>
+
+<section>
+  <h2>MCP security</h2>
+  <div class='mcp-card'><div class='mcp-card-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span><strong>local-fs</strong> <span class='badge'>http</span> <span class='status-pill bad'>no TLS</span> <span class='status-pill bad'>no auth</span></div></div>
+</section>
 
 <section>
   <h2>Summary</h2>
@@ -108,6 +177,7 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 
 <section>
   <h2>Components</h2>
+  
   <details open class='group'><summary><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span>configuration <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span> <strong>openclaw.json</strong> <span class='badge'>file</span> <span class='small'>configuration:openclaw.json</span></div><table class='props'><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json</td></tr><tr><th>relPath</th><td>.openclaw/openclaw.json</td></tr><tr><th>sha256</th><td>3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317</td></tr></table><details><summary>relationships (2)</summary><ul><li>uses:model_endpoint:http-127.0.0.1-11434</li><li>uses:mcp_server:local-fs</li></ul></details></div></details><details open class='group'><summary><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span>model <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span> <strong>qwen3:8b</strong> <span class='badge'>machine-learning-model</span> <span class='small'>model:qwen3-8b</span></div><table class='props'><tr><th>version</th><td>qwen3:8b</td></tr></table></div></details><details open class='group'><summary><span class='class-dot' style='background:var(--class-secrets_surface)' aria-hidden='true'></span>secrets_surface <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-secrets_surface)' aria-hidden='true'></span> <strong>openclaw-agent.sqlite</strong> <span class='badge'>data</span> <span class='small'>secrets_surface:openclaw-agent.sqlite</span></div><table class='props'><tr><th>note</th><td>per-agent provider credential store (SQLite); contents never read</td></tr><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite</td></tr><tr><th>relPath</th><td>.openclaw/agents/main/agent/openclaw-agent.sqlite</td></tr></table></div></details>
 </section>
 
@@ -117,7 +187,7 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 </section>
 
 <footer class="muted">
-  Generated by agent-harness-aibom · 2026-09-09T08:00:42+00:00 ·
+  Generated by agent-harness-aibom · 2026-09-09T10:15:36+00:00 ·
   every property of every component is rendered, nothing summarized away.
 </footer>
 </body>

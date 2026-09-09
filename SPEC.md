@@ -847,3 +847,132 @@ table so they can't drift out of sync with each other.
 Diff-mode HTML reports (color-coded added/removed/changed, from `diff`'s
 own output) are deliberately out of scope for this first version — noted
 as a natural next step, not attempted alongside the single-scan case.
+
+## 9. Security analysis layer (v0.3.0)
+
+**The problem this closes.** Up through v0.2.4, `report` answered "what
+did I find" — a flat inventory (KPI row, a bar chart, per-class groups).
+An independent reviewer's critique of a real 180-component document was
+specific: the report needed to answer "what is this agent made of, how
+are the pieces connected, what can they reach, and what's the impact if
+one changes" — an architecture-and-risk reading, not just a count.
+
+**`security.py` (new module).** Pure functions over an already-built
+`bom` dict — no rendering, no filesystem access, independently testable
+from `report.py`'s HTML generation, the same separation `cyclonedx.py`
+(serialization) already has from `report.py` (rendering). Every number
+each function returns is derived directly from data already in the
+document; none of it is invented, estimated, or scored by an opaque
+model. Five things, matching the reviewer's own "P0 — must have" list
+(scoped deliberately to that list — see "Deliberately deferred" below):
+
+1. **`build_architecture_graph()`** — a graph of the harness's structure
+   at the **componentClass level, not the instance level**. This is the
+   central design decision of this whole section: an instance-level graph
+   (one box per component) wouldn't fix the reviewer's complaint, it
+   would just be the same "180 things" inventory problem in diagram
+   form — 73 skills would mean 73 boxes. Grouping by class collapses
+   that into one node ("skill (73)") while still drawing every edge that
+   actually exists between classes in the document's own real
+   `dependencies[]` graph (aggregated, never invented) — e.g.
+   `configuration -> mcp_server -> tool`. `report.py`'s
+   `_render_architecture_graph()` lays this out as an inline SVG,
+   positioned by real BFS depth from the root (closer to the root reads
+   higher on the page), one row per depth — same offline, no-JavaScript,
+   no-charting-library principle as the existing bar chart (§8), and the
+   same `.chart-card svg { width: 100%; height: auto }` fix for
+   letterboxing.
+2. **`compute_security_summary()`** — real counts (`len()` over
+   already-grouped entries) for categories the old KPI row didn't have:
+   MCP servers/tools, executable tools (`riskClass == "exec"`),
+   dependencies, and fingerprint coverage (how many of the document's
+   components/services carry a native `hashes[]`, i.e. were actually
+   fingerprinted, out of how many exist at all).
+3. **`compute_risk_observations()`** — explainable, rule-based findings,
+   **deliberately never a single opaque risk score**: the reviewer's own
+   language was "use explainable rules", not an AI-generated number. Each
+   observation names the exact rule that fired, a severity, and the
+   bom-refs it matched, so a reader can go verify it against the document
+   itself. The five rules today: a world-readable `secrets_surface`
+   file; an MCP server on a network transport without TLS; an MCP server
+   with no authentication configured; a `dependency` package with no
+   pinned version (only possible for an MCP launcher package — a Python
+   package found via `deps.py` always has one, since it's read from an
+   already-installed dist-info); a `model` with no content digest.
+   Absence of an observation is rendered explicitly as "no configured
+   rule fired", never silently — a blank section reading as "nothing to
+   report" would be indistinguishable from "nothing was checked".
+4. **`classify_secret_confidence()`** — "high" or "heuristic" per
+   `secrets_surface` entry, by re-matching its filename against a
+   two-tier partition of `secrets.py`'s own `SECRET_NAME_PATTERNS`: exact/
+   near-exact shapes (`.env`, `*.pem`, `*.key`) are "high"; broad
+   substring/extension matches the reviewer specifically named as noisy
+   (`*token*` matches `tokenize.js` as happily as a real credential;
+   `*.sqlite` matches every SQLite database, credential or not) are
+   "heuristic". `tests/test_security.py` asserts the two tiers' union
+   equals `SECRET_NAME_PATTERNS` exactly, so a future change to that list
+   can't silently drift out of sync with this classification.
+5. **`compute_coverage()`** — a checklist against `COLLECTIBLE_CLASSES`
+   (every componentClass this scanner can currently emit) plus
+   `NOT_YET_COLLECTED` (`prompt_surface`, `memory_store` — real, named
+   gaps this project has already documented, not new ones). "N / M known
+   categories" is an honest completeness signal in a way a raw component
+   count isn't: 180 components tells you nothing about whether an entire
+   category was never even attempted.
+
+**One place the reviewer's own mockup was corrected, not implemented as
+written.** Their sketch of the security-summary panel included a
+"Changed since baseline: 0" line. `report` operates on a *single* scan —
+it has no second document to compare against, so a literal "0" there
+would look like a verified fact ("nothing changed") when it's actually
+just an absent measurement. Emitting it would repeat the exact failure
+mode this whole project has spent five patch releases fixing (a
+document that looks complete when it's actually silently missing
+something). Implemented instead as an explicit line: "Baseline
+comparison: not available for a single scan — use `harness-aibom diff`."
+
+**Rendering (`report.py`).** Four new sections, added *above* the
+existing Summary/Components/Services sections rather than replacing
+them — the reviewer was explicit that the existing inventory view stays
+valuable, this is an addition, not a rewrite: **Architecture** (the
+class-level graph), **Security summary** (the inventory/integrity
+tables), **Risk observations** (the rule-based findings list), and
+**MCP security** (one card per `mcp_server` with TLS/auth status as
+color-coded pills, instead of reading those two facts out of a generic
+properties table). A **Skills by category** breakdown
+(`_render_skill_category_breakdown()`) was added inside the existing
+Components section, grouping already-known skills by their real
+`category` property — deliberately NOT the richer per-skill
+"references these tools/servers/endpoints" view from the reviewer's
+mockup, since that needs parsing `SKILL.md` content, which this scanner
+still doesn't do (§5, unchanged by this release).
+
+**Color, status pills, and the dataviz skill's fixed status palette.**
+The severity badges (Risk observations) and TLS/auth pills (MCP
+security) use the *status* palette, not the categorical one — good
+`#0ca30c`, warning `#fab219`, serious `#ec835a`, critical `#d03b3b`,
+fixed values confirmed from `references/palette.md`, mode-invariant (same
+hex in light and dark) rather than swapped like the categorical
+`--class-*` variables. Every pill/badge pairs its color with a text
+label (`TLS`/`no TLS`, `HIGH`/`MEDIUM`/`LOW`, ...), never color alone,
+per the skill's "status colors... ship with an icon + label" rule.
+
+**Deliberately deferred, not silently dropped** — the reviewer's own
+staged list (P1/P2), kept out of this release for the same reason every
+prior deferral in this spec was: building it without real data to ground
+it, or folding it into an already-large release, would cost more in risk
+than it returns:
+- **Blast-radius analysis** (click a component, see everything it can
+  reach) — the reviewer's own highest-value P1 item, but a genuinely new
+  interaction model for a static, JavaScript-free HTML file; needs its
+  own design pass on how to do that without JavaScript, or a decision to
+  finally add a minimal script for it.
+- **Provenance/evidence detail per component**, **baseline comparison
+  built into `report` itself** (`report --diff`), and **explainable risk
+  *rules* beyond the five above** are all P1 — real value, not attempted
+  alongside the P0 set in one release.
+- **Skill-content relationship extraction** (linking a skill to the
+  servers/models its own `SKILL.md` prose references), **`prompt_surface`**,
+  **`memory_store`**, **a `policy` command**, and **a CI/CD security
+  gate** are P2 — new collectors, new subcommands, or both; SPEC.md has
+  named these gaps since v0.2.0 and they remain open here.

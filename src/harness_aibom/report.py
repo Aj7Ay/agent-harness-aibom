@@ -27,6 +27,8 @@ from __future__ import annotations
 import html
 from datetime import datetime, timezone
 
+from . import security
+
 #: componentClasses shown in this order when present; anything else
 #: (a future class this file doesn't know about yet) is appended after,
 #: sorted alphabetically -- so a new class never silently goes missing.
@@ -138,6 +140,34 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 @media (prefers-color-scheme: dark) { .scan-warnings { background: #3a2f13; } }
 .scan-warnings ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 .scan-warnings li { font-size: 0.9rem; }
+.arch-card svg { display: block; width: 100%; height: auto; }
+.arch-box { fill: var(--surface); stroke-width: 2; }
+.arch-label { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 12px; font-weight: 600; fill: var(--fg); }
+.arch-count { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 11px; fill: var(--secondary); }
+.arch-edge { stroke: var(--baseline); stroke-width: 1.5; }
+.security-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 0.75rem 0 1.25rem; }
+.security-grid table.summary th { background: var(--surface); }
+/* Status palette (dataviz skill, fixed -- never themed, never reused for
+   series identity): good #0ca30c, warning #fab219, serious #ec835a,
+   critical #d03b3b. Always paired with a text label, never color alone. */
+.risk-list { list-style: none; margin: 0.5rem 0; padding: 0; }
+.risk-list li { padding: 0.5rem 0; border-top: 1px solid var(--border); display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
+.risk-list li:first-child { border-top: none; }
+.risk-badge { display: inline-block; border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; flex: none; }
+.risk-badge.sev-critical { background: #d03b3b; color: #fff; }
+.risk-badge.sev-serious { background: #ec835a; color: #fff; }
+.risk-badge.sev-warning { background: #fab219; color: #1a1a19; }
+.risk-clean { color: #0ca30c; font-weight: 600; }
+.mcp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
+.mcp-card-header { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.4rem; }
+.status-pill { display: inline-block; border-radius: 4px; padding: 0.05rem 0.45rem; font-size: 0.72rem; font-weight: 600; }
+.status-pill.ok { background: rgba(12,163,12,0.15); color: #0ca30c; }
+.status-pill.bad { background: rgba(208,59,59,0.15); color: #d03b3b; }
+.status-pill.na { background: var(--code-bg); color: var(--secondary); }
+.mcp-tool-list { list-style: none; margin: 0.4rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.mcp-tool-list li { background: var(--code-bg); border-radius: 4px; padding: 0.1rem 0.45rem; font-size: 0.78rem; }
+.coverage-list { list-style: none; margin: 0.3rem 0; padding: 0; }
+.coverage-list li { padding: 0.15rem 0; font-size: 0.85rem; }
 """
 
 
@@ -344,6 +374,237 @@ def _render_bar_chart(class_counts: dict[str, int]) -> str:
     )
 
 
+def _graph_levels(graph: dict) -> list[list[str]]:
+    """Group `graph`'s nodes into rows by BFS depth from the root, for the
+    architecture diagram's layout -- a node closer to the root (fewer
+    hops in the real dependency graph) reads higher up the page, matching
+    how the graph is actually structured rather than an arbitrary order.
+    """
+    children: dict[str, list[str]] = {}
+    for a, b in graph["edges"]:
+        children.setdefault(a, []).append(b)
+
+    level_of: dict[str, int] = {security.ROOT_LABEL: 0}
+    order = [security.ROOT_LABEL]
+    queue = [security.ROOT_LABEL]
+    while queue:
+        node = queue.pop(0)
+        for child in children.get(node, []):
+            if child not in level_of:
+                level_of[child] = level_of[node] + 1
+                order.append(child)
+                queue.append(child)
+
+    # A node with no path from the root at all (shouldn't happen -- every
+    # top-level thing is a direct root relationship -- but never silently
+    # dropped if it somehow did) still gets shown, one row down.
+    for node in graph["nodes"]:
+        if node not in level_of:
+            level_of[node] = 1
+            order.append(node)
+
+    rows: dict[int, list[str]] = {}
+    for node in order:
+        rows.setdefault(level_of[node], []).append(node)
+    return [rows[k] for k in sorted(rows)]
+
+
+def _render_architecture_graph(graph: dict) -> str:
+    """The harness's own structure -- one box per componentClass (not per
+    instance; see security.build_architecture_graph for why), positioned
+    by real BFS depth from the root and connected by real edges from the
+    document's own dependency graph. This is what answers "what is this
+    agent made of and how are the pieces connected" -- a question the
+    per-class counts in the Summary section below can't answer on their
+    own, since a flat count list carries no structure.
+    """
+    nodes = graph["nodes"]
+    if len(nodes) <= 1:
+        return "<p class='muted'><em>nothing to diagram</em></p>"
+
+    levels = _graph_levels(graph)
+    box_w, box_h = 172, 46
+    col_gap, row_gap = 22, 68
+
+    def row_width(n: int) -> float:
+        return n * box_w + max(0, n - 1) * col_gap
+
+    chart_w = max(row_width(len(row)) for row in levels) + 40
+    chart_h = len(levels) * row_gap + box_h + 24
+
+    positions: dict[str, tuple[float, float]] = {}
+    for level_idx, row in enumerate(levels):
+        start_x = (chart_w - row_width(len(row))) / 2
+        y = 20 + level_idx * row_gap
+        for i, node in enumerate(row):
+            x = start_x + i * (box_w + col_gap)
+            positions[node] = (x + box_w / 2, y)
+
+    edge_svg = []
+    for a, b in graph["edges"]:
+        if a not in positions or b not in positions:
+            continue
+        ax, ay = positions[a]
+        bx, by = positions[b]
+        edge_svg.append(f"<line x1='{ax}' y1='{ay + box_h}' x2='{bx}' y2='{by}' class='arch-edge'/>")
+
+    box_svg = []
+    for node, (cx, top) in positions.items():
+        count = nodes.get(node, 0)
+        label = "harness root" if node == security.ROOT_LABEL else node
+        stroke = "var(--fg)" if node == security.ROOT_LABEL else f"var({_class_color_var(node)})"
+        x = cx - box_w / 2
+        box_svg.append(
+            "<g>"
+            f"<title>{_esc(label)}: {count}</title>"
+            f"<rect x='{x}' y='{top}' width='{box_w}' height='{box_h}' rx='8' "
+            f"class='arch-box' style='stroke:{stroke}'/>"
+            f"<text x='{cx}' y='{top + box_h / 2 - 6}' text-anchor='middle' class='arch-label'>{_esc(label)}</text>"
+            f"<text x='{cx}' y='{top + box_h / 2 + 12}' text-anchor='middle' class='arch-count'>{count}</text>"
+            "</g>"
+        )
+
+    # Same reasoning as _render_bar_chart: no width/height attributes, so
+    # `.arch-card svg { width: 100%; height: auto }` sizes it from the
+    # viewBox's own aspect ratio instead of letterboxing.
+    return (
+        f"<svg viewBox='0 0 {chart_w} {chart_h}' role='img' aria-label='Harness architecture'>"
+        f"{''.join(edge_svg)}{''.join(box_svg)}</svg>"
+    )
+
+
+def _render_security_summary(bom: dict) -> str:
+    s = security.compute_security_summary(bom)
+    coverage = security.compute_coverage(bom)
+    found, total = coverage["score"]
+    fingerprintable = s["total_components"] + s["total_services"]
+
+    inventory_rows = "".join(
+        f"<tr><td>{_esc(label)}</td><td>{value}</td></tr>"
+        for label, value in [
+            ("Agent runtime", s["runtime"]),
+            ("Model endpoints", s["model_endpoints"]),
+            ("Models", s["models"]),
+            ("Skills", s["skills"]),
+            ("MCP servers", s["mcp_servers"]),
+            ("MCP tools", s["mcp_tools"]),
+            ("Hooks", s["hooks"]),
+            ("Executable tools", s["executable_tools"]),
+            ("Secrets surfaces", s["secrets_surfaces"]),
+            ("Dependencies", s["dependencies"]),
+        ]
+    )
+
+    not_collected = "".join(f"<li>✗ {_esc(c)} <span class='muted'>(not collected)</span></li>" for c in coverage["not_collected"])
+    found_items = "".join(f"<li>✓ {_esc(c)}</li>" for c in coverage["found"])
+    empty_items = "".join(f"<li>· {_esc(c)} <span class='muted'>(none found)</span></li>" for c in coverage["empty"])
+
+    return f"""
+    <div class="security-grid">
+      <table class="summary">
+        <tr><th colspan="2">Inventory</th></tr>
+        {inventory_rows}
+      </table>
+      <table class="summary">
+        <tr><th colspan="2">Integrity</th></tr>
+        <tr><td>Fingerprinted components</td><td>{s['fingerprinted']} / {fingerprintable}</td></tr>
+        <tr><td>AIBOM coverage</td><td>{found} / {total} known categories</td></tr>
+        <tr><td>Baseline comparison</td><td class="muted">not available for a single scan &mdash; use <code>harness-aibom diff</code></td></tr>
+      </table>
+    </div>
+    <details><summary>AIBOM coverage detail ({found} / {total})</summary>
+      <ul class="coverage-list">{found_items}{empty_items}{not_collected}</ul>
+    </details>
+    """
+
+
+_SEVERITY_CSS_CLASS = {"high": "sev-critical", "medium": "sev-serious", "low": "sev-warning"}
+_SEVERITY_LABEL = {"high": "HIGH", "medium": "MEDIUM", "low": "LOW"}
+
+
+def _render_risk_observations(bom: dict) -> str:
+    observations = security.compute_risk_observations(bom)
+    if not observations:
+        return (
+            "<p class='risk-clean'>✓ No configured risk rule fired against this document.</p>"
+            "<p class='muted'>This reflects only the specific, named rules this scanner checks "
+            "(world-readable secrets, plaintext/unauthenticated MCP transport, unpinned dependency "
+            "packages, models with no content digest) &mdash; not a general clean bill of health.</p>"
+        )
+    items = "".join(
+        "<li>"
+        f"<span class='risk-badge {_SEVERITY_CSS_CLASS.get(o['severity'], 'sev-warning')}'>"
+        f"{_esc(_SEVERITY_LABEL.get(o['severity'], o['severity'].upper()))}</span>"
+        f"<span>{_esc(o['summary'])}</span>"
+        f"<span class='small'>{_esc(', '.join(c for c in o['components'] if c))}</span>"
+        "</li>"
+        for o in observations
+    )
+    return f"<ul class='risk-list'>{items}</ul>"
+
+
+def _render_mcp_security(services: list[dict]) -> str:
+    servers = [e for e in services if _component_class(e) == "mcp_server"]
+    if not servers:
+        return "<p class='risk-clean'>✓ No MCP servers discovered.</p>"
+
+    cards = []
+    for server in sorted(servers, key=lambda e: e.get("name", "")):
+        props, _rel = _split_properties(server)
+        transport = props.get("harness-aibom:transport", "unknown")
+        tls = props.get("harness-aibom:tls")
+        auth = props.get("harness-aibom:authConfigured")
+
+        if tls == "True":
+            tls_pill = "<span class='status-pill ok'>TLS</span>"
+        elif tls == "False":
+            tls_pill = "<span class='status-pill bad'>no TLS</span>"
+        else:  # "n/a" for stdio -- there's no network transport to secure
+            tls_pill = "<span class='status-pill na'>n/a (stdio)</span>"
+
+        if auth == "True":
+            auth_pill = "<span class='status-pill ok'>auth configured</span>"
+        elif auth == "False":
+            auth_pill = "<span class='status-pill bad'>no auth</span>"
+        else:
+            auth_pill = ""
+
+        tools_html = ""
+        server_tools = props.get("harness-aibom:toolCount")
+        if server_tools:
+            tools_html = f"<p class='muted small'>{_esc(server_tools)} tool(s) &mdash; see Components/tool below</p>"
+
+        purl = server.get("purl") or props.get("harness-aibom:purl")
+        purl_html = f"<p class='muted small'>package: {_esc(purl)}</p>" if purl else ""
+
+        cards.append(
+            "<div class='mcp-card'>"
+            f"<div class='mcp-card-header'>{_class_dot('mcp_server')}<strong>{_esc(server.get('name', ''))}</strong> "
+            f"<span class='badge'>{_esc(transport)}</span> {tls_pill} {auth_pill}</div>"
+            f"{tools_html}{purl_html}"
+            "</div>"
+        )
+    return "".join(cards)
+
+
+def _render_skill_category_breakdown(skills: list[dict]) -> str:
+    if not skills:
+        return ""
+    by_category: dict[str, int] = {}
+    for entry in skills:
+        props, _rel = _split_properties(entry)
+        category = props.get("harness-aibom:category", "(uncategorized)")
+        by_category[category] = by_category.get(category, 0) + 1
+    rows = "".join(
+        f"<tr><td>{_esc(cat)}</td><td>{count}</td></tr>"
+        for cat, count in sorted(by_category.items(), key=lambda kv: (-kv[1], kv[0]))
+    )
+    return (
+        f"<details><summary>Skills by category ({len(by_category)})</summary>"
+        f"<table class='summary'><tr><th>category</th><th>count</th></tr>{rows}</table></details>"
+    )
+
+
 def render_html(bom: dict) -> str:
     """Build the full HTML document for a harness-aibom CycloneDX dict."""
     metadata = bom.get("metadata", {})
@@ -371,6 +632,7 @@ def render_html(bom: dict) -> str:
         ("Hooks", len(comp_groups.get("hook", []))),
     ]
     class_counts = {cls: len(entries) for cls, entries in all_groups.items()}
+    architecture_graph = security.build_architecture_graph(bom)
 
     summary_rows = "".join(
         f"<tr><td>{_class_dot(cls)}{_esc(cls)}</td><td>{len(entries)}</td></tr>"
@@ -414,6 +676,31 @@ def render_html(bom: dict) -> str:
 {_render_warnings_banner(scan_warnings)}
 
 <section>
+  <h2>Architecture</h2>
+  <p class="muted">What this agent is made of and how the pieces connect &mdash; one box per
+    category (not per component), positioned by real depth in the document's own dependency
+    graph. See Components/Services below for every individual instance.</p>
+  <div class="arch-card chart-card">{_render_architecture_graph(architecture_graph)}</div>
+</section>
+
+<section>
+  <h2>Security summary</h2>
+  {_render_security_summary(bom)}
+</section>
+
+<section>
+  <h2>Risk observations</h2>
+  <p class="muted">Explainable, rule-based findings only &mdash; never a single opaque risk score.
+    Each observation names the exact rule that fired; verify it against the components listed.</p>
+  {_render_risk_observations(bom)}
+</section>
+
+<section>
+  <h2>MCP security</h2>
+  {_render_mcp_security(services)}
+</section>
+
+<section>
   <h2>Summary</h2>
   {_render_kpi_row(kpi_tiles)}
   <div class="chart-card">{_render_bar_chart(class_counts)}</div>
@@ -426,6 +713,7 @@ def render_html(bom: dict) -> str:
 
 <section>
   <h2>Components</h2>
+  {_render_skill_category_breakdown(comp_groups.get("skill", []))}
   {_render_groups(comp_groups, _COMPONENT_CLASS_ORDER) or "<p><em>none found</em></p>"}
 </section>
 
