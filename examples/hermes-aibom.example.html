@@ -108,6 +108,29 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .mcp-tool-list li { background: var(--code-bg); border-radius: 4px; padding: 0.1rem 0.45rem; font-size: 0.78rem; }
 .coverage-list { list-style: none; margin: 0.3rem 0; padding: 0; }
 .coverage-list li { padding: 0.15rem 0; font-size: 0.85rem; }
+.explorer-nav {
+  position: sticky; top: 0; z-index: 10; background: var(--bg);
+  border-bottom: 1px solid var(--border); margin: 0 -1.25rem 1rem; padding: 0.6rem 1.25rem;
+  display: flex; flex-wrap: wrap; gap: 0.15rem 0.9rem; font-size: 0.82rem;
+}
+.explorer-nav a { color: var(--secondary); text-decoration: none; white-space: nowrap; }
+.explorer-nav a:hover { color: var(--fg); text-decoration: underline; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin: 0.75rem 0 1rem; }
+.filter-bar input[type=search] {
+  flex: 1 1 220px; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--fg); font-size: 0.9rem;
+}
+.filter-bar select {
+  padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--fg); font-size: 0.9rem;
+}
+.filter-status { font-size: 0.82rem; color: var(--secondary); }
+.entry[hidden], .group[hidden] { display: none !important; }
+.arch-box[data-node] { cursor: pointer; }
+pre.raw-json {
+  background: var(--code-bg); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.78rem;
+  overflow-x: auto; white-space: pre; margin: 0.4rem 0 0;
+}
 </style>
 </head>
 <body>
@@ -116,22 +139,24 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
   <p class="muted">
     runtime: <strong>hermes</strong> ·
     host: <strong>Ajays-MacBook-Pro.local</strong> ·
-    scanned: 2026-09-09T10:15:35+00:00 ·
-    serial: urn:uuid:4d7f5ba3-4019-4ba4-96c9-e7cfa89c74bc
+    scanned: 2026-09-09T10:51:55+00:00 ·
+    serial: urn:uuid:291cfca8-6b66-40e1-add3-730e26994676
   </p>
 </header>
 
+<nav class='explorer-nav'><a href='#architecture'>Architecture</a><a href='#security-summary'>Security</a><a href='#risk'>Risk</a><a href='#mcp'>MCP</a><a href='#components'>Components</a><a href='#services'>Services</a><a href='#metadata'>Metadata</a><a href='#external-references'>External refs</a><a href='#vulnerabilities'>Vulnerabilities</a><a href='#compositions'>Compositions</a><a href='#raw-bom'>Raw BOM</a></nav>
+
 <div class='scan-warnings'><strong>⚠ 2 scan warnings</strong> <span class='muted'>(this document may be incomplete)</span><ul><li>hermes binary not found on PATH; runtime component skipped</li><li>configured model &#x27;qwen3:8b&#x27; not found via Ollama /api/tags; recorded from config only</li></ul></div>
 
-<section>
+<section id="architecture">
   <h2>Architecture</h2>
   <p class="muted">What this agent is made of and how the pieces connect &mdash; one box per
     category (not per component), positioned by real depth in the document's own dependency
-    graph. See Components/Services below for every individual instance.</p>
-  <div class="arch-card chart-card"><svg viewBox='0 0 600 342' role='img' aria-label='Harness architecture'><line x1='203.0' y1='134' x2='203.0' y2='156' class='arch-edge'/><line x1='203.0' y1='134' x2='397.0' y2='156' class='arch-edge'/><line x1='300.0' y1='66' x2='203.0' y2='88' class='arch-edge'/><line x1='300.0' y1='66' x2='397.0' y2='88' class='arch-edge'/><line x1='203.0' y1='202' x2='106.0' y2='224' class='arch-edge'/><line x1='203.0' y1='202' x2='300.0' y2='224' class='arch-edge'/><line x1='397.0' y1='202' x2='494.0' y2='224' class='arch-edge'/><g><title>harness root: 1</title><rect x='214.0' y='20' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--fg)'/><text x='300.0' y='37.0' text-anchor='middle' class='arch-label'>harness root</text><text x='300.0' y='55.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>configuration: 1</title><rect x='117.0' y='88' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-configuration)'/><text x='203.0' y='105.0' text-anchor='middle' class='arch-label'>configuration</text><text x='203.0' y='123.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>skill: 2</title><rect x='311.0' y='88' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-skill)'/><text x='397.0' y='105.0' text-anchor='middle' class='arch-label'>skill</text><text x='397.0' y='123.0' text-anchor='middle' class='arch-count'>2</text></g><g><title>mcp_server: 3</title><rect x='117.0' y='156' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-mcp_server)'/><text x='203.0' y='173.0' text-anchor='middle' class='arch-label'>mcp_server</text><text x='203.0' y='191.0' text-anchor='middle' class='arch-count'>3</text></g><g><title>model_endpoint: 1</title><rect x='311.0' y='156' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-model_endpoint)'/><text x='397.0' y='173.0' text-anchor='middle' class='arch-label'>model_endpoint</text><text x='397.0' y='191.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>dependency: 1</title><rect x='20.0' y='224' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-dependency)'/><text x='106.0' y='241.0' text-anchor='middle' class='arch-label'>dependency</text><text x='106.0' y='259.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>tool: 5</title><rect x='214.0' y='224' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-tool)'/><text x='300.0' y='241.0' text-anchor='middle' class='arch-label'>tool</text><text x='300.0' y='259.0' text-anchor='middle' class='arch-count'>5</text></g><g><title>model: 1</title><rect x='408.0' y='224' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-model)'/><text x='494.0' y='241.0' text-anchor='middle' class='arch-label'>model</text><text x='494.0' y='259.0' text-anchor='middle' class='arch-count'>1</text></g></svg></div>
+    graph. Click a box to jump to and filter Components/Services below.</p>
+  <div class="arch-card chart-card"><svg viewBox='0 0 600 342' role='img' aria-label='Harness architecture'><line x1='203.0' y1='134' x2='203.0' y2='156' class='arch-edge'/><line x1='203.0' y1='134' x2='397.0' y2='156' class='arch-edge'/><line x1='300.0' y1='66' x2='203.0' y2='88' class='arch-edge'/><line x1='300.0' y1='66' x2='397.0' y2='88' class='arch-edge'/><line x1='203.0' y1='202' x2='106.0' y2='224' class='arch-edge'/><line x1='203.0' y1='202' x2='300.0' y2='224' class='arch-edge'/><line x1='397.0' y1='202' x2='494.0' y2='224' class='arch-edge'/><g onclick="goToClass('')"><title>harness root: 1 (reset filter)</title><rect x='214.0' y='20' width='172' height='46' rx='8' class='arch-box' data-node='harness' style='stroke:var(--fg)'/><text x='300.0' y='37.0' text-anchor='middle' class='arch-label'>harness root</text><text x='300.0' y='55.0' text-anchor='middle' class='arch-count'>1</text></g><g onclick="goToClass('configuration')"><title>configuration: 1 (filter to configuration)</title><rect x='117.0' y='88' width='172' height='46' rx='8' class='arch-box' data-node='configuration' style='stroke:var(--class-configuration)'/><text x='203.0' y='105.0' text-anchor='middle' class='arch-label'>configuration</text><text x='203.0' y='123.0' text-anchor='middle' class='arch-count'>1</text></g><g onclick="goToClass('skill')"><title>skill: 2 (filter to skill)</title><rect x='311.0' y='88' width='172' height='46' rx='8' class='arch-box' data-node='skill' style='stroke:var(--class-skill)'/><text x='397.0' y='105.0' text-anchor='middle' class='arch-label'>skill</text><text x='397.0' y='123.0' text-anchor='middle' class='arch-count'>2</text></g><g onclick="goToClass('mcp_server')"><title>mcp_server: 3 (filter to mcp_server)</title><rect x='117.0' y='156' width='172' height='46' rx='8' class='arch-box' data-node='mcp_server' style='stroke:var(--class-mcp_server)'/><text x='203.0' y='173.0' text-anchor='middle' class='arch-label'>mcp_server</text><text x='203.0' y='191.0' text-anchor='middle' class='arch-count'>3</text></g><g onclick="goToClass('model_endpoint')"><title>model_endpoint: 1 (filter to model_endpoint)</title><rect x='311.0' y='156' width='172' height='46' rx='8' class='arch-box' data-node='model_endpoint' style='stroke:var(--class-model_endpoint)'/><text x='397.0' y='173.0' text-anchor='middle' class='arch-label'>model_endpoint</text><text x='397.0' y='191.0' text-anchor='middle' class='arch-count'>1</text></g><g onclick="goToClass('dependency')"><title>dependency: 1 (filter to dependency)</title><rect x='20.0' y='224' width='172' height='46' rx='8' class='arch-box' data-node='dependency' style='stroke:var(--class-dependency)'/><text x='106.0' y='241.0' text-anchor='middle' class='arch-label'>dependency</text><text x='106.0' y='259.0' text-anchor='middle' class='arch-count'>1</text></g><g onclick="goToClass('tool')"><title>tool: 5 (filter to tool)</title><rect x='214.0' y='224' width='172' height='46' rx='8' class='arch-box' data-node='tool' style='stroke:var(--class-tool)'/><text x='300.0' y='241.0' text-anchor='middle' class='arch-label'>tool</text><text x='300.0' y='259.0' text-anchor='middle' class='arch-count'>5</text></g><g onclick="goToClass('model')"><title>model: 1 (filter to model)</title><rect x='408.0' y='224' width='172' height='46' rx='8' class='arch-box' data-node='model' style='stroke:var(--class-model)'/><text x='494.0' y='241.0' text-anchor='middle' class='arch-label'>model</text><text x='494.0' y='259.0' text-anchor='middle' class='arch-count'>1</text></g></svg></div>
 </section>
 
-<section>
+<section id="security-summary">
   <h2>Security summary</h2>
   
     <div class="security-grid">
@@ -152,19 +177,19 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
     
 </section>
 
-<section>
+<section id="risk">
   <h2>Risk observations</h2>
   <p class="muted">Explainable, rule-based findings only &mdash; never a single opaque risk score.
     Each observation names the exact rule that fired; verify it against the components listed.</p>
   <ul class='risk-list'><li><span class='risk-badge sev-serious'>MEDIUM</span><span>1 MCP server(s) use a network transport without TLS</span><span class='small'>mcp_server:local-time</span></li><li><span class='risk-badge sev-serious'>MEDIUM</span><span>1 MCP server(s) have no authentication configured</span><span class='small'>mcp_server:local-time</span></li><li><span class='risk-badge sev-warning'>LOW</span><span>1 dependency package(s) resolve without a pinned version</span><span class='small'>dependency:modelcontextprotocol-server-filesystem</span></li><li><span class='risk-badge sev-warning'>LOW</span><span>1 model(s) have no content digest recorded</span><span class='small'>model:qwen3-8b</span></li></ul>
 </section>
 
-<section>
+<section id="mcp">
   <h2>MCP security</h2>
   <div class='mcp-card'><div class='mcp-card-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span><strong>corp-docs</strong> <span class='badge'>http</span> <span class='status-pill ok'>TLS</span> <span class='status-pill ok'>auth configured</span></div><p class='muted small'>2 tool(s) &mdash; see Components/tool below</p></div><div class='mcp-card'><div class='mcp-card-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span><strong>local-fs</strong> <span class='badge'>stdio</span> <span class='status-pill na'>n/a (stdio)</span> <span class='status-pill ok'>auth configured</span></div><p class='muted small'>3 tool(s) &mdash; see Components/tool below</p><p class='muted small'>package: pkg:npm/%40modelcontextprotocol/server-filesystem</p></div><div class='mcp-card'><div class='mcp-card-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span><strong>local-time</strong> <span class='badge'>http</span> <span class='status-pill bad'>no TLS</span> <span class='status-pill bad'>no auth</span></div></div>
 </section>
 
-<section>
+<section id="summary">
   <h2>Summary</h2>
   <div class='kpi-row'><div class='kpi-tile'><div class='kpi-label'>Components</div><div class='kpi-value'>10</div></div><div class='kpi-tile'><div class='kpi-label'>Services</div><div class='kpi-value'>4</div></div><div class='kpi-tile'><div class='kpi-label'>Models</div><div class='kpi-value'>1</div></div><div class='kpi-tile'><div class='kpi-label'>Secrets surfaces</div><div class='kpi-value'>0</div></div><div class='kpi-tile'><div class='kpi-label'>Hooks</div><div class='kpi-value'>0</div></div></div>
   <div class="chart-card"><svg viewBox='0 0 576 196' role='img' aria-label='Component count by class'><g><title>dependency: 1</title><text x='140' y='9.0' dominant-baseline='central' class='bar-row-label'>dependency</text><rect x='150' y='0' width='76.0' height='18' rx='3' fill='var(--class-dependency)'/><text x='234.0' y='9.0' dominant-baseline='central' class='bar-value-label'>1</text></g><g><title>configuration: 1</title><text x='140' y='37.0' dominant-baseline='central' class='bar-row-label'>configuration</text><rect x='150' y='28' width='76.0' height='18' rx='3' fill='var(--class-configuration)'/><text x='234.0' y='37.0' dominant-baseline='central' class='bar-value-label'>1</text></g><g><title>model: 1</title><text x='140' y='65.0' dominant-baseline='central' class='bar-row-label'>model</text><rect x='150' y='56' width='76.0' height='18' rx='3' fill='var(--class-model)'/><text x='234.0' y='65.0' dominant-baseline='central' class='bar-value-label'>1</text></g><g><title>skill: 2</title><text x='140' y='93.0' dominant-baseline='central' class='bar-row-label'>skill</text><rect x='150' y='84' width='152.0' height='18' rx='3' fill='var(--class-skill)'/><text x='310.0' y='93.0' dominant-baseline='central' class='bar-value-label'>2</text></g><g><title>tool: 5</title><text x='140' y='121.0' dominant-baseline='central' class='bar-row-label'>tool</text><rect x='150' y='112' width='380.0' height='18' rx='3' fill='var(--class-tool)'/><text x='538.0' y='121.0' dominant-baseline='central' class='bar-value-label'>5</text></g><g><title>model_endpoint: 1</title><text x='140' y='149.0' dominant-baseline='central' class='bar-row-label'>model_endpoint</text><rect x='150' y='140' width='76.0' height='18' rx='3' fill='var(--class-model_endpoint)'/><text x='234.0' y='149.0' dominant-baseline='central' class='bar-value-label'>1</text></g><g><title>mcp_server: 3</title><text x='140' y='177.0' dominant-baseline='central' class='bar-row-label'>mcp_server</text><rect x='150' y='168' width='228.0' height='18' rx='3' fill='var(--class-mcp_server)'/><text x='386.0' y='177.0' dominant-baseline='central' class='bar-value-label'>3</text></g></svg></div>
@@ -175,20 +200,1020 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
   <details><summary>relationships (3)</summary><ul><li>loads:configuration:config.yaml</li><li>loads:skill:incident-response</li><li>loads:skill:software-development-dogfood</li></ul></details>
 </section>
 
-<section>
+
+    <div class="filter-bar">
+      <input type="search" id="search-box" placeholder="Search components, services... (name, bom-ref, any property)">
+      <select id="class-filter">
+        <option value="">All classes</option>
+        <option value='configuration'>configuration (1)</option><option value='dependency'>dependency (1)</option><option value='mcp_server'>mcp_server (3)</option><option value='model'>model (1)</option><option value='model_endpoint'>model_endpoint (1)</option><option value='skill'>skill (2)</option><option value='tool'>tool (5)</option>
+      </select>
+      <span id="filter-status" class="filter-status"></span>
+    </div>
+    
+
+<section id="components">
   <h2>Components</h2>
   <details><summary>Skills by category (2)</summary><table class='summary'><tr><th>category</th><th>count</th></tr><tr><td>(uncategorized)</td><td>1</td></tr><tr><td>software-development</td><td>1</td></tr></table></details>
-  <details open class='group'><summary><span class='class-dot' style='background:var(--class-dependency)' aria-hidden='true'></span>dependency <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-dependency)' aria-hidden='true'></span> <strong>@modelcontextprotocol/server-filesystem</strong> <span class='badge'>library</span> <span class='small'>dependency:modelcontextprotocol-server-filesystem</span></div><table class='props'><tr><th>purl</th><td>pkg:npm/%40modelcontextprotocol/server-filesystem</td></tr></table></div></details><details open class='group'><summary><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span>configuration <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span> <strong>config.yaml</strong> <span class='badge'>file</span> <span class='small'>configuration:config.yaml</span></div><table class='props'><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/config.yaml</td></tr><tr><th>relPath</th><td>.hermes/config.yaml</td></tr><tr><th>sha256</th><td>7769b125dc20957c2b4af32e882a92bb149821cd285db7dd630a06ffbaf9808c</td></tr></table><details><summary>relationships (4)</summary><ul><li>uses:model_endpoint:http-127.0.0.1-11434-v1</li><li>uses:mcp_server:local-time</li><li>uses:mcp_server:corp-docs</li><li>uses:mcp_server:local-fs</li></ul></details></div></details><details open class='group'><summary><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span>model <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span> <strong>qwen3:8b</strong> <span class='badge'>machine-learning-model</span> <span class='small'>model:qwen3-8b</span></div><table class='props'><tr><th>contextLength</th><td>65536</td></tr><tr><th>ollamaNumCtx</th><td>65536</td></tr><tr><th>thinking</th><td>True</td></tr><tr><th>version</th><td>qwen3:8b</td></tr></table></div></details><details open class='group'><summary><span class='class-dot' style='background:var(--class-skill)' aria-hidden='true'></span>skill <span class='count'>(2)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-skill)' aria-hidden='true'></span> <strong>incident-response</strong> <span class='badge'>library</span> <span class='small'>skill:incident-response</span></div><table class='props'><tr><th>description</th><td>Incident Response</td></tr><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/incident-response</td></tr><tr><th>relPath</th><td>.hermes/skills/incident-response</td></tr><tr><th>sha256</th><td>9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696</td></tr></table></div><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-skill)' aria-hidden='true'></span> <strong>software-development/dogfood</strong> <span class='badge'>library</span> <span class='small'>skill:software-development-dogfood</span></div><table class='props'><tr><th>category</th><td>software-development</td></tr><tr><th>description</th><td>Dogfood</td></tr><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood</td></tr><tr><th>relPath</th><td>.hermes/skills/software-development/dogfood</td></tr><tr><th>sha256</th><td>20e123dc1ed35f7ab718d089347cac0a10c1c0c314101a9c3b139d20eade9ea2</td></tr></table></div></details><details open class='group'><summary><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span>tool <span class='count'>(5)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span> <strong>corp-docs/fetch</strong> <span class='badge'>application</span> <span class='small'>tool:corp-docs-fetch</span></div><table class='props'><tr><th>riskClass</th><td>network</td></tr><tr><th>server</th><td>corp-docs</td></tr></table></div><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span> <strong>corp-docs/search</strong> <span class='badge'>application</span> <span class='small'>tool:corp-docs-search</span></div><table class='props'><tr><th>riskClass</th><td>read</td></tr><tr><th>server</th><td>corp-docs</td></tr></table></div><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span> <strong>local-fs/move_file</strong> <span class='badge'>application</span> <span class='small'>tool:local-fs-move_file</span></div><table class='props'><tr><th>riskClass</th><td>write</td></tr><tr><th>server</th><td>local-fs</td></tr></table></div><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span> <strong>local-fs/read_file</strong> <span class='badge'>application</span> <span class='small'>tool:local-fs-read_file</span></div><table class='props'><tr><th>riskClass</th><td>read</td></tr><tr><th>server</th><td>local-fs</td></tr></table></div><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span> <strong>local-fs/write_file</strong> <span class='badge'>application</span> <span class='small'>tool:local-fs-write_file</span></div><table class='props'><tr><th>riskClass</th><td>write</td></tr><tr><th>server</th><td>local-fs</td></tr></table></div></details>
+  <details open class='group' data-class='dependency'><summary><span class='class-dot' style='background:var(--class-dependency)' aria-hidden='true'></span>dependency <span class='count'>(1)</span></summary><div class='entry' data-class='dependency' data-search='@modelcontextprotocol/server-filesystem dependency:modelcontextprotocol-server-filesystem library dependency componentclass dependency purl pkg:npm/%40modelcontextprotocol/server-filesystem'><div class='entry-header'><span class='class-dot' style='background:var(--class-dependency)' aria-hidden='true'></span> <strong>@modelcontextprotocol/server-filesystem</strong> <span class='badge'>library</span> <span class='small'>dependency:modelcontextprotocol-server-filesystem</span></div><table class='props'><tr><th>purl</th><td>pkg:npm/%40modelcontextprotocol/server-filesystem</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;library&quot;,
+  &quot;bom-ref&quot;: &quot;dependency:modelcontextprotocol-server-filesystem&quot;,
+  &quot;name&quot;: &quot;@modelcontextprotocol/server-filesystem&quot;,
+  &quot;purl&quot;: &quot;pkg:npm/%40modelcontextprotocol/server-filesystem&quot;,
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;dependency&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:purl&quot;,
+      &quot;value&quot;: &quot;pkg:npm/%40modelcontextprotocol/server-filesystem&quot;
+    }
+  ]
+}</pre></details></div></details><details open class='group' data-class='configuration'><summary><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span>configuration <span class='count'>(1)</span></summary><div class='entry' data-class='configuration' data-search='config.yaml configuration:config.yaml file configuration componentclass configuration path /users/ajay/aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/config.yaml relpath .hermes/config.yaml sha256 7769b125dc20957c2b4af32e882a92bb149821cd285db7dd630a06ffbaf9808c relationship uses:model_endpoint:http-127.0.0.1-11434-v1 relationship uses:mcp_server:local-time relationship uses:mcp_server:corp-docs relationship uses:mcp_server:local-fs'><div class='entry-header'><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span> <strong>config.yaml</strong> <span class='badge'>file</span> <span class='small'>configuration:config.yaml</span></div><table class='props'><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/config.yaml</td></tr><tr><th>relPath</th><td>.hermes/config.yaml</td></tr><tr><th>sha256</th><td>7769b125dc20957c2b4af32e882a92bb149821cd285db7dd630a06ffbaf9808c</td></tr></table><details><summary>relationships (4)</summary><ul><li>uses:model_endpoint:http-127.0.0.1-11434-v1</li><li>uses:mcp_server:local-time</li><li>uses:mcp_server:corp-docs</li><li>uses:mcp_server:local-fs</li></ul></details><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;file&quot;,
+  &quot;bom-ref&quot;: &quot;configuration:config.yaml&quot;,
+  &quot;name&quot;: &quot;config.yaml&quot;,
+  &quot;hashes&quot;: [
+    {
+      &quot;alg&quot;: &quot;SHA-256&quot;,
+      &quot;content&quot;: &quot;7769b125dc20957c2b4af32e882a92bb149821cd285db7dd630a06ffbaf9808c&quot;
+    }
+  ],
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;configuration&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:path&quot;,
+      &quot;value&quot;: &quot;/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/config.yaml&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relPath&quot;,
+      &quot;value&quot;: &quot;.hermes/config.yaml&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:sha256&quot;,
+      &quot;value&quot;: &quot;7769b125dc20957c2b4af32e882a92bb149821cd285db7dd630a06ffbaf9808c&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:model_endpoint:http-127.0.0.1-11434-v1&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:mcp_server:local-time&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:mcp_server:corp-docs&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:mcp_server:local-fs&quot;
+    }
+  ]
+}</pre></details></div></details><details open class='group' data-class='model'><summary><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span>model <span class='count'>(1)</span></summary><div class='entry' data-class='model' data-search='qwen3:8b model:qwen3-8b machine-learning-model qwen3:8b model componentclass model version qwen3:8b contextlength 65536 thinking true ollamanumctx 65536'><div class='entry-header'><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span> <strong>qwen3:8b</strong> <span class='badge'>machine-learning-model</span> <span class='small'>model:qwen3-8b</span></div><table class='props'><tr><th>contextLength</th><td>65536</td></tr><tr><th>ollamaNumCtx</th><td>65536</td></tr><tr><th>thinking</th><td>True</td></tr><tr><th>version</th><td>qwen3:8b</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;machine-learning-model&quot;,
+  &quot;bom-ref&quot;: &quot;model:qwen3-8b&quot;,
+  &quot;name&quot;: &quot;qwen3:8b&quot;,
+  &quot;version&quot;: &quot;qwen3:8b&quot;,
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;model&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:version&quot;,
+      &quot;value&quot;: &quot;qwen3:8b&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:contextLength&quot;,
+      &quot;value&quot;: &quot;65536&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:thinking&quot;,
+      &quot;value&quot;: &quot;True&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:ollamaNumCtx&quot;,
+      &quot;value&quot;: &quot;65536&quot;
+    }
+  ]
+}</pre></details></div></details><details open class='group' data-class='skill'><summary><span class='class-dot' style='background:var(--class-skill)' aria-hidden='true'></span>skill <span class='count'>(2)</span></summary><div class='entry' data-class='skill' data-search='incident-response skill:incident-response library skill componentclass skill path /users/ajay/aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/incident-response relpath .hermes/skills/incident-response sha256 9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696 description incident response'><div class='entry-header'><span class='class-dot' style='background:var(--class-skill)' aria-hidden='true'></span> <strong>incident-response</strong> <span class='badge'>library</span> <span class='small'>skill:incident-response</span></div><table class='props'><tr><th>description</th><td>Incident Response</td></tr><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/incident-response</td></tr><tr><th>relPath</th><td>.hermes/skills/incident-response</td></tr><tr><th>sha256</th><td>9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;library&quot;,
+  &quot;bom-ref&quot;: &quot;skill:incident-response&quot;,
+  &quot;name&quot;: &quot;incident-response&quot;,
+  &quot;hashes&quot;: [
+    {
+      &quot;alg&quot;: &quot;SHA-256&quot;,
+      &quot;content&quot;: &quot;9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696&quot;
+    }
+  ],
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;skill&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:path&quot;,
+      &quot;value&quot;: &quot;/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/incident-response&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relPath&quot;,
+      &quot;value&quot;: &quot;.hermes/skills/incident-response&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:sha256&quot;,
+      &quot;value&quot;: &quot;9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:description&quot;,
+      &quot;value&quot;: &quot;Incident Response&quot;
+    }
+  ]
+}</pre></details></div><div class='entry' data-class='skill' data-search='software-development/dogfood skill:software-development-dogfood library skill componentclass skill path /users/ajay/aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood relpath .hermes/skills/software-development/dogfood category software-development sha256 20e123dc1ed35f7ab718d089347cac0a10c1c0c314101a9c3b139d20eade9ea2 description dogfood'><div class='entry-header'><span class='class-dot' style='background:var(--class-skill)' aria-hidden='true'></span> <strong>software-development/dogfood</strong> <span class='badge'>library</span> <span class='small'>skill:software-development-dogfood</span></div><table class='props'><tr><th>category</th><td>software-development</td></tr><tr><th>description</th><td>Dogfood</td></tr><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood</td></tr><tr><th>relPath</th><td>.hermes/skills/software-development/dogfood</td></tr><tr><th>sha256</th><td>20e123dc1ed35f7ab718d089347cac0a10c1c0c314101a9c3b139d20eade9ea2</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;library&quot;,
+  &quot;bom-ref&quot;: &quot;skill:software-development-dogfood&quot;,
+  &quot;name&quot;: &quot;software-development/dogfood&quot;,
+  &quot;hashes&quot;: [
+    {
+      &quot;alg&quot;: &quot;SHA-256&quot;,
+      &quot;content&quot;: &quot;20e123dc1ed35f7ab718d089347cac0a10c1c0c314101a9c3b139d20eade9ea2&quot;
+    }
+  ],
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;skill&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:path&quot;,
+      &quot;value&quot;: &quot;/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relPath&quot;,
+      &quot;value&quot;: &quot;.hermes/skills/software-development/dogfood&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:category&quot;,
+      &quot;value&quot;: &quot;software-development&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:sha256&quot;,
+      &quot;value&quot;: &quot;20e123dc1ed35f7ab718d089347cac0a10c1c0c314101a9c3b139d20eade9ea2&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:description&quot;,
+      &quot;value&quot;: &quot;Dogfood&quot;
+    }
+  ]
+}</pre></details></div></details><details open class='group' data-class='tool'><summary><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span>tool <span class='count'>(5)</span></summary><div class='entry' data-class='tool' data-search='corp-docs/fetch tool:corp-docs-fetch application tool componentclass tool server corp-docs riskclass network'><div class='entry-header'><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span> <strong>corp-docs/fetch</strong> <span class='badge'>application</span> <span class='small'>tool:corp-docs-fetch</span></div><table class='props'><tr><th>riskClass</th><td>network</td></tr><tr><th>server</th><td>corp-docs</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;application&quot;,
+  &quot;bom-ref&quot;: &quot;tool:corp-docs-fetch&quot;,
+  &quot;name&quot;: &quot;corp-docs/fetch&quot;,
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;tool&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:server&quot;,
+      &quot;value&quot;: &quot;corp-docs&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:riskClass&quot;,
+      &quot;value&quot;: &quot;network&quot;
+    }
+  ]
+}</pre></details></div><div class='entry' data-class='tool' data-search='corp-docs/search tool:corp-docs-search application tool componentclass tool server corp-docs riskclass read'><div class='entry-header'><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span> <strong>corp-docs/search</strong> <span class='badge'>application</span> <span class='small'>tool:corp-docs-search</span></div><table class='props'><tr><th>riskClass</th><td>read</td></tr><tr><th>server</th><td>corp-docs</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;application&quot;,
+  &quot;bom-ref&quot;: &quot;tool:corp-docs-search&quot;,
+  &quot;name&quot;: &quot;corp-docs/search&quot;,
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;tool&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:server&quot;,
+      &quot;value&quot;: &quot;corp-docs&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:riskClass&quot;,
+      &quot;value&quot;: &quot;read&quot;
+    }
+  ]
+}</pre></details></div><div class='entry' data-class='tool' data-search='local-fs/move_file tool:local-fs-move_file application tool componentclass tool server local-fs riskclass write'><div class='entry-header'><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span> <strong>local-fs/move_file</strong> <span class='badge'>application</span> <span class='small'>tool:local-fs-move_file</span></div><table class='props'><tr><th>riskClass</th><td>write</td></tr><tr><th>server</th><td>local-fs</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;application&quot;,
+  &quot;bom-ref&quot;: &quot;tool:local-fs-move_file&quot;,
+  &quot;name&quot;: &quot;local-fs/move_file&quot;,
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;tool&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:server&quot;,
+      &quot;value&quot;: &quot;local-fs&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:riskClass&quot;,
+      &quot;value&quot;: &quot;write&quot;
+    }
+  ]
+}</pre></details></div><div class='entry' data-class='tool' data-search='local-fs/read_file tool:local-fs-read_file application tool componentclass tool server local-fs riskclass read'><div class='entry-header'><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span> <strong>local-fs/read_file</strong> <span class='badge'>application</span> <span class='small'>tool:local-fs-read_file</span></div><table class='props'><tr><th>riskClass</th><td>read</td></tr><tr><th>server</th><td>local-fs</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;application&quot;,
+  &quot;bom-ref&quot;: &quot;tool:local-fs-read_file&quot;,
+  &quot;name&quot;: &quot;local-fs/read_file&quot;,
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;tool&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:server&quot;,
+      &quot;value&quot;: &quot;local-fs&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:riskClass&quot;,
+      &quot;value&quot;: &quot;read&quot;
+    }
+  ]
+}</pre></details></div><div class='entry' data-class='tool' data-search='local-fs/write_file tool:local-fs-write_file application tool componentclass tool server local-fs riskclass write'><div class='entry-header'><span class='class-dot' style='background:var(--class-tool)' aria-hidden='true'></span> <strong>local-fs/write_file</strong> <span class='badge'>application</span> <span class='small'>tool:local-fs-write_file</span></div><table class='props'><tr><th>riskClass</th><td>write</td></tr><tr><th>server</th><td>local-fs</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;application&quot;,
+  &quot;bom-ref&quot;: &quot;tool:local-fs-write_file&quot;,
+  &quot;name&quot;: &quot;local-fs/write_file&quot;,
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;tool&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:server&quot;,
+      &quot;value&quot;: &quot;local-fs&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:riskClass&quot;,
+      &quot;value&quot;: &quot;write&quot;
+    }
+  ]
+}</pre></details></div></details>
 </section>
 
-<section>
+<section id="services">
   <h2>Services</h2>
-  <details open class='group'><summary><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span>model_endpoint <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span> <strong>http://127.0.0.1:11434/v1</strong> <span class='small'>model_endpoint:http-127.0.0.1-11434-v1</span></div><p class='muted'>endpoints: http://127.0.0.1:11434/v1</p><table class='props'><tr><th>apiMode</th><td>chat_completions</td></tr><tr><th>provider</th><td>custom</td></tr></table><details><summary>relationships (1)</summary><ul><li>uses:model:qwen3-8b</li></ul></details></div></details><details open class='group'><summary><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span>mcp_server <span class='count'>(3)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span> <strong>corp-docs</strong> <span class='small'>mcp_server:corp-docs</span></div><p class='muted'>endpoints: https://mcp.corp.lab:8443</p><table class='props'><tr><th>authConfigured</th><td>True</td></tr><tr><th>endpoint</th><td>https://mcp.corp.lab:8443</td></tr><tr><th>tls</th><td>True</td></tr><tr><th>toolCount</th><td>2</td></tr><tr><th>transport</th><td>http</td></tr></table><details><summary>relationships (2)</summary><ul><li>uses:tool:corp-docs-search</li><li>uses:tool:corp-docs-fetch</li></ul></details></div><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span> <strong>local-fs</strong> <span class='small'>mcp_server:local-fs</span></div><table class='props'><tr><th>args</th><td>-y @modelcontextprotocol/server-filesystem /</td></tr><tr><th>authConfigured</th><td>True</td></tr><tr><th>authEnvKeys</th><td>API_KEY</td></tr><tr><th>command</th><td>npx</td></tr><tr><th>envKeys</th><td>API_KEY</td></tr><tr><th>purl</th><td>pkg:npm/%40modelcontextprotocol/server-filesystem</td></tr><tr><th>tls</th><td>n/a</td></tr><tr><th>toolCount</th><td>3</td></tr><tr><th>transport</th><td>stdio</td></tr><tr><th>versionPinned</th><td>False</td></tr></table><details><summary>relationships (4)</summary><ul><li>uses:tool:local-fs-read_file</li><li>uses:tool:local-fs-write_file</li><li>uses:tool:local-fs-move_file</li><li>uses:dependency:modelcontextprotocol-server-filesystem</li></ul></details></div><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span> <strong>local-time</strong> <span class='small'>mcp_server:local-time</span></div><p class='muted'>endpoints: http://127.0.0.1:8001</p><table class='props'><tr><th>authConfigured</th><td>False</td></tr><tr><th>endpoint</th><td>http://127.0.0.1:8001</td></tr><tr><th>tls</th><td>False</td></tr><tr><th>transport</th><td>http</td></tr></table></div></details>
+  <details open class='group' data-class='model_endpoint'><summary><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span>model_endpoint <span class='count'>(1)</span></summary><div class='entry' data-class='model_endpoint' data-search='http://127.0.0.1:11434/v1 model_endpoint:http-127.0.0.1-11434-v1 model_endpoint componentclass model_endpoint provider custom apimode chat_completions relationship uses:model:qwen3-8b'><div class='entry-header'><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span> <strong>http://127.0.0.1:11434/v1</strong> <span class='small'>model_endpoint:http-127.0.0.1-11434-v1</span></div><p class='muted'>endpoints: http://127.0.0.1:11434/v1</p><table class='props'><tr><th>apiMode</th><td>chat_completions</td></tr><tr><th>provider</th><td>custom</td></tr></table><details><summary>relationships (1)</summary><ul><li>uses:model:qwen3-8b</li></ul></details><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;bom-ref&quot;: &quot;model_endpoint:http-127.0.0.1-11434-v1&quot;,
+  &quot;name&quot;: &quot;http://127.0.0.1:11434/v1&quot;,
+  &quot;endpoints&quot;: [
+    &quot;http://127.0.0.1:11434/v1&quot;
+  ],
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;model_endpoint&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:provider&quot;,
+      &quot;value&quot;: &quot;custom&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:apiMode&quot;,
+      &quot;value&quot;: &quot;chat_completions&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:model:qwen3-8b&quot;
+    }
+  ]
+}</pre></details></div></details><details open class='group' data-class='mcp_server'><summary><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span>mcp_server <span class='count'>(3)</span></summary><div class='entry' data-class='mcp_server' data-search='corp-docs mcp_server:corp-docs mcp_server componentclass mcp_server transport http endpoint https://mcp.corp.lab:8443 tls true authconfigured true toolcount 2 relationship uses:tool:corp-docs-search relationship uses:tool:corp-docs-fetch'><div class='entry-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span> <strong>corp-docs</strong> <span class='small'>mcp_server:corp-docs</span></div><p class='muted'>endpoints: https://mcp.corp.lab:8443</p><table class='props'><tr><th>authConfigured</th><td>True</td></tr><tr><th>endpoint</th><td>https://mcp.corp.lab:8443</td></tr><tr><th>tls</th><td>True</td></tr><tr><th>toolCount</th><td>2</td></tr><tr><th>transport</th><td>http</td></tr></table><details><summary>relationships (2)</summary><ul><li>uses:tool:corp-docs-search</li><li>uses:tool:corp-docs-fetch</li></ul></details><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;bom-ref&quot;: &quot;mcp_server:corp-docs&quot;,
+  &quot;name&quot;: &quot;corp-docs&quot;,
+  &quot;endpoints&quot;: [
+    &quot;https://mcp.corp.lab:8443&quot;
+  ],
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;mcp_server&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:transport&quot;,
+      &quot;value&quot;: &quot;http&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:endpoint&quot;,
+      &quot;value&quot;: &quot;https://mcp.corp.lab:8443&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:tls&quot;,
+      &quot;value&quot;: &quot;True&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:authConfigured&quot;,
+      &quot;value&quot;: &quot;True&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:toolCount&quot;,
+      &quot;value&quot;: &quot;2&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:tool:corp-docs-search&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:tool:corp-docs-fetch&quot;
+    }
+  ]
+}</pre></details></div><div class='entry' data-class='mcp_server' data-search='local-fs mcp_server:local-fs mcp_server componentclass mcp_server transport stdio tls n/a command npx args -y @modelcontextprotocol/server-filesystem / purl pkg:npm/%40modelcontextprotocol/server-filesystem versionpinned false authconfigured true envkeys api_key authenvkeys api_key toolcount 3 relationship uses:tool:local-fs-read_file relationship uses:tool:local-fs-write_file relationship uses:tool:local-fs-move_file relationship uses:dependency:modelcontextprotocol-server-filesystem'><div class='entry-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span> <strong>local-fs</strong> <span class='small'>mcp_server:local-fs</span></div><table class='props'><tr><th>args</th><td>-y @modelcontextprotocol/server-filesystem /</td></tr><tr><th>authConfigured</th><td>True</td></tr><tr><th>authEnvKeys</th><td>API_KEY</td></tr><tr><th>command</th><td>npx</td></tr><tr><th>envKeys</th><td>API_KEY</td></tr><tr><th>purl</th><td>pkg:npm/%40modelcontextprotocol/server-filesystem</td></tr><tr><th>tls</th><td>n/a</td></tr><tr><th>toolCount</th><td>3</td></tr><tr><th>transport</th><td>stdio</td></tr><tr><th>versionPinned</th><td>False</td></tr></table><details><summary>relationships (4)</summary><ul><li>uses:tool:local-fs-read_file</li><li>uses:tool:local-fs-write_file</li><li>uses:tool:local-fs-move_file</li><li>uses:dependency:modelcontextprotocol-server-filesystem</li></ul></details><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;bom-ref&quot;: &quot;mcp_server:local-fs&quot;,
+  &quot;name&quot;: &quot;local-fs&quot;,
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;mcp_server&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:transport&quot;,
+      &quot;value&quot;: &quot;stdio&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:tls&quot;,
+      &quot;value&quot;: &quot;n/a&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:command&quot;,
+      &quot;value&quot;: &quot;npx&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:args&quot;,
+      &quot;value&quot;: &quot;-y @modelcontextprotocol/server-filesystem /&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:purl&quot;,
+      &quot;value&quot;: &quot;pkg:npm/%40modelcontextprotocol/server-filesystem&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:versionPinned&quot;,
+      &quot;value&quot;: &quot;False&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:authConfigured&quot;,
+      &quot;value&quot;: &quot;True&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:envKeys&quot;,
+      &quot;value&quot;: &quot;API_KEY&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:authEnvKeys&quot;,
+      &quot;value&quot;: &quot;API_KEY&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:toolCount&quot;,
+      &quot;value&quot;: &quot;3&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:tool:local-fs-read_file&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:tool:local-fs-write_file&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:tool:local-fs-move_file&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:dependency:modelcontextprotocol-server-filesystem&quot;
+    }
+  ]
+}</pre></details></div><div class='entry' data-class='mcp_server' data-search='local-time mcp_server:local-time mcp_server componentclass mcp_server transport http endpoint http://127.0.0.1:8001 tls false authconfigured false'><div class='entry-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span> <strong>local-time</strong> <span class='small'>mcp_server:local-time</span></div><p class='muted'>endpoints: http://127.0.0.1:8001</p><table class='props'><tr><th>authConfigured</th><td>False</td></tr><tr><th>endpoint</th><td>http://127.0.0.1:8001</td></tr><tr><th>tls</th><td>False</td></tr><tr><th>transport</th><td>http</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;bom-ref&quot;: &quot;mcp_server:local-time&quot;,
+  &quot;name&quot;: &quot;local-time&quot;,
+  &quot;endpoints&quot;: [
+    &quot;http://127.0.0.1:8001&quot;
+  ],
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;mcp_server&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:transport&quot;,
+      &quot;value&quot;: &quot;http&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:endpoint&quot;,
+      &quot;value&quot;: &quot;http://127.0.0.1:8001&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:tls&quot;,
+      &quot;value&quot;: &quot;False&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:authConfigured&quot;,
+      &quot;value&quot;: &quot;False&quot;
+    }
+  ]
+}</pre></details></div></details>
+</section>
+
+<section id="metadata">
+  <h2>Metadata</h2>
+  <table class='summary'><tr><td>bomFormat</td><td>CycloneDX</td></tr><tr><td>specVersion</td><td>1.6</td></tr><tr><td>version</td><td>1</td></tr><tr><td>serialNumber</td><td>urn:uuid:291cfca8-6b66-40e1-add3-730e26994676</td></tr><tr><td>timestamp</td><td>2026-09-09T10:51:55+00:00</td></tr><tr><td>root bom-ref</td><td>harness-root</td></tr></table><table class='summary'><tr><th>generating tool</th><th>version</th></tr><tr><td>agent-harness-aibom</td><td>0.4.0</td></tr></table>
+</section>
+
+<section id="external-references">
+  <h2>External references</h2>
+  <p class='muted'><em>External references are not collected by this scanner.</em></p>
+</section>
+
+<section id="vulnerabilities">
+  <h2>Vulnerabilities</h2>
+  <p class='muted'><em>Vulnerability data is not collected by this scanner.</em></p>
+</section>
+
+<section id="compositions">
+  <h2>Compositions</h2>
+  <p class="muted">CycloneDX's own completeness declarations for this document -- see the
+    AIBOM coverage detail under Security summary above for what this scanner does and doesn't
+    include.</p>
+  <p class='muted'><em>Composition/completeness declarations are not collected by this scanner.</em></p>
+</section>
+
+<section id="raw-bom">
+  <h2>Raw BOM</h2>
+  <details><summary>Raw CycloneDX AIBOM (13199 bytes)</summary><pre class='raw-json'>{
+  &quot;bomFormat&quot;: &quot;CycloneDX&quot;,
+  &quot;specVersion&quot;: &quot;1.6&quot;,
+  &quot;serialNumber&quot;: &quot;urn:uuid:291cfca8-6b66-40e1-add3-730e26994676&quot;,
+  &quot;version&quot;: 1,
+  &quot;metadata&quot;: {
+    &quot;tools&quot;: {
+      &quot;components&quot;: [
+        {
+          &quot;type&quot;: &quot;application&quot;,
+          &quot;name&quot;: &quot;agent-harness-aibom&quot;,
+          &quot;version&quot;: &quot;0.4.0&quot;
+        }
+      ]
+    },
+    &quot;component&quot;: {
+      &quot;type&quot;: &quot;application&quot;,
+      &quot;bom-ref&quot;: &quot;harness-root&quot;,
+      &quot;name&quot;: &quot;hermes@Ajays-MacBook-Pro.local&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;harness&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:runtimeKind&quot;,
+          &quot;value&quot;: &quot;hermes&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:hostname&quot;,
+          &quot;value&quot;: &quot;Ajays-MacBook-Pro.local&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:warning&quot;,
+          &quot;value&quot;: &quot;hermes binary not found on PATH; runtime component skipped&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:warning&quot;,
+          &quot;value&quot;: &quot;configured model &#x27;qwen3:8b&#x27; not found via Ollama /api/tags; recorded from config only&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;loads:configuration:config.yaml&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;loads:skill:incident-response&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;loads:skill:software-development-dogfood&quot;
+        }
+      ]
+    },
+    &quot;timestamp&quot;: &quot;2026-09-09T10:51:55+00:00&quot;
+  },
+  &quot;components&quot;: [
+    {
+      &quot;type&quot;: &quot;file&quot;,
+      &quot;bom-ref&quot;: &quot;configuration:config.yaml&quot;,
+      &quot;name&quot;: &quot;config.yaml&quot;,
+      &quot;hashes&quot;: [
+        {
+          &quot;alg&quot;: &quot;SHA-256&quot;,
+          &quot;content&quot;: &quot;7769b125dc20957c2b4af32e882a92bb149821cd285db7dd630a06ffbaf9808c&quot;
+        }
+      ],
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;configuration&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:path&quot;,
+          &quot;value&quot;: &quot;/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/config.yaml&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relPath&quot;,
+          &quot;value&quot;: &quot;.hermes/config.yaml&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:sha256&quot;,
+          &quot;value&quot;: &quot;7769b125dc20957c2b4af32e882a92bb149821cd285db7dd630a06ffbaf9808c&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:model_endpoint:http-127.0.0.1-11434-v1&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:mcp_server:local-time&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:mcp_server:corp-docs&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:mcp_server:local-fs&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;machine-learning-model&quot;,
+      &quot;bom-ref&quot;: &quot;model:qwen3-8b&quot;,
+      &quot;name&quot;: &quot;qwen3:8b&quot;,
+      &quot;version&quot;: &quot;qwen3:8b&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;model&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:version&quot;,
+          &quot;value&quot;: &quot;qwen3:8b&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:contextLength&quot;,
+          &quot;value&quot;: &quot;65536&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:thinking&quot;,
+          &quot;value&quot;: &quot;True&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:ollamaNumCtx&quot;,
+          &quot;value&quot;: &quot;65536&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;application&quot;,
+      &quot;bom-ref&quot;: &quot;tool:corp-docs-search&quot;,
+      &quot;name&quot;: &quot;corp-docs/search&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;tool&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:server&quot;,
+          &quot;value&quot;: &quot;corp-docs&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:riskClass&quot;,
+          &quot;value&quot;: &quot;read&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;application&quot;,
+      &quot;bom-ref&quot;: &quot;tool:corp-docs-fetch&quot;,
+      &quot;name&quot;: &quot;corp-docs/fetch&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;tool&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:server&quot;,
+          &quot;value&quot;: &quot;corp-docs&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:riskClass&quot;,
+          &quot;value&quot;: &quot;network&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;application&quot;,
+      &quot;bom-ref&quot;: &quot;tool:local-fs-read_file&quot;,
+      &quot;name&quot;: &quot;local-fs/read_file&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;tool&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:server&quot;,
+          &quot;value&quot;: &quot;local-fs&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:riskClass&quot;,
+          &quot;value&quot;: &quot;read&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;application&quot;,
+      &quot;bom-ref&quot;: &quot;tool:local-fs-write_file&quot;,
+      &quot;name&quot;: &quot;local-fs/write_file&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;tool&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:server&quot;,
+          &quot;value&quot;: &quot;local-fs&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:riskClass&quot;,
+          &quot;value&quot;: &quot;write&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;application&quot;,
+      &quot;bom-ref&quot;: &quot;tool:local-fs-move_file&quot;,
+      &quot;name&quot;: &quot;local-fs/move_file&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;tool&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:server&quot;,
+          &quot;value&quot;: &quot;local-fs&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:riskClass&quot;,
+          &quot;value&quot;: &quot;write&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;library&quot;,
+      &quot;bom-ref&quot;: &quot;dependency:modelcontextprotocol-server-filesystem&quot;,
+      &quot;name&quot;: &quot;@modelcontextprotocol/server-filesystem&quot;,
+      &quot;purl&quot;: &quot;pkg:npm/%40modelcontextprotocol/server-filesystem&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;dependency&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:purl&quot;,
+          &quot;value&quot;: &quot;pkg:npm/%40modelcontextprotocol/server-filesystem&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;library&quot;,
+      &quot;bom-ref&quot;: &quot;skill:incident-response&quot;,
+      &quot;name&quot;: &quot;incident-response&quot;,
+      &quot;hashes&quot;: [
+        {
+          &quot;alg&quot;: &quot;SHA-256&quot;,
+          &quot;content&quot;: &quot;9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696&quot;
+        }
+      ],
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;skill&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:path&quot;,
+          &quot;value&quot;: &quot;/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/incident-response&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relPath&quot;,
+          &quot;value&quot;: &quot;.hermes/skills/incident-response&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:sha256&quot;,
+          &quot;value&quot;: &quot;9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:description&quot;,
+          &quot;value&quot;: &quot;Incident Response&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;library&quot;,
+      &quot;bom-ref&quot;: &quot;skill:software-development-dogfood&quot;,
+      &quot;name&quot;: &quot;software-development/dogfood&quot;,
+      &quot;hashes&quot;: [
+        {
+          &quot;alg&quot;: &quot;SHA-256&quot;,
+          &quot;content&quot;: &quot;20e123dc1ed35f7ab718d089347cac0a10c1c0c314101a9c3b139d20eade9ea2&quot;
+        }
+      ],
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;skill&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:path&quot;,
+          &quot;value&quot;: &quot;/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relPath&quot;,
+          &quot;value&quot;: &quot;.hermes/skills/software-development/dogfood&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:category&quot;,
+          &quot;value&quot;: &quot;software-development&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:sha256&quot;,
+          &quot;value&quot;: &quot;20e123dc1ed35f7ab718d089347cac0a10c1c0c314101a9c3b139d20eade9ea2&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:description&quot;,
+          &quot;value&quot;: &quot;Dogfood&quot;
+        }
+      ]
+    }
+  ],
+  &quot;services&quot;: [
+    {
+      &quot;bom-ref&quot;: &quot;model_endpoint:http-127.0.0.1-11434-v1&quot;,
+      &quot;name&quot;: &quot;http://127.0.0.1:11434/v1&quot;,
+      &quot;endpoints&quot;: [
+        &quot;http://127.0.0.1:11434/v1&quot;
+      ],
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;model_endpoint&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:provider&quot;,
+          &quot;value&quot;: &quot;custom&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:apiMode&quot;,
+          &quot;value&quot;: &quot;chat_completions&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:model:qwen3-8b&quot;
+        }
+      ]
+    },
+    {
+      &quot;bom-ref&quot;: &quot;mcp_server:local-time&quot;,
+      &quot;name&quot;: &quot;local-time&quot;,
+      &quot;endpoints&quot;: [
+        &quot;http://127.0.0.1:8001&quot;
+      ],
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;mcp_server&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:transport&quot;,
+          &quot;value&quot;: &quot;http&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:endpoint&quot;,
+          &quot;value&quot;: &quot;http://127.0.0.1:8001&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:tls&quot;,
+          &quot;value&quot;: &quot;False&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:authConfigured&quot;,
+          &quot;value&quot;: &quot;False&quot;
+        }
+      ]
+    },
+    {
+      &quot;bom-ref&quot;: &quot;mcp_server:corp-docs&quot;,
+      &quot;name&quot;: &quot;corp-docs&quot;,
+      &quot;endpoints&quot;: [
+        &quot;https://mcp.corp.lab:8443&quot;
+      ],
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;mcp_server&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:transport&quot;,
+          &quot;value&quot;: &quot;http&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:endpoint&quot;,
+          &quot;value&quot;: &quot;https://mcp.corp.lab:8443&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:tls&quot;,
+          &quot;value&quot;: &quot;True&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:authConfigured&quot;,
+          &quot;value&quot;: &quot;True&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:toolCount&quot;,
+          &quot;value&quot;: &quot;2&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:tool:corp-docs-search&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:tool:corp-docs-fetch&quot;
+        }
+      ]
+    },
+    {
+      &quot;bom-ref&quot;: &quot;mcp_server:local-fs&quot;,
+      &quot;name&quot;: &quot;local-fs&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;mcp_server&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:transport&quot;,
+          &quot;value&quot;: &quot;stdio&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:tls&quot;,
+          &quot;value&quot;: &quot;n/a&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:command&quot;,
+          &quot;value&quot;: &quot;npx&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:args&quot;,
+          &quot;value&quot;: &quot;-y @modelcontextprotocol/server-filesystem /&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:purl&quot;,
+          &quot;value&quot;: &quot;pkg:npm/%40modelcontextprotocol/server-filesystem&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:versionPinned&quot;,
+          &quot;value&quot;: &quot;False&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:authConfigured&quot;,
+          &quot;value&quot;: &quot;True&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:envKeys&quot;,
+          &quot;value&quot;: &quot;API_KEY&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:authEnvKeys&quot;,
+          &quot;value&quot;: &quot;API_KEY&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:toolCount&quot;,
+          &quot;value&quot;: &quot;3&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:tool:local-fs-read_file&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:tool:local-fs-write_file&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:tool:local-fs-move_file&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:dependency:modelcontextprotocol-server-filesystem&quot;
+        }
+      ]
+    }
+  ],
+  &quot;dependencies&quot;: [
+    {
+      &quot;ref&quot;: &quot;harness-root&quot;,
+      &quot;dependsOn&quot;: [
+        &quot;configuration:config.yaml&quot;,
+        &quot;skill:incident-response&quot;,
+        &quot;skill:software-development-dogfood&quot;
+      ]
+    },
+    {
+      &quot;ref&quot;: &quot;configuration:config.yaml&quot;,
+      &quot;dependsOn&quot;: [
+        &quot;model_endpoint:http-127.0.0.1-11434-v1&quot;,
+        &quot;mcp_server:local-time&quot;,
+        &quot;mcp_server:corp-docs&quot;,
+        &quot;mcp_server:local-fs&quot;
+      ]
+    },
+    {
+      &quot;ref&quot;: &quot;model_endpoint:http-127.0.0.1-11434-v1&quot;,
+      &quot;dependsOn&quot;: [
+        &quot;model:qwen3-8b&quot;
+      ]
+    },
+    {
+      &quot;ref&quot;: &quot;mcp_server:corp-docs&quot;,
+      &quot;dependsOn&quot;: [
+        &quot;tool:corp-docs-search&quot;,
+        &quot;tool:corp-docs-fetch&quot;
+      ]
+    },
+    {
+      &quot;ref&quot;: &quot;mcp_server:local-fs&quot;,
+      &quot;dependsOn&quot;: [
+        &quot;tool:local-fs-read_file&quot;,
+        &quot;tool:local-fs-write_file&quot;,
+        &quot;tool:local-fs-move_file&quot;,
+        &quot;dependency:modelcontextprotocol-server-filesystem&quot;
+      ]
+    }
+  ]
+}</pre></details>
 </section>
 
 <footer class="muted">
-  Generated by agent-harness-aibom · 2026-09-09T10:15:36+00:00 ·
+  Generated by agent-harness-aibom · 2026-09-09T10:54:05+00:00 ·
   every property of every component is rendered, nothing summarized away.
 </footer>
+<script>
+function normalizeText(s) { return (s || '').toLowerCase(); }
+
+function applyFilters() {
+  var searchBox = document.getElementById('search-box');
+  var classFilter = document.getElementById('class-filter');
+  var q = normalizeText(searchBox ? searchBox.value : '');
+  var cls = classFilter ? classFilter.value : '';
+  var entries = document.querySelectorAll('.entry[data-class]');
+  var shown = 0;
+  entries.forEach(function (entry) {
+    var matchesClass = !cls || entry.getAttribute('data-class') === cls;
+    var matchesSearch = !q || (entry.getAttribute('data-search') || '').indexOf(q) !== -1;
+    var visible = matchesClass && matchesSearch;
+    entry.hidden = !visible;
+    if (visible) shown++;
+  });
+  document.querySelectorAll('.group[data-class]').forEach(function (group) {
+    group.hidden = !group.querySelector('.entry:not([hidden])');
+  });
+  var status = document.getElementById('filter-status');
+  if (status) {
+    status.textContent = (q || cls) ? (shown + ' of ' + entries.length + ' shown') : (entries.length + ' total');
+  }
+}
+
+function goToClass(cls) {
+  var classFilter = document.getElementById('class-filter');
+  var searchBox = document.getElementById('search-box');
+  if (classFilter) classFilter.value = cls || '';
+  if (searchBox) searchBox.value = '';
+  applyFilters();
+  var target = cls ? document.querySelector('.group[data-class="' + cls + '"]') : document.getElementById('components');
+  if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  var searchBox = document.getElementById('search-box');
+  var classFilter = document.getElementById('class-filter');
+  if (searchBox) searchBox.addEventListener('input', applyFilters);
+  if (classFilter) classFilter.addEventListener('change', applyFilters);
+  applyFilters();
+});
+</script>
 </body>
 </html>

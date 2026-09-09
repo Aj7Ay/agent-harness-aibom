@@ -976,3 +976,82 @@ than it returns:
   **`memory_store`**, **a `policy` command**, and **a CI/CD security
   gate** are P2 — new collectors, new subcommands, or both; SPEC.md has
   named these gaps since v0.2.0 and they remain open here.
+
+## 10. AIBOM Explorer (v0.4.0)
+
+**The full roadmap this section is one step of** is kept outside this repo,
+in the assistant's own persistent memory (`aibom-explorer-roadmap` /
+`security-py-architecture`), not duplicated here — an independent
+reviewer's 37-item review after v0.3.0 shipped, staged into v0.4.0
+("AIBOM Explorer", built here) through v0.7.0 ("DevSecOps": `report
+--diff`, a `policy` command, SARIF output, AIBOM signing). Each future
+release still gets its own versioned update note here, same as every
+release before it — this section only records what v0.4.0 itself
+changed.
+
+**The one deliberate architectural exception this release makes.**
+Every report through v0.3.0 needed zero JavaScript — `<details>`/
+`<summary>` covered every collapsible section, including the v0.3.0
+security-analysis panels. Live text search and a componentClass filter
+across a document with hundreds of entries genuinely cannot be done in
+pure HTML/CSS the way expand/collapse could. `report.py` now embeds a
+small, plain (`_JS`), inline `<script>` block — global functions, no
+IIFE, no build step, no bundler, still zero external dependencies and
+still a single offline file. Everything that *can* stay JS-free still
+is: the per-entry raw JSON reveal and the raw-BOM viewer both use native
+`<details>`/`<pre>`, not a JavaScript drawer.
+
+**What was added:**
+- **Sticky navigation** (`_render_explorer_nav()`) — anchor links to
+  every major section, `position: sticky` CSS, no JS needed for this
+  part.
+- **Search + class filter** (`_render_filter_bar()`, `applyFilters()` in
+  `_JS`) — every `.entry` div now carries `data-class` (its
+  componentClass) and `data-search` (a lowercased blob of its name,
+  bom-ref, type, version, and every property's own key/value, plus every
+  relationship string). An independent reviewer's own examples were
+  specific: "search `sha256` → find fingerprinted objects", "search
+  `world-readable` → find the affected secret" — both need property
+  *values* searchable, not just component names, which is why the blob
+  includes them. The class-filter `<select>`'s options are generated
+  from `class_counts` (already computed for the bar chart), so it can
+  never offer a componentClass that isn't actually present in the
+  document.
+- **Clickable architecture diagram** — every non-root box in the
+  Architecture section (§9) now has an `onclick="goToClass('<cls>')"`
+  handler that sets the class filter, re-applies it, and scrolls to that
+  class's group. Clicking the root box calls `goToClass('')`, which
+  resets the filter — "harness root" isn't a real componentClass
+  anything below is filterable by.
+- **Per-entry raw JSON** — every `.entry` now ends with a collapsed
+  `<details><summary>Raw JSON</summary><pre>...</pre></details>` of that
+  exact entry's dict, `json.dumps(entry, indent=2)`, escaped through the
+  same `_esc()`/`html.escape()` as every other value on the page (so raw
+  JSON's own quote characters render as `&quot;` entities, never as
+  literal, unescaped HTML). This is the v0.4.0-scoped version of the
+  reviewer's "click a component for detail" ask — a full categorized
+  Identity/Integrity/Location/Relationships/Security/Provenance drawer
+  is a v0.5.0 item (once the `SecurityEvidence` object exists to
+  populate the Provenance/Security parts of it with something real,
+  rather than an empty placeholder).
+- **A top-level Raw BOM section** — the full document, pretty-printed,
+  inside one collapsed `<details>`.
+- **Dedicated Metadata, External references, Vulnerabilities, and
+  Compositions sections** — every native top-level CycloneDX 1.6 array
+  this scanner doesn't populate yet gets its own section anyway, with an
+  honest, explicit message ("External references are not collected by
+  this scanner.") rather than silently omitting the section, or —worse—
+  rendering a bare `0` that could look like a verified empty *result*
+  (a scanner that checked and found nothing) rather than what it
+  actually is (a category this scanner has never collected at all). Same
+  reasoning as v0.3.0's "baseline comparison" line (§9).
+
+**Not attempted in v0.4.0** (deferred to the persisted roadmap's later
+stages, not silently dropped): a full categorized detail drawer per
+component; search that also reaches into Risk observations (scoped to
+Components/Services only for this release); highlighting matches inside
+the raw-BOM JSON viewer; splitting `report.py` into a `report/` package
+(a real refactor, worth doing once the file's size actually demands it,
+not preemptively — it is a large single module by v0.4.0, but every
+function in it is still independently testable and the module docstring
+still accurately describes the whole file's shape).

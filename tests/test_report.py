@@ -161,7 +161,7 @@ def test_architecture_section_shows_class_level_nodes_not_instance_level():
     for name in ("a", "b", "c"):
         doc.add(Component(component_class="skill", name=name), "loads")
     html_text = render_html(to_cyclonedx(doc))
-    architecture_section = html_text.split("Architecture")[1].split("Security summary")[0]
+    architecture_section = html_text.split('id="architecture"')[1].split('id="security-summary"')[0]
 
     assert "Architecture" in html_text
     # the aggregate node label "skill" with its count, not three
@@ -259,3 +259,86 @@ def test_skill_category_breakdown_groups_by_real_category_property():
 def test_skill_category_breakdown_absent_when_no_skills():
     html_text = render_html(_doc_with_everything())  # no skills in this fixture
     assert "Skills by category" not in html_text
+
+
+# ---- v0.4.0: AIBOM Explorer (search/filter, raw JSON, new sections) ------
+
+
+def test_explorer_nav_has_an_anchor_for_every_new_section():
+    html_text = render_html(_doc_with_everything())
+    for anchor in ("#architecture", "#security-summary", "#risk", "#mcp", "#components",
+                   "#services", "#metadata", "#external-references", "#vulnerabilities",
+                   "#compositions", "#raw-bom"):
+        assert f"href='{anchor}'" in html_text
+    for section_id in ("architecture", "security-summary", "risk", "mcp", "components",
+                        "services", "metadata", "external-references", "vulnerabilities",
+                        "compositions", "raw-bom"):
+        assert f"id=\"{section_id}\"" in html_text
+
+
+def test_search_box_and_class_filter_are_present():
+    html_text = render_html(_doc_with_everything())
+    assert "id=\"search-box\"" in html_text
+    assert "id=\"class-filter\"" in html_text
+    # filter options are real classes from this document, not invented ones
+    assert "<option value='model'>model (1)</option>" in html_text
+    assert "<option value='mcp_server'>mcp_server (1)</option>" in html_text
+
+
+def test_entries_carry_data_class_and_data_search_for_js_filtering():
+    html_text = render_html(_doc_with_everything())
+    assert "data-class='model'" in html_text
+    # the search blob is lowercased and includes the property value, not
+    # just the name -- an independent reviewer's own example was
+    # "search sha256 -> find fingerprinted objects"
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    skill = Component(component_class="skill", name="blogwatcher")
+    skill.set("sha256", "deadbeef" * 8)
+    doc.add(skill, "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "deadbeef" in html_text.split("data-search='")[1].split("'")[0]
+
+
+def test_architecture_nodes_are_clickable_and_filter_to_their_class():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    doc.add(Component(component_class="skill", name="a"), "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "onclick=\"goToClass('skill')\"" in html_text
+    # the root node resets the filter, not "filters to a class called harness"
+    assert "onclick=\"goToClass('')\"" in html_text
+
+
+def test_raw_json_reveal_exists_per_entry_and_contains_real_data():
+    html_text = render_html(_doc_with_everything())
+    assert "Raw JSON" in html_text
+    assert "class='raw-json'" in html_text
+    # the raw JSON goes through the same html.escape() as everything else
+    # on the page (never raw, even inside a <pre> block) -- quotes come
+    # out as &quot; entities, not literal characters.
+    assert "&quot;name&quot;: &quot;qwen3:8b&quot;" in html_text
+
+
+def test_raw_bom_section_contains_the_full_document():
+    bom = _doc_with_everything()
+    html_text = render_html(bom)
+    assert "Raw CycloneDX AIBOM" in html_text
+    assert bom["serialNumber"] in html_text
+
+
+def test_metadata_section_shows_bom_format_and_spec_version():
+    bom = _doc_with_everything()
+    html_text = render_html(bom)
+    metadata_section = html_text.split('id="metadata"')[1].split('id="external-references"')[0]
+    assert "CycloneDX" in metadata_section
+    assert "1.6" in metadata_section
+    assert "agent-harness-aibom" in metadata_section
+
+
+def test_external_references_vulnerabilities_compositions_have_honest_empty_states():
+    html_text = render_html(_doc_with_everything())
+    assert "External references are not collected by this scanner." in html_text
+    assert "Vulnerability data is not collected by this scanner." in html_text
+    assert "Composition/completeness declarations are not collected by this scanner." in html_text
+    # never a bare "0" that could look like a verified empty *result*
+    ext_section = html_text.split('id="external-references"')[1].split('id="vulnerabilities"')[0]
+    assert ">0<" not in ext_section

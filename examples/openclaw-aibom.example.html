@@ -108,6 +108,29 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .mcp-tool-list li { background: var(--code-bg); border-radius: 4px; padding: 0.1rem 0.45rem; font-size: 0.78rem; }
 .coverage-list { list-style: none; margin: 0.3rem 0; padding: 0; }
 .coverage-list li { padding: 0.15rem 0; font-size: 0.85rem; }
+.explorer-nav {
+  position: sticky; top: 0; z-index: 10; background: var(--bg);
+  border-bottom: 1px solid var(--border); margin: 0 -1.25rem 1rem; padding: 0.6rem 1.25rem;
+  display: flex; flex-wrap: wrap; gap: 0.15rem 0.9rem; font-size: 0.82rem;
+}
+.explorer-nav a { color: var(--secondary); text-decoration: none; white-space: nowrap; }
+.explorer-nav a:hover { color: var(--fg); text-decoration: underline; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin: 0.75rem 0 1rem; }
+.filter-bar input[type=search] {
+  flex: 1 1 220px; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--fg); font-size: 0.9rem;
+}
+.filter-bar select {
+  padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--fg); font-size: 0.9rem;
+}
+.filter-status { font-size: 0.82rem; color: var(--secondary); }
+.entry[hidden], .group[hidden] { display: none !important; }
+.arch-box[data-node] { cursor: pointer; }
+pre.raw-json {
+  background: var(--code-bg); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.78rem;
+  overflow-x: auto; white-space: pre; margin: 0.4rem 0 0;
+}
 </style>
 </head>
 <body>
@@ -116,22 +139,24 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
   <p class="muted">
     runtime: <strong>openclaw</strong> ·
     host: <strong>Ajays-MacBook-Pro.local</strong> ·
-    scanned: 2026-09-09T10:15:35+00:00 ·
-    serial: urn:uuid:532f0d5d-4f07-4916-a139-19fd151f885d
+    scanned: 2026-09-09T10:51:55+00:00 ·
+    serial: urn:uuid:07b587ee-6944-4f25-a75b-035103bbbaaa
   </p>
 </header>
 
+<nav class='explorer-nav'><a href='#architecture'>Architecture</a><a href='#security-summary'>Security</a><a href='#risk'>Risk</a><a href='#mcp'>MCP</a><a href='#components'>Components</a><a href='#services'>Services</a><a href='#metadata'>Metadata</a><a href='#external-references'>External refs</a><a href='#vulnerabilities'>Vulnerabilities</a><a href='#compositions'>Compositions</a><a href='#raw-bom'>Raw BOM</a></nav>
+
 <div class='scan-warnings'><strong>⚠ 2 scan warnings</strong> <span class='muted'>(this document may be incomplete)</span><ul><li>openclaw binary not found on PATH; runtime component skipped</li><li>configured model &#x27;qwen3:8b&#x27; not found via Ollama /api/tags; recorded from config only</li></ul></div>
 
-<section>
+<section id="architecture">
   <h2>Architecture</h2>
   <p class="muted">What this agent is made of and how the pieces connect &mdash; one box per
     category (not per component), positioned by real depth in the document's own dependency
-    graph. See Components/Services below for every individual instance.</p>
-  <div class="arch-card chart-card"><svg viewBox='0 0 406 342' role='img' aria-label='Harness architecture'><line x1='106.0' y1='134' x2='106.0' y2='156' class='arch-edge'/><line x1='106.0' y1='134' x2='300.0' y2='156' class='arch-edge'/><line x1='203.0' y1='66' x2='106.0' y2='88' class='arch-edge'/><line x1='203.0' y1='66' x2='300.0' y2='88' class='arch-edge'/><line x1='300.0' y1='202' x2='203.0' y2='224' class='arch-edge'/><g><title>harness root: 1</title><rect x='117.0' y='20' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--fg)'/><text x='203.0' y='37.0' text-anchor='middle' class='arch-label'>harness root</text><text x='203.0' y='55.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>configuration: 1</title><rect x='20.0' y='88' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-configuration)'/><text x='106.0' y='105.0' text-anchor='middle' class='arch-label'>configuration</text><text x='106.0' y='123.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>secrets_surface: 1</title><rect x='214.0' y='88' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-secrets_surface)'/><text x='300.0' y='105.0' text-anchor='middle' class='arch-label'>secrets_surface</text><text x='300.0' y='123.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>mcp_server: 1</title><rect x='20.0' y='156' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-mcp_server)'/><text x='106.0' y='173.0' text-anchor='middle' class='arch-label'>mcp_server</text><text x='106.0' y='191.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>model_endpoint: 1</title><rect x='214.0' y='156' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-model_endpoint)'/><text x='300.0' y='173.0' text-anchor='middle' class='arch-label'>model_endpoint</text><text x='300.0' y='191.0' text-anchor='middle' class='arch-count'>1</text></g><g><title>model: 1</title><rect x='117.0' y='224' width='172' height='46' rx='8' class='arch-box' style='stroke:var(--class-model)'/><text x='203.0' y='241.0' text-anchor='middle' class='arch-label'>model</text><text x='203.0' y='259.0' text-anchor='middle' class='arch-count'>1</text></g></svg></div>
+    graph. Click a box to jump to and filter Components/Services below.</p>
+  <div class="arch-card chart-card"><svg viewBox='0 0 406 342' role='img' aria-label='Harness architecture'><line x1='106.0' y1='134' x2='106.0' y2='156' class='arch-edge'/><line x1='106.0' y1='134' x2='300.0' y2='156' class='arch-edge'/><line x1='203.0' y1='66' x2='106.0' y2='88' class='arch-edge'/><line x1='203.0' y1='66' x2='300.0' y2='88' class='arch-edge'/><line x1='300.0' y1='202' x2='203.0' y2='224' class='arch-edge'/><g onclick="goToClass('')"><title>harness root: 1 (reset filter)</title><rect x='117.0' y='20' width='172' height='46' rx='8' class='arch-box' data-node='harness' style='stroke:var(--fg)'/><text x='203.0' y='37.0' text-anchor='middle' class='arch-label'>harness root</text><text x='203.0' y='55.0' text-anchor='middle' class='arch-count'>1</text></g><g onclick="goToClass('configuration')"><title>configuration: 1 (filter to configuration)</title><rect x='20.0' y='88' width='172' height='46' rx='8' class='arch-box' data-node='configuration' style='stroke:var(--class-configuration)'/><text x='106.0' y='105.0' text-anchor='middle' class='arch-label'>configuration</text><text x='106.0' y='123.0' text-anchor='middle' class='arch-count'>1</text></g><g onclick="goToClass('secrets_surface')"><title>secrets_surface: 1 (filter to secrets_surface)</title><rect x='214.0' y='88' width='172' height='46' rx='8' class='arch-box' data-node='secrets_surface' style='stroke:var(--class-secrets_surface)'/><text x='300.0' y='105.0' text-anchor='middle' class='arch-label'>secrets_surface</text><text x='300.0' y='123.0' text-anchor='middle' class='arch-count'>1</text></g><g onclick="goToClass('mcp_server')"><title>mcp_server: 1 (filter to mcp_server)</title><rect x='20.0' y='156' width='172' height='46' rx='8' class='arch-box' data-node='mcp_server' style='stroke:var(--class-mcp_server)'/><text x='106.0' y='173.0' text-anchor='middle' class='arch-label'>mcp_server</text><text x='106.0' y='191.0' text-anchor='middle' class='arch-count'>1</text></g><g onclick="goToClass('model_endpoint')"><title>model_endpoint: 1 (filter to model_endpoint)</title><rect x='214.0' y='156' width='172' height='46' rx='8' class='arch-box' data-node='model_endpoint' style='stroke:var(--class-model_endpoint)'/><text x='300.0' y='173.0' text-anchor='middle' class='arch-label'>model_endpoint</text><text x='300.0' y='191.0' text-anchor='middle' class='arch-count'>1</text></g><g onclick="goToClass('model')"><title>model: 1 (filter to model)</title><rect x='117.0' y='224' width='172' height='46' rx='8' class='arch-box' data-node='model' style='stroke:var(--class-model)'/><text x='203.0' y='241.0' text-anchor='middle' class='arch-label'>model</text><text x='203.0' y='259.0' text-anchor='middle' class='arch-count'>1</text></g></svg></div>
 </section>
 
-<section>
+<section id="security-summary">
   <h2>Security summary</h2>
   
     <div class="security-grid">
@@ -152,19 +177,19 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
     
 </section>
 
-<section>
+<section id="risk">
   <h2>Risk observations</h2>
   <p class="muted">Explainable, rule-based findings only &mdash; never a single opaque risk score.
     Each observation names the exact rule that fired; verify it against the components listed.</p>
   <ul class='risk-list'><li><span class='risk-badge sev-serious'>MEDIUM</span><span>1 MCP server(s) use a network transport without TLS</span><span class='small'>mcp_server:local-fs</span></li><li><span class='risk-badge sev-serious'>MEDIUM</span><span>1 MCP server(s) have no authentication configured</span><span class='small'>mcp_server:local-fs</span></li><li><span class='risk-badge sev-warning'>LOW</span><span>1 model(s) have no content digest recorded</span><span class='small'>model:qwen3-8b</span></li></ul>
 </section>
 
-<section>
+<section id="mcp">
   <h2>MCP security</h2>
   <div class='mcp-card'><div class='mcp-card-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span><strong>local-fs</strong> <span class='badge'>http</span> <span class='status-pill bad'>no TLS</span> <span class='status-pill bad'>no auth</span></div></div>
 </section>
 
-<section>
+<section id="summary">
   <h2>Summary</h2>
   <div class='kpi-row'><div class='kpi-tile'><div class='kpi-label'>Components</div><div class='kpi-value'>3</div></div><div class='kpi-tile'><div class='kpi-label'>Services</div><div class='kpi-value'>2</div></div><div class='kpi-tile'><div class='kpi-label'>Models</div><div class='kpi-value'>1</div></div><div class='kpi-tile'><div class='kpi-label'>Secrets surfaces</div><div class='kpi-value'>1</div></div><div class='kpi-tile'><div class='kpi-label'>Hooks</div><div class='kpi-value'>0</div></div></div>
   <div class="chart-card"><svg viewBox='0 0 576 140' role='img' aria-label='Component count by class'><g><title>configuration: 1</title><text x='140' y='9.0' dominant-baseline='central' class='bar-row-label'>configuration</text><rect x='150' y='0' width='380.0' height='18' rx='3' fill='var(--class-configuration)'/><text x='538.0' y='9.0' dominant-baseline='central' class='bar-value-label'>1</text></g><g><title>model: 1</title><text x='140' y='37.0' dominant-baseline='central' class='bar-row-label'>model</text><rect x='150' y='28' width='380.0' height='18' rx='3' fill='var(--class-model)'/><text x='538.0' y='37.0' dominant-baseline='central' class='bar-value-label'>1</text></g><g><title>secrets_surface: 1</title><text x='140' y='65.0' dominant-baseline='central' class='bar-row-label'>secrets_surface</text><rect x='150' y='56' width='380.0' height='18' rx='3' fill='var(--class-secrets_surface)'/><text x='538.0' y='65.0' dominant-baseline='central' class='bar-value-label'>1</text></g><g><title>model_endpoint: 1</title><text x='140' y='93.0' dominant-baseline='central' class='bar-row-label'>model_endpoint</text><rect x='150' y='84' width='380.0' height='18' rx='3' fill='var(--class-model_endpoint)'/><text x='538.0' y='93.0' dominant-baseline='central' class='bar-value-label'>1</text></g><g><title>mcp_server: 1</title><text x='140' y='121.0' dominant-baseline='central' class='bar-row-label'>mcp_server</text><rect x='150' y='112' width='380.0' height='18' rx='3' fill='var(--class-mcp_server)'/><text x='538.0' y='121.0' dominant-baseline='central' class='bar-value-label'>1</text></g></svg></div>
@@ -175,20 +200,428 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
   <details><summary>relationships (2)</summary><ul><li>loads:configuration:openclaw.json</li><li>accesses:secrets_surface:openclaw-agent.sqlite</li></ul></details>
 </section>
 
-<section>
+
+    <div class="filter-bar">
+      <input type="search" id="search-box" placeholder="Search components, services... (name, bom-ref, any property)">
+      <select id="class-filter">
+        <option value="">All classes</option>
+        <option value='configuration'>configuration (1)</option><option value='mcp_server'>mcp_server (1)</option><option value='model'>model (1)</option><option value='model_endpoint'>model_endpoint (1)</option><option value='secrets_surface'>secrets_surface (1)</option>
+      </select>
+      <span id="filter-status" class="filter-status"></span>
+    </div>
+    
+
+<section id="components">
   <h2>Components</h2>
   
-  <details open class='group'><summary><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span>configuration <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span> <strong>openclaw.json</strong> <span class='badge'>file</span> <span class='small'>configuration:openclaw.json</span></div><table class='props'><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json</td></tr><tr><th>relPath</th><td>.openclaw/openclaw.json</td></tr><tr><th>sha256</th><td>3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317</td></tr></table><details><summary>relationships (2)</summary><ul><li>uses:model_endpoint:http-127.0.0.1-11434</li><li>uses:mcp_server:local-fs</li></ul></details></div></details><details open class='group'><summary><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span>model <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span> <strong>qwen3:8b</strong> <span class='badge'>machine-learning-model</span> <span class='small'>model:qwen3-8b</span></div><table class='props'><tr><th>version</th><td>qwen3:8b</td></tr></table></div></details><details open class='group'><summary><span class='class-dot' style='background:var(--class-secrets_surface)' aria-hidden='true'></span>secrets_surface <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-secrets_surface)' aria-hidden='true'></span> <strong>openclaw-agent.sqlite</strong> <span class='badge'>data</span> <span class='small'>secrets_surface:openclaw-agent.sqlite</span></div><table class='props'><tr><th>note</th><td>per-agent provider credential store (SQLite); contents never read</td></tr><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite</td></tr><tr><th>relPath</th><td>.openclaw/agents/main/agent/openclaw-agent.sqlite</td></tr></table></div></details>
+  <details open class='group' data-class='configuration'><summary><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span>configuration <span class='count'>(1)</span></summary><div class='entry' data-class='configuration' data-search='openclaw.json configuration:openclaw.json file configuration componentclass configuration path /users/ajay/aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json relpath .openclaw/openclaw.json sha256 3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317 relationship uses:model_endpoint:http-127.0.0.1-11434 relationship uses:mcp_server:local-fs'><div class='entry-header'><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span> <strong>openclaw.json</strong> <span class='badge'>file</span> <span class='small'>configuration:openclaw.json</span></div><table class='props'><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json</td></tr><tr><th>relPath</th><td>.openclaw/openclaw.json</td></tr><tr><th>sha256</th><td>3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317</td></tr></table><details><summary>relationships (2)</summary><ul><li>uses:model_endpoint:http-127.0.0.1-11434</li><li>uses:mcp_server:local-fs</li></ul></details><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;file&quot;,
+  &quot;bom-ref&quot;: &quot;configuration:openclaw.json&quot;,
+  &quot;name&quot;: &quot;openclaw.json&quot;,
+  &quot;hashes&quot;: [
+    {
+      &quot;alg&quot;: &quot;SHA-256&quot;,
+      &quot;content&quot;: &quot;3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317&quot;
+    }
+  ],
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;configuration&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:path&quot;,
+      &quot;value&quot;: &quot;/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relPath&quot;,
+      &quot;value&quot;: &quot;.openclaw/openclaw.json&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:sha256&quot;,
+      &quot;value&quot;: &quot;3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:model_endpoint:http-127.0.0.1-11434&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:mcp_server:local-fs&quot;
+    }
+  ]
+}</pre></details></div></details><details open class='group' data-class='model'><summary><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span>model <span class='count'>(1)</span></summary><div class='entry' data-class='model' data-search='qwen3:8b model:qwen3-8b machine-learning-model qwen3:8b model componentclass model version qwen3:8b'><div class='entry-header'><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span> <strong>qwen3:8b</strong> <span class='badge'>machine-learning-model</span> <span class='small'>model:qwen3-8b</span></div><table class='props'><tr><th>version</th><td>qwen3:8b</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;machine-learning-model&quot;,
+  &quot;bom-ref&quot;: &quot;model:qwen3-8b&quot;,
+  &quot;name&quot;: &quot;qwen3:8b&quot;,
+  &quot;version&quot;: &quot;qwen3:8b&quot;,
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;model&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:version&quot;,
+      &quot;value&quot;: &quot;qwen3:8b&quot;
+    }
+  ]
+}</pre></details></div></details><details open class='group' data-class='secrets_surface'><summary><span class='class-dot' style='background:var(--class-secrets_surface)' aria-hidden='true'></span>secrets_surface <span class='count'>(1)</span></summary><div class='entry' data-class='secrets_surface' data-search='openclaw-agent.sqlite secrets_surface:openclaw-agent.sqlite data secrets_surface componentclass secrets_surface path /users/ajay/aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite relpath .openclaw/agents/main/agent/openclaw-agent.sqlite note per-agent provider credential store (sqlite); contents never read'><div class='entry-header'><span class='class-dot' style='background:var(--class-secrets_surface)' aria-hidden='true'></span> <strong>openclaw-agent.sqlite</strong> <span class='badge'>data</span> <span class='small'>secrets_surface:openclaw-agent.sqlite</span></div><table class='props'><tr><th>note</th><td>per-agent provider credential store (SQLite); contents never read</td></tr><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite</td></tr><tr><th>relPath</th><td>.openclaw/agents/main/agent/openclaw-agent.sqlite</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;type&quot;: &quot;data&quot;,
+  &quot;bom-ref&quot;: &quot;secrets_surface:openclaw-agent.sqlite&quot;,
+  &quot;name&quot;: &quot;openclaw-agent.sqlite&quot;,
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;secrets_surface&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:path&quot;,
+      &quot;value&quot;: &quot;/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relPath&quot;,
+      &quot;value&quot;: &quot;.openclaw/agents/main/agent/openclaw-agent.sqlite&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:note&quot;,
+      &quot;value&quot;: &quot;per-agent provider credential store (SQLite); contents never read&quot;
+    }
+  ]
+}</pre></details></div></details>
 </section>
 
-<section>
+<section id="services">
   <h2>Services</h2>
-  <details open class='group'><summary><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span>model_endpoint <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span> <strong>http://127.0.0.1:11434</strong> <span class='small'>model_endpoint:http-127.0.0.1-11434</span></div><p class='muted'>endpoints: http://127.0.0.1:11434</p><table class='props'><tr><th>provider</th><td>ollama</td></tr></table><details><summary>relationships (1)</summary><ul><li>uses:model:qwen3-8b</li></ul></details></div></details><details open class='group'><summary><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span>mcp_server <span class='count'>(1)</span></summary><div class='entry'><div class='entry-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span> <strong>local-fs</strong> <span class='small'>mcp_server:local-fs</span></div><p class='muted'>endpoints: http://127.0.0.1:9001</p><table class='props'><tr><th>authConfigured</th><td>False</td></tr><tr><th>endpoint</th><td>http://127.0.0.1:9001</td></tr><tr><th>tls</th><td>False</td></tr><tr><th>transport</th><td>http</td></tr></table></div></details>
+  <details open class='group' data-class='model_endpoint'><summary><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span>model_endpoint <span class='count'>(1)</span></summary><div class='entry' data-class='model_endpoint' data-search='http://127.0.0.1:11434 model_endpoint:http-127.0.0.1-11434 model_endpoint componentclass model_endpoint provider ollama relationship uses:model:qwen3-8b'><div class='entry-header'><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span> <strong>http://127.0.0.1:11434</strong> <span class='small'>model_endpoint:http-127.0.0.1-11434</span></div><p class='muted'>endpoints: http://127.0.0.1:11434</p><table class='props'><tr><th>provider</th><td>ollama</td></tr></table><details><summary>relationships (1)</summary><ul><li>uses:model:qwen3-8b</li></ul></details><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;bom-ref&quot;: &quot;model_endpoint:http-127.0.0.1-11434&quot;,
+  &quot;name&quot;: &quot;http://127.0.0.1:11434&quot;,
+  &quot;endpoints&quot;: [
+    &quot;http://127.0.0.1:11434&quot;
+  ],
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;model_endpoint&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:provider&quot;,
+      &quot;value&quot;: &quot;ollama&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+      &quot;value&quot;: &quot;uses:model:qwen3-8b&quot;
+    }
+  ]
+}</pre></details></div></details><details open class='group' data-class='mcp_server'><summary><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span>mcp_server <span class='count'>(1)</span></summary><div class='entry' data-class='mcp_server' data-search='local-fs mcp_server:local-fs mcp_server componentclass mcp_server transport http endpoint http://127.0.0.1:9001 tls false authconfigured false'><div class='entry-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span> <strong>local-fs</strong> <span class='small'>mcp_server:local-fs</span></div><p class='muted'>endpoints: http://127.0.0.1:9001</p><table class='props'><tr><th>authConfigured</th><td>False</td></tr><tr><th>endpoint</th><td>http://127.0.0.1:9001</td></tr><tr><th>tls</th><td>False</td></tr><tr><th>transport</th><td>http</td></tr></table><details><summary>Raw JSON</summary><pre class='raw-json'>{
+  &quot;bom-ref&quot;: &quot;mcp_server:local-fs&quot;,
+  &quot;name&quot;: &quot;local-fs&quot;,
+  &quot;endpoints&quot;: [
+    &quot;http://127.0.0.1:9001&quot;
+  ],
+  &quot;properties&quot;: [
+    {
+      &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+      &quot;value&quot;: &quot;mcp_server&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:transport&quot;,
+      &quot;value&quot;: &quot;http&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:endpoint&quot;,
+      &quot;value&quot;: &quot;http://127.0.0.1:9001&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:tls&quot;,
+      &quot;value&quot;: &quot;False&quot;
+    },
+    {
+      &quot;name&quot;: &quot;harness-aibom:authConfigured&quot;,
+      &quot;value&quot;: &quot;False&quot;
+    }
+  ]
+}</pre></details></div></details>
+</section>
+
+<section id="metadata">
+  <h2>Metadata</h2>
+  <table class='summary'><tr><td>bomFormat</td><td>CycloneDX</td></tr><tr><td>specVersion</td><td>1.6</td></tr><tr><td>version</td><td>1</td></tr><tr><td>serialNumber</td><td>urn:uuid:07b587ee-6944-4f25-a75b-035103bbbaaa</td></tr><tr><td>timestamp</td><td>2026-09-09T10:51:55+00:00</td></tr><tr><td>root bom-ref</td><td>harness-root</td></tr></table><table class='summary'><tr><th>generating tool</th><th>version</th></tr><tr><td>agent-harness-aibom</td><td>0.4.0</td></tr></table>
+</section>
+
+<section id="external-references">
+  <h2>External references</h2>
+  <p class='muted'><em>External references are not collected by this scanner.</em></p>
+</section>
+
+<section id="vulnerabilities">
+  <h2>Vulnerabilities</h2>
+  <p class='muted'><em>Vulnerability data is not collected by this scanner.</em></p>
+</section>
+
+<section id="compositions">
+  <h2>Compositions</h2>
+  <p class="muted">CycloneDX's own completeness declarations for this document -- see the
+    AIBOM coverage detail under Security summary above for what this scanner does and doesn't
+    include.</p>
+  <p class='muted'><em>Composition/completeness declarations are not collected by this scanner.</em></p>
+</section>
+
+<section id="raw-bom">
+  <h2>Raw BOM</h2>
+  <details><summary>Raw CycloneDX AIBOM (5312 bytes)</summary><pre class='raw-json'>{
+  &quot;bomFormat&quot;: &quot;CycloneDX&quot;,
+  &quot;specVersion&quot;: &quot;1.6&quot;,
+  &quot;serialNumber&quot;: &quot;urn:uuid:07b587ee-6944-4f25-a75b-035103bbbaaa&quot;,
+  &quot;version&quot;: 1,
+  &quot;metadata&quot;: {
+    &quot;tools&quot;: {
+      &quot;components&quot;: [
+        {
+          &quot;type&quot;: &quot;application&quot;,
+          &quot;name&quot;: &quot;agent-harness-aibom&quot;,
+          &quot;version&quot;: &quot;0.4.0&quot;
+        }
+      ]
+    },
+    &quot;component&quot;: {
+      &quot;type&quot;: &quot;application&quot;,
+      &quot;bom-ref&quot;: &quot;harness-root&quot;,
+      &quot;name&quot;: &quot;openclaw@Ajays-MacBook-Pro.local&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;harness&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:runtimeKind&quot;,
+          &quot;value&quot;: &quot;openclaw&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:hostname&quot;,
+          &quot;value&quot;: &quot;Ajays-MacBook-Pro.local&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:warning&quot;,
+          &quot;value&quot;: &quot;openclaw binary not found on PATH; runtime component skipped&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:warning&quot;,
+          &quot;value&quot;: &quot;configured model &#x27;qwen3:8b&#x27; not found via Ollama /api/tags; recorded from config only&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;loads:configuration:openclaw.json&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;accesses:secrets_surface:openclaw-agent.sqlite&quot;
+        }
+      ]
+    },
+    &quot;timestamp&quot;: &quot;2026-09-09T10:51:55+00:00&quot;
+  },
+  &quot;components&quot;: [
+    {
+      &quot;type&quot;: &quot;file&quot;,
+      &quot;bom-ref&quot;: &quot;configuration:openclaw.json&quot;,
+      &quot;name&quot;: &quot;openclaw.json&quot;,
+      &quot;hashes&quot;: [
+        {
+          &quot;alg&quot;: &quot;SHA-256&quot;,
+          &quot;content&quot;: &quot;3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317&quot;
+        }
+      ],
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;configuration&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:path&quot;,
+          &quot;value&quot;: &quot;/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relPath&quot;,
+          &quot;value&quot;: &quot;.openclaw/openclaw.json&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:sha256&quot;,
+          &quot;value&quot;: &quot;3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:model_endpoint:http-127.0.0.1-11434&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:mcp_server:local-fs&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;machine-learning-model&quot;,
+      &quot;bom-ref&quot;: &quot;model:qwen3-8b&quot;,
+      &quot;name&quot;: &quot;qwen3:8b&quot;,
+      &quot;version&quot;: &quot;qwen3:8b&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;model&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:version&quot;,
+          &quot;value&quot;: &quot;qwen3:8b&quot;
+        }
+      ]
+    },
+    {
+      &quot;type&quot;: &quot;data&quot;,
+      &quot;bom-ref&quot;: &quot;secrets_surface:openclaw-agent.sqlite&quot;,
+      &quot;name&quot;: &quot;openclaw-agent.sqlite&quot;,
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;secrets_surface&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:path&quot;,
+          &quot;value&quot;: &quot;/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relPath&quot;,
+          &quot;value&quot;: &quot;.openclaw/agents/main/agent/openclaw-agent.sqlite&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:note&quot;,
+          &quot;value&quot;: &quot;per-agent provider credential store (SQLite); contents never read&quot;
+        }
+      ]
+    }
+  ],
+  &quot;services&quot;: [
+    {
+      &quot;bom-ref&quot;: &quot;model_endpoint:http-127.0.0.1-11434&quot;,
+      &quot;name&quot;: &quot;http://127.0.0.1:11434&quot;,
+      &quot;endpoints&quot;: [
+        &quot;http://127.0.0.1:11434&quot;
+      ],
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;model_endpoint&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:provider&quot;,
+          &quot;value&quot;: &quot;ollama&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:relationship&quot;,
+          &quot;value&quot;: &quot;uses:model:qwen3-8b&quot;
+        }
+      ]
+    },
+    {
+      &quot;bom-ref&quot;: &quot;mcp_server:local-fs&quot;,
+      &quot;name&quot;: &quot;local-fs&quot;,
+      &quot;endpoints&quot;: [
+        &quot;http://127.0.0.1:9001&quot;
+      ],
+      &quot;properties&quot;: [
+        {
+          &quot;name&quot;: &quot;harness-aibom:componentClass&quot;,
+          &quot;value&quot;: &quot;mcp_server&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:transport&quot;,
+          &quot;value&quot;: &quot;http&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:endpoint&quot;,
+          &quot;value&quot;: &quot;http://127.0.0.1:9001&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:tls&quot;,
+          &quot;value&quot;: &quot;False&quot;
+        },
+        {
+          &quot;name&quot;: &quot;harness-aibom:authConfigured&quot;,
+          &quot;value&quot;: &quot;False&quot;
+        }
+      ]
+    }
+  ],
+  &quot;dependencies&quot;: [
+    {
+      &quot;ref&quot;: &quot;harness-root&quot;,
+      &quot;dependsOn&quot;: [
+        &quot;configuration:openclaw.json&quot;,
+        &quot;secrets_surface:openclaw-agent.sqlite&quot;
+      ]
+    },
+    {
+      &quot;ref&quot;: &quot;configuration:openclaw.json&quot;,
+      &quot;dependsOn&quot;: [
+        &quot;model_endpoint:http-127.0.0.1-11434&quot;,
+        &quot;mcp_server:local-fs&quot;
+      ]
+    },
+    {
+      &quot;ref&quot;: &quot;model_endpoint:http-127.0.0.1-11434&quot;,
+      &quot;dependsOn&quot;: [
+        &quot;model:qwen3-8b&quot;
+      ]
+    }
+  ]
+}</pre></details>
 </section>
 
 <footer class="muted">
-  Generated by agent-harness-aibom · 2026-09-09T10:15:36+00:00 ·
+  Generated by agent-harness-aibom · 2026-09-09T10:54:50+00:00 ·
   every property of every component is rendered, nothing summarized away.
 </footer>
+<script>
+function normalizeText(s) { return (s || '').toLowerCase(); }
+
+function applyFilters() {
+  var searchBox = document.getElementById('search-box');
+  var classFilter = document.getElementById('class-filter');
+  var q = normalizeText(searchBox ? searchBox.value : '');
+  var cls = classFilter ? classFilter.value : '';
+  var entries = document.querySelectorAll('.entry[data-class]');
+  var shown = 0;
+  entries.forEach(function (entry) {
+    var matchesClass = !cls || entry.getAttribute('data-class') === cls;
+    var matchesSearch = !q || (entry.getAttribute('data-search') || '').indexOf(q) !== -1;
+    var visible = matchesClass && matchesSearch;
+    entry.hidden = !visible;
+    if (visible) shown++;
+  });
+  document.querySelectorAll('.group[data-class]').forEach(function (group) {
+    group.hidden = !group.querySelector('.entry:not([hidden])');
+  });
+  var status = document.getElementById('filter-status');
+  if (status) {
+    status.textContent = (q || cls) ? (shown + ' of ' + entries.length + ' shown') : (entries.length + ' total');
+  }
+}
+
+function goToClass(cls) {
+  var classFilter = document.getElementById('class-filter');
+  var searchBox = document.getElementById('search-box');
+  if (classFilter) classFilter.value = cls || '';
+  if (searchBox) searchBox.value = '';
+  applyFilters();
+  var target = cls ? document.querySelector('.group[data-class="' + cls + '"]') : document.getElementById('components');
+  if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  var searchBox = document.getElementById('search-box');
+  var classFilter = document.getElementById('class-filter');
+  if (searchBox) searchBox.addEventListener('input', applyFilters);
+  if (classFilter) classFilter.addEventListener('change', applyFilters);
+  applyFilters();
+});
+</script>
 </body>
 </html>

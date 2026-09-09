@@ -10,6 +10,16 @@ needed at all for that. The one chart (component count by class) is
 hand-rolled inline SVG with a native `<title>` hover tooltip -- no
 charting library, same offline principle.
 
+**v0.4.0: a small amount of embedded vanilla JavaScript** -- the one
+deliberate exception to "no JavaScript needed at all" above. Live
+text search and a componentClass filter across potentially hundreds of
+entries genuinely can't be done in pure HTML/CSS the way expand/collapse
+could; this is the "AIBOM Explorer" step an independent reviewer asked
+for. Still single-file, still fully offline, still no CDN/framework --
+`_JS` is a plain inline `<script>` block, no build step, no external
+runtime. Everything that CAN stay JS-free still is: per-entry raw JSON
+uses `<details>`/`<pre>`, same as every other collapsible section.
+
 Color: each componentClass gets a fixed categorical color, used
 consistently everywhere it appears on the page (badges, group headers,
 individual entries, and the bar chart) -- color follows the entity, never
@@ -25,6 +35,7 @@ gets a neutral gray, never a generated ninth hue.
 from __future__ import annotations
 
 import html
+import json
 from datetime import datetime, timezone
 
 from . import security
@@ -168,6 +179,81 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .mcp-tool-list li { background: var(--code-bg); border-radius: 4px; padding: 0.1rem 0.45rem; font-size: 0.78rem; }
 .coverage-list { list-style: none; margin: 0.3rem 0; padding: 0; }
 .coverage-list li { padding: 0.15rem 0; font-size: 0.85rem; }
+.explorer-nav {
+  position: sticky; top: 0; z-index: 10; background: var(--bg);
+  border-bottom: 1px solid var(--border); margin: 0 -1.25rem 1rem; padding: 0.6rem 1.25rem;
+  display: flex; flex-wrap: wrap; gap: 0.15rem 0.9rem; font-size: 0.82rem;
+}
+.explorer-nav a { color: var(--secondary); text-decoration: none; white-space: nowrap; }
+.explorer-nav a:hover { color: var(--fg); text-decoration: underline; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin: 0.75rem 0 1rem; }
+.filter-bar input[type=search] {
+  flex: 1 1 220px; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--fg); font-size: 0.9rem;
+}
+.filter-bar select {
+  padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--fg); font-size: 0.9rem;
+}
+.filter-status { font-size: 0.82rem; color: var(--secondary); }
+.entry[hidden], .group[hidden] { display: none !important; }
+.arch-box[data-node] { cursor: pointer; }
+pre.raw-json {
+  background: var(--code-bg); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.78rem;
+  overflow-x: auto; white-space: pre; margin: 0.4rem 0 0;
+}
+"""
+
+#: v0.4.0's one deliberate exception to "no JavaScript needed at all" (see
+#: module docstring) -- live search and a componentClass filter across
+#: potentially hundreds of entries. Plain global functions, not an IIFE:
+#: this is a single generated page with server-rendered `onclick`
+#: attributes calling `goToClass()` directly (from the architecture
+#: diagram's boxes), so there's no module-collision risk to guard
+#: against, and no build step or bundler to justify one.
+_JS = """
+function normalizeText(s) { return (s || '').toLowerCase(); }
+
+function applyFilters() {
+  var searchBox = document.getElementById('search-box');
+  var classFilter = document.getElementById('class-filter');
+  var q = normalizeText(searchBox ? searchBox.value : '');
+  var cls = classFilter ? classFilter.value : '';
+  var entries = document.querySelectorAll('.entry[data-class]');
+  var shown = 0;
+  entries.forEach(function (entry) {
+    var matchesClass = !cls || entry.getAttribute('data-class') === cls;
+    var matchesSearch = !q || (entry.getAttribute('data-search') || '').indexOf(q) !== -1;
+    var visible = matchesClass && matchesSearch;
+    entry.hidden = !visible;
+    if (visible) shown++;
+  });
+  document.querySelectorAll('.group[data-class]').forEach(function (group) {
+    group.hidden = !group.querySelector('.entry:not([hidden])');
+  });
+  var status = document.getElementById('filter-status');
+  if (status) {
+    status.textContent = (q || cls) ? (shown + ' of ' + entries.length + ' shown') : (entries.length + ' total');
+  }
+}
+
+function goToClass(cls) {
+  var classFilter = document.getElementById('class-filter');
+  var searchBox = document.getElementById('search-box');
+  if (classFilter) classFilter.value = cls || '';
+  if (searchBox) searchBox.value = '';
+  applyFilters();
+  var target = cls ? document.querySelector('.group[data-class="' + cls + '"]') : document.getElementById('components');
+  if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  var searchBox = document.getElementById('search-box');
+  var classFilter = document.getElementById('class-filter');
+  if (searchBox) searchBox.addEventListener('input', applyFilters);
+  if (classFilter) classFilter.addEventListener('change', applyFilters);
+  applyFilters();
+});
 """
 
 
@@ -256,6 +342,22 @@ def _render_relationships(relationships: list[str]) -> str:
     return f"<details><summary>relationships ({len(relationships)})</summary><ul>{items}</ul></details>"
 
 
+def _search_blob(entry: dict, cls: str) -> str:
+    """Lowercased text blob an entry is matched against by the v0.4.0
+    search box -- name, bom-ref, type, version, every property's own key
+    (minus the harness-aibom: prefix) and value, and every relationship
+    string. Deliberately broad: an independent reviewer's own examples
+    were "search world-readable -> find the affected secret", "search
+    sha256 -> find fingerprinted objects" -- both need property *values*
+    searchable, not just names.
+    """
+    parts = [entry.get("name", ""), entry.get("bom-ref", ""), entry.get("type", ""), entry.get("version", ""), cls]
+    for prop in entry.get("properties", []):
+        parts.append(prop["name"].removeprefix("harness-aibom:"))
+        parts.append(prop["value"])
+    return " ".join(str(p) for p in parts if p).lower()
+
+
 def _render_entry(entry: dict, cls: str) -> str:
     single, relationships = _split_properties(entry)
     single.pop("harness-aibom:componentClass", None)
@@ -274,13 +376,20 @@ def _render_entry(entry: dict, cls: str) -> str:
     if entry.get("endpoints"):
         endpoints_html = f"<p class='muted'>endpoints: {_esc(', '.join(entry['endpoints']))}</p>"
 
+    # Raw JSON per entry, the offline-idiom way (native <details>, same as
+    # every other collapsible section) rather than a JavaScript drawer --
+    # an independent reviewer's "click for detail" ask, scoped for v0.4.0
+    # to what doesn't need any JS at all. See SPEC.md section 10.
+    raw_json = f"<details><summary>Raw JSON</summary><pre class='raw-json'>{_esc(json.dumps(entry, indent=2))}</pre></details>"
+
     return (
-        "<div class='entry'>"
+        f"<div class='entry' data-class='{_esc(cls)}' data-search='{_esc(_search_blob(entry, cls))}'>"
         f"<div class='entry-header'>{' '.join(header_bits)}"
         f" <span class='small'>{_esc(entry.get('bom-ref', ''))}</span></div>"
         f"{endpoints_html}"
         f"{_render_props_table(single)}"
         f"{_render_relationships(relationships)}"
+        f"{raw_json}"
         "</div>"
     )
 
@@ -295,7 +404,7 @@ def _group_by_class(entries: list[dict]) -> dict[str, list[dict]]:
 def _render_group(cls: str, entries: list[dict]) -> str:
     body = "".join(_render_entry(e, cls) for e in sorted(entries, key=lambda e: e.get("name", "")))
     return (
-        "<details open class='group'>"
+        f"<details open class='group' data-class='{_esc(cls)}'>"
         f"<summary>{_class_dot(cls)}{_esc(cls)} <span class='count'>({len(entries)})</span></summary>"
         f"{body}"
         "</details>"
@@ -451,14 +560,21 @@ def _render_architecture_graph(graph: dict) -> str:
     box_svg = []
     for node, (cx, top) in positions.items():
         count = nodes.get(node, 0)
-        label = "harness root" if node == security.ROOT_LABEL else node
-        stroke = "var(--fg)" if node == security.ROOT_LABEL else f"var({_class_color_var(node)})"
+        is_root = node == security.ROOT_LABEL
+        label = "harness root" if is_root else node
+        stroke = "var(--fg)" if is_root else f"var({_class_color_var(node)})"
         x = cx - box_w / 2
+        # Clickable (v0.4.0): jumps to and filters the Components/Services
+        # section to this class -- goToClass('') on the root node clears
+        # the filter instead, since "harness root" isn't a real
+        # componentClass anything below is filterable by.
+        target = "" if is_root else node
+        tooltip = "reset filter" if is_root else f"filter to {label}"
         box_svg.append(
-            "<g>"
-            f"<title>{_esc(label)}: {count}</title>"
+            f"<g onclick=\"goToClass('{_esc(target)}')\">"
+            f"<title>{_esc(label)}: {count} ({tooltip})</title>"
             f"<rect x='{x}' y='{top}' width='{box_w}' height='{box_h}' rx='8' "
-            f"class='arch-box' style='stroke:{stroke}'/>"
+            f"class='arch-box' data-node='{_esc(node)}' style='stroke:{stroke}'/>"
             f"<text x='{cx}' y='{top + box_h / 2 - 6}' text-anchor='middle' class='arch-label'>{_esc(label)}</text>"
             f"<text x='{cx}' y='{top + box_h / 2 + 12}' text-anchor='middle' class='arch-count'>{count}</text>"
             "</g>"
@@ -605,6 +721,94 @@ def _render_skill_category_breakdown(skills: list[dict]) -> str:
     )
 
 
+_EXPLORER_NAV_LINKS = (
+    ("#architecture", "Architecture"),
+    ("#security-summary", "Security"),
+    ("#risk", "Risk"),
+    ("#mcp", "MCP"),
+    ("#components", "Components"),
+    ("#services", "Services"),
+    ("#metadata", "Metadata"),
+    ("#external-references", "External refs"),
+    ("#vulnerabilities", "Vulnerabilities"),
+    ("#compositions", "Compositions"),
+    ("#raw-bom", "Raw BOM"),
+)
+
+
+def _render_explorer_nav() -> str:
+    links = "".join(f"<a href='{href}'>{_esc(label)}</a>" for href, label in _EXPLORER_NAV_LINKS)
+    return f"<nav class='explorer-nav'>{links}</nav>"
+
+
+def _render_filter_bar(class_counts: dict[str, int]) -> str:
+    """The v0.4.0 search box + componentClass filter -- see `_JS` for the
+    behavior. `class_counts` (already computed in render_html for the bar
+    chart) drives the filter dropdown's options, so it can never offer a
+    class that isn't actually present in this document.
+    """
+    options = "".join(
+        f"<option value='{_esc(cls)}'>{_esc(cls)} ({count})</option>"
+        for cls, count in sorted(class_counts.items())
+    )
+    return f"""
+    <div class="filter-bar">
+      <input type="search" id="search-box" placeholder="Search components, services... (name, bom-ref, any property)">
+      <select id="class-filter">
+        <option value="">All classes</option>
+        {options}
+      </select>
+      <span id="filter-status" class="filter-status"></span>
+    </div>
+    """
+
+
+def _render_metadata_section(bom: dict, root: dict) -> str:
+    tools = bom.get("metadata", {}).get("tools", {}).get("components", [])
+    tool_rows = "".join(
+        f"<tr><td>{_esc(t.get('name'))}</td><td>{_esc(t.get('version'))}</td></tr>" for t in tools
+    )
+    rows = [
+        ("bomFormat", bom.get("bomFormat")),
+        ("specVersion", bom.get("specVersion")),
+        ("version", bom.get("version")),
+        ("serialNumber", bom.get("serialNumber", _NOT_RECORDED)),
+        ("timestamp", bom.get("metadata", {}).get("timestamp", _NOT_RECORDED)),
+        ("root bom-ref", root.get("bom-ref")),
+    ]
+    row_html = "".join(f"<tr><td>{_esc(k)}</td><td>{_esc(v)}</td></tr>" for k, v in rows)
+    tools_table = (
+        f"<table class='summary'><tr><th>generating tool</th><th>version</th></tr>{tool_rows}</table>"
+        if tool_rows
+        else ""
+    )
+    return f"<table class='summary'>{row_html}</table>{tools_table}"
+
+
+def _render_empty_cyclonedx_section(bom: dict, key: str, message: str) -> str:
+    """A dedicated section for a native CycloneDX 1.6 array this scanner
+    doesn't populate yet (externalReferences, vulnerabilities,
+    compositions) -- shown explicitly rather than silently absent, same
+    "nothing summarized away" principle as every other section, but
+    honest about the difference between "checked, found none" (this
+    scanner doesn't check at all) and an actual empty result.
+    """
+    entries = bom.get(key, [])
+    if entries:
+        # Not expected today (nothing in this codebase emits these yet),
+        # but never silently drop real data if a future collector does.
+        return f"<pre class='raw-json'>{_esc(json.dumps(entries, indent=2))}</pre>"
+    return f"<p class='muted'><em>{_esc(message)}</em></p>"
+
+
+def _render_raw_bom(bom: dict) -> str:
+    text = json.dumps(bom, indent=2)
+    return (
+        f"<details><summary>Raw CycloneDX AIBOM ({len(text)} bytes)</summary>"
+        f"<pre class='raw-json'>{_esc(text)}</pre></details>"
+    )
+
+
 def render_html(bom: dict) -> str:
     """Build the full HTML document for a harness-aibom CycloneDX dict."""
     metadata = bom.get("metadata", {})
@@ -673,34 +877,36 @@ def render_html(bom: dict) -> str:
   </p>
 </header>
 
+{_render_explorer_nav()}
+
 {_render_warnings_banner(scan_warnings)}
 
-<section>
+<section id="architecture">
   <h2>Architecture</h2>
   <p class="muted">What this agent is made of and how the pieces connect &mdash; one box per
     category (not per component), positioned by real depth in the document's own dependency
-    graph. See Components/Services below for every individual instance.</p>
+    graph. Click a box to jump to and filter Components/Services below.</p>
   <div class="arch-card chart-card">{_render_architecture_graph(architecture_graph)}</div>
 </section>
 
-<section>
+<section id="security-summary">
   <h2>Security summary</h2>
   {_render_security_summary(bom)}
 </section>
 
-<section>
+<section id="risk">
   <h2>Risk observations</h2>
   <p class="muted">Explainable, rule-based findings only &mdash; never a single opaque risk score.
     Each observation names the exact rule that fired; verify it against the components listed.</p>
   {_render_risk_observations(bom)}
 </section>
 
-<section>
+<section id="mcp">
   <h2>MCP security</h2>
   {_render_mcp_security(services)}
 </section>
 
-<section>
+<section id="summary">
   <h2>Summary</h2>
   {_render_kpi_row(kpi_tiles)}
   <div class="chart-card">{_render_bar_chart(class_counts)}</div>
@@ -711,21 +917,52 @@ def render_html(bom: dict) -> str:
   {_render_relationships(root_relationships)}
 </section>
 
-<section>
+{_render_filter_bar(class_counts)}
+
+<section id="components">
   <h2>Components</h2>
   {_render_skill_category_breakdown(comp_groups.get("skill", []))}
   {_render_groups(comp_groups, _COMPONENT_CLASS_ORDER) or "<p><em>none found</em></p>"}
 </section>
 
-<section>
+<section id="services">
   <h2>Services</h2>
   {_render_groups(svc_groups, _SERVICE_CLASS_ORDER) or "<p><em>none found</em></p>"}
+</section>
+
+<section id="metadata">
+  <h2>Metadata</h2>
+  {_render_metadata_section(bom, root)}
+</section>
+
+<section id="external-references">
+  <h2>External references</h2>
+  {_render_empty_cyclonedx_section(bom, "externalReferences", "External references are not collected by this scanner.")}
+</section>
+
+<section id="vulnerabilities">
+  <h2>Vulnerabilities</h2>
+  {_render_empty_cyclonedx_section(bom, "vulnerabilities", "Vulnerability data is not collected by this scanner.")}
+</section>
+
+<section id="compositions">
+  <h2>Compositions</h2>
+  <p class="muted">CycloneDX's own completeness declarations for this document -- see the
+    AIBOM coverage detail under Security summary above for what this scanner does and doesn't
+    include.</p>
+  {_render_empty_cyclonedx_section(bom, "compositions", "Composition/completeness declarations are not collected by this scanner.")}
+</section>
+
+<section id="raw-bom">
+  <h2>Raw BOM</h2>
+  {_render_raw_bom(bom)}
 </section>
 
 <footer class="muted">
   {generated_line} ·
   every property of every component is rendered, nothing summarized away.
 </footer>
+<script>{_JS}</script>
 </body>
 </html>
 """
