@@ -43,6 +43,7 @@ import json
 from datetime import datetime, timezone
 
 from . import security
+from .compliance import FRAMEWORKS, evaluate_framework
 
 #: componentClasses shown in this order when present; anything else
 #: (a future class this file doesn't know about yet) is appended after,
@@ -181,6 +182,10 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .risk-badge.sev-warning { background: #fab219; color: #1a1a19; }
 .risk-badge.sev-info { background: var(--border); color: var(--fg); }
 .risk-clean { color: #0ca30c; font-weight: 600; }
+.compliance-status { display: inline-block; border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; }
+.compliance-status.evidence-collected { background: #2f7a3d; color: #fff; }
+.compliance-status.partial-evidence { background: #b9852f; color: #fff; }
+.compliance-status.not-assessed { background: var(--border); color: var(--muted); }
 .mcp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
 .mcp-card-header { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.4rem; }
 .status-pill { display: inline-block; border-radius: 4px; padding: 0.05rem 0.45rem; font-size: 0.72rem; font-weight: 600; }
@@ -1103,6 +1108,7 @@ _EXPLORER_NAV_LINKS = (
     ("#external-references", "External refs"),
     ("#vulnerabilities", "Vulnerabilities"),
     ("#declarations", "Declarations"),
+    ("#compliance", "Compliance"),
     ("#compositions", "Compositions"),
     ("#baseline-diff", "Baseline diff"),
     ("#artifact-integrity", "Integrity"),
@@ -1357,6 +1363,42 @@ def _render_declarations(bom: dict) -> str:
         "for every assessor here, never a third-party audit or certification.</p>"
     )
     return assessor_note + f"<ul class='risk-list'>{''.join(items)}</ul>"
+
+
+def _render_compliance(bom: dict) -> str:
+    """compliance.py's real, narrow evidence mapping for all three
+    verified frameworks -- rendered unconditionally (no `--framework`
+    flag on `report`, unlike the CLI's own `compliance` command), since
+    every mapping is a cheap, pure function over data already in this
+    document. Labeled as evidence mapping throughout, never a
+    certification -- see compliance.py's own docstring and SPEC.md.
+    """
+    status_class = {
+        "evidence collected": "evidence-collected",
+        "partial evidence": "partial-evidence",
+        "not assessed": "not-assessed",
+    }
+    blocks = []
+    for framework in FRAMEWORKS:
+        result = evaluate_framework(bom, framework)
+        rows = "".join(
+            "<tr>"
+            f"<td><span class='compliance-status {status_class.get(m['status'], 'not-assessed')}'>"
+            f"{_esc(m['status'].upper())}</span></td>"
+            f"<td><code class='small'>{_esc(m['controlId'])}</code></td>"
+            f"<td>{_esc(m['controlTitle'])}</td>"
+            f"<td class='small'>{_esc(m['rationale'])}</td>"
+            f"<td>{m['evidenceCount']}</td>"
+            "</tr>"
+            for m in result["mappings"]
+        )
+        blocks.append(
+            f"<details class='group'><summary>{_esc(result['displayName'])}</summary>"
+            f"<p class='muted small'>{_esc(result['sourceNote'])}</p>"
+            "<table class='summary'><tr><th>status</th><th>control</th><th>title</th>"
+            f"<th>rationale</th><th>evidence count</th></tr>{rows}</table></details>"
+        )
+    return "".join(blocks)
 
 
 def _render_raw_bom(compact_size: int) -> str:
@@ -1818,6 +1860,16 @@ def render_html(bom: dict, diff_result: dict | None = None, signature_info: dict
     coverage claims this scanner can actually back with data already in this document. Never a
     compliance or certification claim; see SPEC.md.</p>
   {_render_declarations(bom)}
+</section>
+
+<section id="compliance">
+  <h2>Compliance evidence mapping</h2>
+  <p class="muted"><strong>Evidence mapping, NOT a compliance or certification claim.</strong> Every
+    control/technique ID below is real and independently verified against each framework's own
+    published source (compliance.py / SPEC.md); every status is one of "evidence collected",
+    "partial evidence", or "not assessed" -- never "compliant" or "pass". Also available as its own
+    command: <code>harness-aibom compliance aibom.json --framework nist-ai-rmf</code>.</p>
+  {_render_compliance(bom)}
 </section>
 
 <section id="compositions">

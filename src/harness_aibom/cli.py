@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .compliance import FRAMEWORKS, evaluate_framework
 from .collectors.hermes import HermesCollector
 from .collectors.openclaw import OpenClawCollector
 from .cyclonedx import current_hostname, to_cyclonedx
@@ -205,6 +206,38 @@ def _run_scan_vulns(args: argparse.Namespace) -> int:
         print(f"wrote {args.output}")
     else:
         print(text)
+    return 0
+
+
+def _run_compliance(args: argparse.Namespace) -> int:
+    """Prints a real, narrow evidence mapping (compliance.py) -- never a
+    compliance/certification verdict. See compliance.py's own docstring
+    and SPEC.md for exactly which real, published control/technique IDs
+    this covers and how each status was decided.
+    """
+    data = _load_json_file(args.file)
+    if data is None:
+        return 1
+    if not isinstance(data, dict):
+        print(f"error: {args.file}: not a JSON object", file=sys.stderr)
+        return 1
+    try:
+        result = evaluate_framework(data, args.framework)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+        return 0
+
+    print(f"{result['displayName']} -- evidence mapping, NOT a compliance or certification claim")
+    print(result["sourceNote"])
+    print()
+    for m in result["mappings"]:
+        print(f"[{m['status']}] {m['controlId']}: {m['controlTitle']}")
+        print(f"    {m['rationale']}")
+        print(f"    evidence count in this document: {m['evidenceCount']}")
     return 0
 
 
@@ -628,6 +661,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="pretty-print JSON (default: on; pass --no-pretty for compact single-line output)",
     )
     scan_vulns.set_defaults(func=_run_scan_vulns)
+
+    compliance = sub.add_parser(
+        "compliance",
+        help="print a narrow evidence mapping toward a real framework's control IDs -- NEVER a "
+        "compliance/certification claim (see SPEC.md)",
+    )
+    compliance.add_argument("file")
+    compliance.add_argument("--framework", choices=sorted(FRAMEWORKS), required=True)
+    compliance.add_argument("--format", choices=["text", "json"], default="text")
+    compliance.set_defaults(func=_run_compliance)
 
     return parser
 

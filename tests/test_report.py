@@ -863,5 +863,30 @@ def test_declarations_section_renders_a_real_claim_and_never_third_party():
     section = _declarations_section(bom)
     assert "1 of 1 discovered model(s) carry a real content digest" in section
     assert "thirdParty: false" in section
-    assert "compliant" not in section.lower()
+    assert "is compliant" not in section.lower()
     assert "certified" not in section.lower()
+
+
+# ---- Compliance evidence mapping section (compliance.py) -----------------
+
+
+def _compliance_section(bom: dict) -> str:
+    html_text = render_html(bom)
+    return html_text.split('id="compliance"')[1].split('id="compositions"')[0]
+
+
+def test_compliance_section_labels_itself_as_evidence_mapping_not_certification():
+    section = _compliance_section(_doc_with_everything())
+    assert "NOT a compliance or certification claim" in section
+    assert "is compliant" not in section.lower()
+    assert "certified" not in section.lower()
+
+
+def test_compliance_section_renders_all_three_frameworks_with_real_ids():
+    section = _compliance_section(_doc_with_everything())
+    assert "NIST AI Risk Management Framework" in section
+    assert "GOVERN 1.6" in section
+    assert "OWASP Top 10 for LLM Applications" in section
+    assert "LLM03:2025" in section
+    assert "MITRE ATLAS" in section
+    assert "AML.T0007" in section

@@ -1984,3 +1984,60 @@ something a scanner can assert on anyone's behalf), and any claim
 broader than the four ratios above -- e.g. no claim about `tool`
 riskClass accuracy, secrets-surface completeness, or anything else this
 scanner doesn't already compute a precise ratio for.
+
+## 19. Compliance evidence mapping (v0.9.0) -- three frameworks, real IDs, never a certification claim
+
+The highest-risk item on the wishlist -- overclaiming compliance is
+worse than not attempting it -- so every control/technique ID in
+`compliance.py` was fetched from each framework's own real, currently
+published, canonical source before a single mapping was written down,
+never recalled from memory or guessed:
+
+- **NIST AI RMF 1.0**: fetched the real Playbook pages
+  (`airc.nist.gov/AI_RMF_Knowledge_Base/Playbook/{Govern,Map,Measure}`)
+  and confirmed real category IDs and verbatim titles -- `GOVERN 1.6`
+  ("Mechanisms are in place to inventory AI systems..."), `GOVERN 6.1`
+  (third-party AI risk policies), `MAP 4.1` (mapping third-party
+  component risks), `MEASURE 2.7` (security and resilience evaluated
+  and documented, explicitly including third-party security audits).
+- **OWASP Top 10 for LLM Applications (2025)**: fetched the real,
+  official list at `genai.owasp.org/llm-top-10/` -- confirmed
+  `LLM03:2025` (Supply Chain), `LLM06:2025` (Excessive Agency),
+  `LLM02:2025` (Sensitive Information Disclosure) verbatim.
+- **MITRE ATLAS**: fetched the real, canonical data source
+  (`github.com/mitre-atlas/atlas-data`'s `ATLAS.yaml` -- the same data
+  ATLAS's own website is built from) -- confirmed real tactic/technique
+  IDs `AML.T0010` (AI Supply Chain Compromise), `AML.T0055` (Unsecured
+  Credentials), `AML.T0007` (Discover AI Artifacts).
+
+**Frameworks deliberately skipped, not guessed at**: ISO/IEC 42001's
+actual clause text is paywalled by ISO -- mapping to it here would mean
+either guessing clause numbers from secondary summaries or buying the
+standard, neither of which meets this project's "verify against a real,
+fetched, canonical source" bar (the same one `test_cyclonedx_schema.py`
+and `test_sarif.py` already hold this project's own output to). SLSA is
+a build-provenance framework about how software is *built*; this
+scanner reads an already-deployed harness's filesystem/config, so SLSA's
+levels have no meaningful evidence source here without inventing one.
+Both are named and explained, not silently dropped.
+
+**Every mapping's status is one of exactly three words** -- "evidence
+collected" / "partial evidence" / "not assessed" -- **never**
+"compliant", "certified", or "pass"/"fail" (a dedicated regression test,
+`test_no_mapping_ever_uses_compliance_or_pass_fail_language`, greps the
+rendered output for those words). Each mapping's `ceiling` (the most
+this scanner could ever honestly claim for that control, chosen once
+per mapping, never per-document) is downgraded to "not assessed"
+whenever the specific document being evaluated has zero relevant
+entries -- a claim is never shown about evidence that doesn't actually
+exist in front of the reader. Every mapping also carries a `rationale`
+naming the exact componentClass/property/risk-rule the evidence comes
+from, and an `evidenceCount` -- a real `len()` over the document, not
+an estimate.
+
+**Two ways to see it**: `harness-aibom compliance aibom.json --framework
+nist-ai-rmf` (text or `--format json`), and an unconditional "Compliance
+evidence mapping" section in `report.py` showing all three frameworks
+at once (cheap, since every mapping is a pure function over data already
+in the document) -- both labeled, in the exact same words, as evidence
+mapping rather than a certification.

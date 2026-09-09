@@ -807,3 +807,37 @@ def test_scan_vulns_rejects_non_dict_json(tmp_path, capsys):
     exit_code = main(["scan-vulns", str(bad)])
     assert exit_code == 1
     assert "not a json object" in capsys.readouterr().err.lower()
+
+
+# ---- compliance (evidence mapping, never a certification claim) ---------
+
+
+def test_compliance_text_output_names_real_control_ids(tmp_path, capsys):
+    bom_path = _bom_with_purl_dependency(tmp_path)
+    exit_code = main(["compliance", str(bom_path), "--framework", "nist-ai-rmf"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "NOT a compliance or certification claim" in out
+    assert "GOVERN 1.6" in out
+    assert "MAP 4.1" in out
+
+
+def test_compliance_json_output_is_well_formed(tmp_path, capsys):
+    bom_path = _bom_with_purl_dependency(tmp_path)
+    exit_code = main(["compliance", str(bom_path), "--framework", "mitre-atlas", "--format", "json"])
+    assert exit_code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["framework"] == "mitre-atlas"
+    assert {m["controlId"] for m in data["mappings"]} == {"AML.T0010", "AML.T0055", "AML.T0007"}
+
+
+def test_compliance_unknown_framework_is_a_clean_argparse_error(tmp_path, capsys):
+    bom_path = _bom_with_purl_dependency(tmp_path)
+    with pytest.raises(SystemExit):
+        main(["compliance", str(bom_path), "--framework", "iso-42001"])
+
+
+def test_compliance_missing_file_is_a_clean_error(capsys):
+    exit_code = main(["compliance", "/no/such/aibom.json", "--framework", "owasp-llm-top10-2025"])
+    assert exit_code == 1
+    assert "no such file" in capsys.readouterr().err.lower()
