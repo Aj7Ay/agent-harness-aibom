@@ -30,6 +30,19 @@ Two more defects an independent reviewer found and confirmed:
     substring anywhere in the URL, so e.g. `https://assets.example.com/mcp`
     (which merely contains "sse" inside "assets") misread as an SSE
     transport. Now checks the URL's actual path.
+
+Two more additions, from the same review round:
+  - `purl`: a best-effort Package URL for a stdio server's underlying
+    package, parsed from `command`/`args` (`npx -y @scope/pkg@1.2.3` ->
+    `pkg:npm/%40scope/pkg@1.2.3`). Only `npx` (npm) and `uvx` (PyPI) are
+    recognized; anything else gets no purl rather than a guess. Also sets
+    `versionPinned` -- an MCP server invoked with no version pinned will
+    fetch whatever the launcher resolves as "latest" at each run, which is
+    itself worth flagging.
+  - `tool` components: one per declared tool name, not just a bare
+    `toolCount`. See model.py's CDX_TYPE_FOR_CLASS entry for `tool` for
+    what this class does and does NOT capture (no schema hash -- this
+    scanner never performs a live MCP handshake).
 """
 
 from __future__ import annotations
@@ -43,6 +56,92 @@ from ..model import Component
 #: matched case-insensitively against the whole name, not required to be
 #: the whole name (e.g. "GITHUB_TOKEN" matches on "TOKEN").
 _CREDENTIAL_ENV_PATTERN = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)", re.IGNORECASE)
+
+#: Tool-name keyword -> riskClass, checked in this order (most dangerous
+#: first) so a name matching more than one category gets the safer-to-
+#: assume, more dangerous label. Heuristic, not authoritative: derived from
+#: the tool's *name* alone, since that's all a static config ever gives us
+#: -- no live schema to classify parameters against. A tool matching none
+#: of these gets riskClass "unknown", not a guessed default.
+_RISK_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("exec", ("exec", "execute", "run", "spawn", "shell", "eval", "command")),
+    ("network", ("fetch", "http", "request", "curl", "download", "upload", "browse", "url")),
+    ("write", ("write", "create", "delete", "remove", "update", "move", "rename", "modify", "send", "put", "post")),
+    ("read", ("read", "get", "list", "search", "query", "view", "show", "fetch")),
+)
+
+
+def _risk_class(tool_name: str) -> str:
+    lname = tool_name.lower()
+    for risk, keywords in _RISK_KEYWORDS:
+        if any(keyword in lname for keyword in keywords):
+            return risk
+    return "unknown"
+
+
+def _split_npm_spec(spec: str) -> tuple[str, str | None]:
+    """(package name, version|None) from an npm package spec that may be
+    scoped (`@scope/name`) and may carry an explicit `@version` suffix.
+    The leading `@` of a scope is never mistaken for the version
+    separator -- only an `@` appearing after the scope's own `/` can start
+    a version (`@scope/name@1.2.3`, not `@scope@1.2.3/name`).
+    """
+    if spec.startswith("@"):
+        scope_end = spec.find("/")
+        if scope_end == -1:
+            return spec, None  # malformed scope (no "/") -- treat whole thing as the name
+        rest = spec[scope_end + 1 :]
+        if "@" in rest:
+            name_part, _, version = rest.partition("@")
+            return f"{spec[: scope_end + 1]}{name_part}", version
+        return spec, None
+    if "@" in spec:
+        name, _, version = spec.partition("@")
+        return name, version
+    return spec, None
+
+
+def _purl_for_npm(name: str, version: str | None) -> str:
+    # purl-spec encodes a scoped package's leading "@" as "%40" in the
+    # namespace segment: pkg:npm/%40scope/name, not pkg:npm/@scope/name.
+    if name.startswith("@"):
+        scope, _, pkg = name[1:].partition("/")
+        name = f"%40{scope}/{pkg}"
+    purl = f"pkg:npm/{name}"
+    return f"{purl}@{version}" if version else purl
+
+
+def _normalize_pypi_name(name: str) -> str:
+    # Best-effort per the purl-spec's pypi normalization (lowercase,
+    # underscores to dashes) -- not the full PEP 503 rule (dots are left
+    # alone), which is more normalization than a best-effort scanner needs.
+    return name.lower().replace("_", "-")
+
+
+def _derive_purl(command: str | None, args: list) -> tuple[str | None, bool]:
+    """(purl, version_pinned) parsed from a stdio server's `command`/
+    `args`, or (None, False) if the launcher isn't one of the two
+    recognized ones. Never guesses at a purl for an unrecognized command
+    -- better no identity than a wrong one.
+    """
+    if not command or not args:
+        return None, False
+    non_flag_args = [str(a) for a in args if not str(a).startswith("-")]
+    if not non_flag_args:
+        return None, False
+    spec = non_flag_args[0]
+
+    if command == "npx":
+        name, version = _split_npm_spec(spec)
+        return _purl_for_npm(name, version), bool(version)
+    if command == "uvx":
+        for sep in ("==", "@"):
+            if sep in spec:
+                name, _, version = spec.partition(sep)
+                return f"pkg:pypi/{_normalize_pypi_name(name)}@{version}", True
+        return f"pkg:pypi/{_normalize_pypi_name(spec)}", False
+
+    return None, False
 
 
 def _servers_list(config: dict) -> list[dict]:
@@ -59,12 +158,18 @@ def _looks_like_sse(endpoint: str) -> bool:
     return urlsplit(endpoint).path.rstrip("/").endswith("/sse")
 
 
-def extract_mcp_servers(config: dict) -> list[Component]:
-    out = []
+def extract_mcp_servers(config: dict) -> list[tuple[Component, list[Component]]]:
+    """One (server, its tool components) pair per configured MCP server.
+    The caller is expected to add the server (as a child of whatever
+    parent it belongs to) and then each tool as a child of that server --
+    see collectors/hermes.py / collectors/openclaw.py.
+    """
+    out: list[tuple[Component, list[Component]]] = []
     for entry in _servers_list(config):
         name = entry.get("name") or entry.get("id") or "unknown-mcp-server"
         endpoint = entry.get("url") or entry.get("endpoint") or ""
         command = entry.get("command")
+        args = entry.get("args") or []
 
         comp = Component(component_class="mcp_server", name=name)
 
@@ -80,17 +185,14 @@ def extract_mcp_servers(config: dict) -> list[Component]:
             comp.set("tls", "n/a")
 
         if command:
-            # Not hashed: a stdio command is very often `npx`/`uvx`
-            # resolving a package name at invocation time, not a single
-            # static file on disk that exists to hash before the server
-            # ever runs -- a hash here would be misleading more often
-            # than useful. `command`/`args` are still recorded verbatim,
-            # since that's the auditable fact ("what does this actually
-            # run"), just not fingerprinted.
             comp.set("command", command)
-        args = entry.get("args")
         if args:
             comp.set("args", " ".join(str(a) for a in args))
+
+            purl, version_pinned = _derive_purl(command, args)
+            if purl:
+                comp.set("purl", purl)
+                comp.set("versionPinned", version_pinned)
 
         env = entry.get("env") or {}
         auth_env_keys = sorted(k for k in env if _CREDENTIAL_ENV_PATTERN.search(k))
@@ -101,9 +203,16 @@ def extract_mcp_servers(config: dict) -> list[Component]:
         if auth_env_keys:
             comp.set("authEnvKeys", ",".join(auth_env_keys))
 
-        tools = entry.get("tools")
-        if tools is not None:
-            comp.set("toolCount", len(tools))
+        tool_names = entry.get("tools")
+        comp.set("toolCount", len(tool_names) if tool_names is not None else None)
 
-        out.append(comp)
+        tools = []
+        for tool_name in tool_names or []:
+            tool_name = str(tool_name)
+            tool = Component(component_class="tool", name=f"{name}/{tool_name}")
+            tool.set("server", name)
+            tool.set("riskClass", _risk_class(tool_name))
+            tools.append(tool)
+
+        out.append((comp, tools))
     return out

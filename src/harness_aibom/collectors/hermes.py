@@ -80,14 +80,26 @@ class HermesCollector(Collector):
 
     def collect(self, doc: HarnessDocument) -> None:
         self._collect_runtime(doc)
-        config = self._collect_config(doc)
-        self._collect_model(doc, config)
+        config, config_comp = self._collect_config(doc)
+        if config_comp is not None:
+            self._collect_model(doc, config, config_comp)
+            self._collect_mcp_servers(doc, config, config_comp)
         self._collect_skills(doc)
         self._collect_hooks(doc)
-        for comp in mcp_mod.extract_mcp_servers(config):
-            doc.add(comp, "uses")
         for comp in secrets_mod.find_secrets_surface(self.hermes_dir, self.home):
             doc.add(comp, "accesses")
+
+    def _collect_mcp_servers(self, doc: HarnessDocument, config: dict, config_comp: Component) -> None:
+        # A real dependency-graph edge, not another root edge: the config
+        # file is what *declares* each server, and each server in turn
+        # declares its own tools -- confirmed real gap: every relationship
+        # used to be a root edge, making the graph a flat star with no
+        # structure ("harness-root depends on all 15") a generic SBOM tool
+        # could actually use for impact analysis.
+        for server, tools in mcp_mod.extract_mcp_servers(config):
+            doc.add_child(server, config_comp, "uses")
+            for tool in tools:
+                doc.add_child(tool, server, "uses")
 
     def _collect_runtime(self, doc: HarnessDocument) -> None:
         try:
@@ -128,24 +140,24 @@ class HermesCollector(Collector):
 
         doc.add(comp, "uses")
 
-    def _collect_config(self, doc: HarnessDocument) -> dict:
+    def _collect_config(self, doc: HarnessDocument) -> tuple[dict, Component | None]:
         if not self.config_path.is_file():
             doc.warn(f"{self.config_path} not found; model/configuration components skipped")
-            return {}
+            return {}, None
         try:
             config = yaml.safe_load(self.config_path.read_text()) or {}
         except yaml.YAMLError as exc:
             doc.warn(f"could not parse {self.config_path}: {exc}")
-            return {}
+            return {}, None
 
         comp = Component(component_class="configuration", name="config.yaml")
         comp.set("path", str(self.config_path))
         comp.set("relPath", relative_to_or_none(self.config_path, self.home))
         comp.set("sha256", sha256_file(self.config_path))
         doc.add(comp, "loads")
-        return config
+        return config, comp
 
-    def _collect_model(self, doc: HarnessDocument, config: dict) -> None:
+    def _collect_model(self, doc: HarnessDocument, config: dict, config_comp: Component) -> None:
         model_cfg = config.get("model") or {}
         base_url = model_cfg.get("base_url")
         if not base_url:
@@ -154,7 +166,9 @@ class HermesCollector(Collector):
         endpoint = Component(component_class="model_endpoint", name=base_url)
         endpoint.set("provider", model_cfg.get("provider"))
         endpoint.set("apiMode", model_cfg.get("api_mode"))
-        doc.add(endpoint, "uses")
+        # child of configuration, not the harness root: the config file is
+        # what declares this endpoint.
+        doc.add_child(endpoint, config_comp, "uses")
 
         default_name = model_cfg.get("default")
         models = ollama_mod.discover_models(base_url, self.fetch)
@@ -165,7 +179,8 @@ class HermesCollector(Collector):
                 m.set("thinking", model_cfg.get("thinking"))
                 m.set("ollamaNumCtx", model_cfg.get("ollama_num_ctx"))
                 matched = True
-            doc.add(m, "uses")
+            # child of the endpoint that serves it, not the harness root.
+            doc.add_child(m, endpoint, "uses")
 
         if default_name and not matched:
             # Ollama unreachable, or the configured model hasn't been pulled
@@ -175,7 +190,7 @@ class HermesCollector(Collector):
             comp.set("contextLength", model_cfg.get("context_length"))
             comp.set("thinking", model_cfg.get("thinking"))
             comp.set("ollamaNumCtx", model_cfg.get("ollama_num_ctx"))
-            doc.add(comp, "uses")
+            doc.add_child(comp, endpoint, "uses")
             doc.warn(f"configured model {default_name!r} not found via Ollama /api/tags; recorded from config only")
 
     def _collect_skills(self, doc: HarnessDocument) -> None:

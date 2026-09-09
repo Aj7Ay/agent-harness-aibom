@@ -77,12 +77,20 @@ class OpenClawCollector(Collector):
 
     def collect(self, doc: HarnessDocument) -> None:
         self._collect_runtime(doc)
-        config = self._collect_config(doc)
-        self._collect_model(doc, config)
+        config, config_comp = self._collect_config(doc)
+        if config_comp is not None:
+            self._collect_model(doc, config, config_comp)
+            self._collect_mcp_servers(doc, config, config_comp)
         self._collect_skills(doc)
-        for comp in mcp_mod.extract_mcp_servers(config):
-            doc.add(comp, "uses")
         self._collect_secrets(doc)
+
+    def _collect_mcp_servers(self, doc: HarnessDocument, config: dict, config_comp: Component) -> None:
+        # Real dependency-graph edges, not root edges -- see hermes.py's
+        # identical method for why.
+        for server, tools in mcp_mod.extract_mcp_servers(config):
+            doc.add_child(server, config_comp, "uses")
+            for tool in tools:
+                doc.add_child(tool, server, "uses")
 
     def _collect_runtime(self, doc: HarnessDocument) -> None:
         try:
@@ -107,24 +115,24 @@ class OpenClawCollector(Collector):
         comp.version = output.splitlines()[0].strip()
         doc.add(comp, "uses")
 
-    def _collect_config(self, doc: HarnessDocument) -> dict:
+    def _collect_config(self, doc: HarnessDocument) -> tuple[dict, Component | None]:
         if not self.config_path.is_file():
             doc.warn(f"{self.config_path} not found; model/configuration components skipped")
-            return {}
+            return {}, None
         try:
             config = json.loads(self.config_path.read_text())
         except json.JSONDecodeError as exc:
             doc.warn(f"could not parse {self.config_path}: {exc}")
-            return {}
+            return {}, None
 
         comp = Component(component_class="configuration", name="openclaw.json")
         comp.set("path", str(self.config_path))
         comp.set("relPath", relative_to_or_none(self.config_path, self.home))
         comp.set("sha256", sha256_file(self.config_path))
         doc.add(comp, "loads")
-        return config
+        return config, comp
 
-    def _collect_model(self, doc: HarnessDocument, config: dict) -> None:
+    def _collect_model(self, doc: HarnessDocument, config: dict, config_comp: Component) -> None:
         providers = ((config.get("models") or {}).get("providers")) or {}
         ollama_cfg = providers.get("ollama") or {}
         base_url = ollama_cfg.get("baseUrl") or ollama_cfg.get("base_url")
@@ -133,7 +141,7 @@ class OpenClawCollector(Collector):
 
         endpoint = Component(component_class="model_endpoint", name=base_url)
         endpoint.set("provider", "ollama")
-        doc.add(endpoint, "uses")
+        doc.add_child(endpoint, config_comp, "uses")
 
         # OpenClaw addresses models as "<provider>/<name>", e.g. "ollama/qwen3:8b".
         default_model = (config.get("models") or {}).get("default")
@@ -144,12 +152,12 @@ class OpenClawCollector(Collector):
         for m in models:
             if default_name and m.name == default_name:
                 matched = True
-            doc.add(m, "uses")
+            doc.add_child(m, endpoint, "uses")
 
         if default_name and not matched:
             comp = Component(component_class="model", name=default_name)
             comp.version = default_name
-            doc.add(comp, "uses")
+            doc.add_child(comp, endpoint, "uses")
             doc.warn(f"configured model {default_name!r} not found via Ollama /api/tags; recorded from config only")
 
     def _collect_skills(self, doc: HarnessDocument) -> None:

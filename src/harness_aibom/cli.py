@@ -108,9 +108,31 @@ def _run_report(args: argparse.Namespace) -> int:
     data = _load_json_file(args.file)
     if data is None:
         return 1
+    if not isinstance(data, dict):
+        print(f"error: {args.file}: not a CycloneDX document (expected a JSON object)", file=sys.stderr)
+        return 1
 
-    out_path = Path(args.output) if args.output else Path(args.file).with_suffix(".html")
-    out_path.write_text(render_html(data))
+    in_path = Path(args.file)
+    out_path = Path(args.output) if args.output else in_path.with_suffix(".html")
+    # Confirmed real: with no --output, a .html input's own default output
+    # path is itself -- report x.html silently overwrote its own input,
+    # destroying it. Compare resolved paths, not raw strings, so a
+    # relative and an absolute spelling of the same file are still caught.
+    if out_path.resolve() == in_path.resolve():
+        print(f"error: refusing to overwrite {args.file} -- pass --output to write somewhere else", file=sys.stderr)
+        return 1
+
+    try:
+        # encoding="utf-8" explicitly: without it, write_text() uses the
+        # platform's locale-preferred encoding -- a C/POSIX locale (normal
+        # in Docker/CI) raises UnicodeEncodeError on the em dash in the
+        # page <title> and leaves a truncated file behind; some Windows
+        # locales would instead mangle it silently while the page still
+        # declares charset=utf-8.
+        out_path.write_text(render_html(data), encoding="utf-8")
+    except OSError as exc:
+        print(f"error: {out_path}: {exc.strerror or exc}", file=sys.stderr)
+        return 1
     print(f"wrote {out_path}")
     return 0
 

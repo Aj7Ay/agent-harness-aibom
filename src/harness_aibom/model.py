@@ -33,6 +33,19 @@ CDX_TYPE_FOR_CLASS = {
     "skill": "library",
     "hook": "file",
     "secrets_surface": "data",
+    # One per MCP tool a server declares -- turns `mcp_server`'s bare
+    # `toolCount` into named, individually identifiable parts. `type:
+    # application` per the same reasoning as `runtime`: a tool is
+    # something the harness can invoke, not a data file. See SPEC.md §2
+    # for what this class does and, importantly, does NOT capture (no
+    # `definitionSha256`/schema hash -- this scanner only reads static
+    # config, never performs a live MCP handshake, so it has no tool
+    # description or input schema to hash in the first place; hashing
+    # just the bare name would only ever catch a rename, not the actual
+    # rug-pull attack a schema hash is meant to catch, and shipping that
+    # under a name like "definitionSha256" would be a false sense of
+    # security).
+    "tool": "application",
 }
 
 #: every componentClass this package knows how to emit, service or not.
@@ -115,9 +128,10 @@ class HarnessDocument:
     root_relationships: list[tuple[str, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
-    def add(self, component: Component, verb: str = "uses") -> Component:
-        if verb not in RELATIONSHIP_VERBS:
-            raise ValueError(f"unknown relationship verb {verb!r}, expected one of {sorted(RELATIONSHIP_VERBS)}")
+    def _register(self, component: Component) -> None:
+        """Disambiguate `component`'s bom_ref against everything already in
+        the document, then add it to `self.components`. Shared by `add()`
+        and `add_child()` so both paths get the same collision handling."""
         existing_refs = {c.bom_ref for c in self.components}
         if component.bom_ref in existing_refs:
             base, n = component.bom_ref, 2
@@ -125,7 +139,31 @@ class HarnessDocument:
                 n += 1
             component.bom_ref = f"{base}-{n}"
         self.components.append(component)
+
+    def add(self, component: Component, verb: str = "uses") -> Component:
+        """Register `component` and relate it to the *harness root* --
+        for things the harness touches directly with no more specific
+        parent in this data model (runtime, configuration, skill, hook,
+        secrets_surface). Use `add_child()` instead when there's a real
+        parent component (a model belongs to the endpoint that serves it,
+        a tool belongs to the server that declares it, ...) -- rendering
+        every relationship as a root edge is what made the dependency
+        graph a flat star with no structure a generic SBOM tool could use.
+        """
+        if verb not in RELATIONSHIP_VERBS:
+            raise ValueError(f"unknown relationship verb {verb!r}, expected one of {sorted(RELATIONSHIP_VERBS)}")
+        self._register(component)
         self.root_relationships.append((verb, component.bom_ref))
+        return component
+
+    def add_child(self, component: Component, parent: Component, verb: str = "uses") -> Component:
+        """Register `component` and relate it to `parent` instead of the
+        harness root -- `parent` must already be in this document. The
+        edge lives on `parent.relationships` (`Component.relate()`), which
+        `cyclonedx.py` turns into that parent's own `dependencies[]` entry,
+        not the root's."""
+        self._register(component)
+        parent.relate(verb, component)
         return component
 
     def warn(self, message: str) -> None:

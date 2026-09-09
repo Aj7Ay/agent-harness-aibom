@@ -127,3 +127,27 @@ def test_version_shown_when_it_actually_differs_from_name():
     doc.add(runtime, "uses")
     html_text = render_html(to_cyclonedx(doc))
     assert "v0.19.0" in html_text
+
+
+def test_scan_warnings_render_as_a_banner():
+    # Confirmed real gap: scan warnings used to reach only stderr, never
+    # the document -- a partial scan (missed Ollama, unreadable skill)
+    # produced a report indistinguishable from a complete one.
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    doc.warn("hermes binary not found on PATH; runtime component skipped")
+    doc.warn("configured model 'qwen3:8b' not found via Ollama /api/tags; recorded from config only")
+    html_text = render_html(to_cyclonedx(doc))
+
+    assert "scan-warnings" in html_text
+    assert "2 scan warnings" in html_text
+    assert "hermes binary not found on PATH" in html_text
+    assert "&#x27;qwen3:8b&#x27;" in html_text  # escaped, not raw
+
+
+def test_no_warnings_means_no_banner():
+    # The CSS rule for .scan-warnings is always present (static stylesheet);
+    # only the rendered <div> itself should be conditional on there
+    # actually being warnings.
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "<div class='scan-warnings'>" not in html_text

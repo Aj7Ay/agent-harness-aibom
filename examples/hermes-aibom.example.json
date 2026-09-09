@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:5336a3b2-333c-4873-b052-9906cae20abc",
+  "serialNumber": "urn:uuid:013df1f0-a655-49fa-aa5f-1f4b68ad864f",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.1.15"
+          "version": "0.2.0"
         }
       ]
     },
@@ -31,16 +31,16 @@
           "value": "Ajays-MacBook-Pro.local"
         },
         {
+          "name": "harness-aibom:warning",
+          "value": "hermes binary not found on PATH; runtime component skipped"
+        },
+        {
+          "name": "harness-aibom:warning",
+          "value": "configured model 'qwen3:8b' not found via Ollama /api/tags; recorded from config only"
+        },
+        {
           "name": "harness-aibom:relationship",
           "value": "loads:configuration:config.yaml"
-        },
-        {
-          "name": "harness-aibom:relationship",
-          "value": "uses:model_endpoint:http-127.0.0.1-11434-v1"
-        },
-        {
-          "name": "harness-aibom:relationship",
-          "value": "uses:model:qwen3-8b"
         },
         {
           "name": "harness-aibom:relationship",
@@ -49,28 +49,22 @@
         {
           "name": "harness-aibom:relationship",
           "value": "loads:skill:software-development-dogfood"
-        },
-        {
-          "name": "harness-aibom:relationship",
-          "value": "uses:mcp_server:local-time"
-        },
-        {
-          "name": "harness-aibom:relationship",
-          "value": "uses:mcp_server:corp-docs"
-        },
-        {
-          "name": "harness-aibom:relationship",
-          "value": "uses:mcp_server:local-fs"
         }
       ]
     },
-    "timestamp": "2026-09-09T01:52:34+00:00"
+    "timestamp": "2026-09-09T02:21:40+00:00"
   },
   "components": [
     {
       "type": "file",
       "bom-ref": "configuration:config.yaml",
       "name": "config.yaml",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7769b125dc20957c2b4af32e882a92bb149821cd285db7dd630a06ffbaf9808c"
+        }
+      ],
       "properties": [
         {
           "name": "harness-aibom:componentClass",
@@ -87,6 +81,22 @@
         {
           "name": "harness-aibom:sha256",
           "value": "7769b125dc20957c2b4af32e882a92bb149821cd285db7dd630a06ffbaf9808c"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:model_endpoint:http-127.0.0.1-11434-v1"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:mcp_server:local-time"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:mcp_server:corp-docs"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:mcp_server:local-fs"
         }
       ]
     },
@@ -115,9 +125,110 @@
       ]
     },
     {
+      "type": "application",
+      "bom-ref": "tool:corp-docs-search",
+      "name": "corp-docs/search",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "tool"
+        },
+        {
+          "name": "harness-aibom:server",
+          "value": "corp-docs"
+        },
+        {
+          "name": "harness-aibom:riskClass",
+          "value": "read"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:corp-docs-fetch",
+      "name": "corp-docs/fetch",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "tool"
+        },
+        {
+          "name": "harness-aibom:server",
+          "value": "corp-docs"
+        },
+        {
+          "name": "harness-aibom:riskClass",
+          "value": "network"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:local-fs-read_file",
+      "name": "local-fs/read_file",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "tool"
+        },
+        {
+          "name": "harness-aibom:server",
+          "value": "local-fs"
+        },
+        {
+          "name": "harness-aibom:riskClass",
+          "value": "read"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:local-fs-write_file",
+      "name": "local-fs/write_file",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "tool"
+        },
+        {
+          "name": "harness-aibom:server",
+          "value": "local-fs"
+        },
+        {
+          "name": "harness-aibom:riskClass",
+          "value": "write"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:local-fs-move_file",
+      "name": "local-fs/move_file",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "tool"
+        },
+        {
+          "name": "harness-aibom:server",
+          "value": "local-fs"
+        },
+        {
+          "name": "harness-aibom:riskClass",
+          "value": "write"
+        }
+      ]
+    },
+    {
       "type": "library",
       "bom-ref": "skill:incident-response",
       "name": "incident-response",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9e75ffe5e314a54d4c50b5433499dd99e7e18f43f63fb69b579b388053aab696"
+        }
+      ],
       "properties": [
         {
           "name": "harness-aibom:componentClass",
@@ -145,6 +256,12 @@
       "type": "library",
       "bom-ref": "skill:software-development-dogfood",
       "name": "software-development/dogfood",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "20e123dc1ed35f7ab718d089347cac0a10c1c0c314101a9c3b139d20eade9ea2"
+        }
+      ],
       "properties": [
         {
           "name": "harness-aibom:componentClass",
@@ -192,6 +309,10 @@
         {
           "name": "harness-aibom:apiMode",
           "value": "chat_completions"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:model:qwen3-8b"
         }
       ]
     },
@@ -254,6 +375,14 @@
         {
           "name": "harness-aibom:toolCount",
           "value": "2"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:tool:corp-docs-search"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:tool:corp-docs-fetch"
         }
       ]
     },
@@ -282,6 +411,14 @@
           "value": "-y @modelcontextprotocol/server-filesystem /"
         },
         {
+          "name": "harness-aibom:purl",
+          "value": "pkg:npm/%40modelcontextprotocol/server-filesystem"
+        },
+        {
+          "name": "harness-aibom:versionPinned",
+          "value": "False"
+        },
+        {
           "name": "harness-aibom:authConfigured",
           "value": "True"
         },
@@ -296,6 +433,18 @@
         {
           "name": "harness-aibom:toolCount",
           "value": "3"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:tool:local-fs-read_file"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:tool:local-fs-write_file"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:tool:local-fs-move_file"
         }
       ]
     }
@@ -305,13 +454,38 @@
       "ref": "harness-root",
       "dependsOn": [
         "configuration:config.yaml",
-        "model_endpoint:http-127.0.0.1-11434-v1",
-        "model:qwen3-8b",
         "skill:incident-response",
-        "skill:software-development-dogfood",
+        "skill:software-development-dogfood"
+      ]
+    },
+    {
+      "ref": "configuration:config.yaml",
+      "dependsOn": [
+        "model_endpoint:http-127.0.0.1-11434-v1",
         "mcp_server:local-time",
         "mcp_server:corp-docs",
         "mcp_server:local-fs"
+      ]
+    },
+    {
+      "ref": "model_endpoint:http-127.0.0.1-11434-v1",
+      "dependsOn": [
+        "model:qwen3-8b"
+      ]
+    },
+    {
+      "ref": "mcp_server:corp-docs",
+      "dependsOn": [
+        "tool:corp-docs-search",
+        "tool:corp-docs-fetch"
+      ]
+    },
+    {
+      "ref": "mcp_server:local-fs",
+      "dependsOn": [
+        "tool:local-fs-read_file",
+        "tool:local-fs-write_file",
+        "tool:local-fs-move_file"
       ]
     }
   ]

@@ -215,3 +215,66 @@ def test_report_command_reports_a_clean_error_for_a_missing_file(capsys):
     exit_code = main(["report", "/no/such/file.json"])
     assert exit_code == 1
     assert "no such file" in capsys.readouterr().err
+
+
+def test_report_writes_utf8_regardless_of_process_locale(tmp_path):
+    # Confirmed real: without an explicit encoding, write_text() uses the
+    # platform locale's preferred encoding -- a C/POSIX locale (normal in
+    # Docker/CI) raised UnicodeEncodeError on the em dash in <title> and
+    # left a truncated file behind.
+    out = tmp_path / "aibom.json"
+    html_out = tmp_path / "report.html"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out)])
+    exit_code = main(["report", str(out), "--output", str(html_out)])
+    assert exit_code == 0
+    assert html_out.read_bytes().decode("utf-8").startswith("<!doctype html>")
+
+
+def test_report_refuses_to_overwrite_its_own_input(tmp_path, capsys):
+    # Confirmed real: report x.html with no --output silently destroyed
+    # x.html, since with_suffix(".html") on an .html input is itself.
+    out = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out)])
+    html_out = tmp_path / "aibom.html"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(html_out)])
+    original = html_out.read_text()
+
+    exit_code = main(["report", str(html_out)])  # default output == html_out itself
+    assert exit_code == 1
+    assert "refusing to overwrite" in capsys.readouterr().err
+    assert html_out.read_text() == original  # untouched
+
+
+def test_report_rejects_non_dict_json(tmp_path, capsys):
+    bad = tmp_path / "not-a-document.json"
+    bad.write_text("[]")
+    exit_code = main(["report", str(bad), "--output", str(tmp_path / "out.html")])
+    assert exit_code == 1
+    assert "not a CycloneDX document" in capsys.readouterr().err
+
+
+def test_report_reports_a_clean_error_for_an_unwritable_output_path(tmp_path, capsys):
+    out = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out)])
+
+    ro_dir = tmp_path / "ro"
+    ro_dir.mkdir(mode=0o555)
+    try:
+        exit_code = main(["report", str(out), "--output", str(ro_dir / "x.html")])
+        assert exit_code == 1
+        assert "Permission denied" in capsys.readouterr().err
+    finally:
+        ro_dir.chmod(0o755)  # so tmp_path cleanup can remove it
+
+
+def test_deterministic_report_is_byte_identical_across_renders(tmp_path):
+    out = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out), "--deterministic"])
+
+    html_a = tmp_path / "a.html"
+    html_b = tmp_path / "b.html"
+    main(["report", str(out), "--output", str(html_a)])
+    main(["report", str(out), "--output", str(html_b)])
+
+    assert html_a.read_text() == html_b.read_text()
+    assert "no render timestamp" in html_a.read_text()

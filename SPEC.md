@@ -215,6 +215,60 @@ deciding which base identities need disambiguating from the union of
 isolation, so the same logical server gets the same treatment regardless
 of which scan happens to have the duplicate. See §4.
 
+**v0.2.0 update:** the same reviewer measured a real 15-entry document
+against what a bill of materials is supposed to answer ("what parts is
+this made of," "what else is affected if part X is compromised") and
+found it couldn't answer either one: zero `purl`s, zero dependency edges
+beyond a flat root star, `toolCount` instead of named tools. Fixed the
+tractable core of that critique here — the report/CLI bugs from the same
+review round too (§8, and the sdist-testing gap from v0.1.12's own
+reviewer separately confirmed clean):
+
+- **`tool` components** (§2): one per declared tool name, with a
+  name-only `riskClass` heuristic, instead of a bare `toolCount`.
+  Deliberately does *not* add a schema-hash field this scanner has no
+  data to back (§5).
+- **`purl` + `versionPinned`** on stdio `mcp_server` entries (§2),
+  parsed from `command`/`args` for `npx`/`uvx` launchers specifically —
+  the package identity was already being collected and then discarded.
+- **A real dependency graph** (§1): `configuration -> model_endpoint ->
+  model` and `configuration -> mcp_server -> tool`, via a new
+  `HarnessDocument.add_child()`, instead of every relationship
+  collapsing into one root star.
+- **Native `hashes[]`** alongside the existing `harness-aibom:sha256`
+  property (additive, not a replacement — `diff.py` still keys on the
+  property by name).
+- The five `report` bugs from the same round (§8): UTF-8 write
+  encoding, refusing to overwrite the input file, rejecting non-dict
+  input, catching write failures, and a deterministic report footer.
+- Scan warnings now reach the document itself, not just stderr, and
+  `report` renders them as a banner (§8) — otherwise a partial scan
+  looks indistinguishable from a complete one.
+
+**Deliberately deferred, not silently dropped** — each because doing it
+without real data to ground it would mean inventing unconfirmed specifics
+or claiming detection capability this scanner doesn't have, the same
+discipline this whole spec has followed from v0.1.1 onward:
+
+- A Python dependency inventory for the *scanned harness's own*
+  site-packages (not this package's) needs a confirmed real venv layout
+  for Hermes/OpenClaw on an actual box, which isn't available.
+- `prompt_surface` (`AGENTS.md`/`CLAUDE.md`/instruction files) and
+  `memory_store` (conversation/vector stores) are both real gaps the
+  same review named, but adding them alongside everything else in this
+  pass — untested against any real box's actual file layout — was a
+  bigger risk than the value of rushing them in.
+- Full native-field migration (`modelCard`, `evidence.occurrences`,
+  `externalReferences`, `licenses`, `supplier`) beyond the additive
+  `hashes[]` above would touch nearly every property this spec defines
+  and every test that references one by its `harness-aibom:` name —
+  correctly described by the same review as needing its own release.
+- Linking a skill to the servers/models its own prose actually
+  references would need parsing `SKILL.md`'s content, which this
+  scanner doesn't do.
+- `policy`, severity-in-`diff`, `report --diff`, and `merge`/`gap`
+  commands are new subcommands, not fixes to this release's scope.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -233,16 +287,36 @@ valid, useful BOM either way; `harness-aibom`'s own `diff`/`validate`
 commands are the only consumers that need to understand them.
 
 **Relationships.** CycloneDX's native `dependencies[]` only expresses
-untyped "depends-on" edges, referencing bom-refs from either array — every
-component or service the harness touches is listed under `dependsOn` for
-the root. The *verb* (`uses`, `loads`, `invokes`, `executes`, `accesses`,
-`approves`, `pulls`) is layered on top as repeated
-`harness-aibom:relationship` properties (`"<verb>:<bom-ref>"`) on the
-source entry (the harness root, for top-level relationships). Nothing
-exotic — still valid CycloneDX, just extra properties. This does mean the
-dependency graph itself is flat (root depends on everything directly,
-rather than e.g. `runtime` depending on `model_endpoint` depending on
-`model`) — a deliberate v1 trade-off, not an oversight; see §5.
+untyped "depends-on" edges, referencing bom-refs from either array. The
+*verb* (`uses`, `loads`, `invokes`, `executes`, `accesses`, `approves`,
+`pulls`) is layered on top as repeated `harness-aibom:relationship`
+properties (`"<verb>:<bom-ref>"`) on the *source* entry of that edge.
+Nothing exotic — still valid CycloneDX, just extra properties.
+
+**The graph itself has real depth, not a flat star.** `HarnessDocument`
+(model.py) has two ways to register a component: `add()` relates it to
+the harness root — for things with no more specific parent in this data
+model (`runtime`, `configuration`, `skill`, `hook`, `secrets_surface`) —
+and `add_child(component, parent, verb)` relates it to an actual parent
+component instead. `configuration` declares its `model_endpoint`(s) and
+`mcp_server`(s) (`configuration -> model_endpoint`, `configuration ->
+mcp_server`); an endpoint serves the model(s) reachable through it
+(`model_endpoint -> model`); a server declares its own tools (`mcp_server
+-> tool`). `cyclonedx.py` turns each component's own `relationships` into
+*that component's* `dependencies[]` entry, not another root edge.
+Confirmed real complaint, fixed here: a v1 draft of this spec had every
+single relationship collapse into `harness-root -> everything`
+regardless of what actually declared what — a document with 15 entries
+had exactly 1 dependency edge and zero non-root nodes with children,
+which a generic SBOM tool can't use for impact analysis at all (v1 called
+this "a deliberate trade-off"; on reflection it was more of a shortcut
+than a defensible design decision, so it's fixed rather than kept). Not
+every relationship in this data model has a real parent to attach to yet
+— a skill isn't (yet) linked to the servers or models its own content
+might reference, since that would need parsing `SKILL.md`'s prose, which
+this scanner doesn't do (§5) — so skills, hooks, and secrets surfaces
+still hang directly off the root. That's a real remaining gap, not
+claimed otherwise.
 
 ## 2. Component taxonomy (v1)
 
@@ -256,16 +330,40 @@ rather than e.g. `runtime` depending on `model_endpoint` depending on
 | `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description` | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
+| `tool` | `application` | `server` (parent server's name), `riskClass` (`read`/`write`/`exec`/`network`/`unknown`, a heuristic over the tool's own *name* — see below) | one per name in a `mcp_server` entry's `tools` list |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
 
 | `componentClass` | Key properties | Source |
 |---|---|---|
 | `model_endpoint` | `provider`, `apiMode`, `endpoints[]` (native CDX field) | `config.yaml` / `openclaw.json` |
-| `mcp_server` | `transport` (`stdio`/`http`/`sse`, SSE detected from the URL's actual path, not a substring test), `endpoint`, `endpoints[]` (native CDX field, URL-based transports only), `tls` (bool, or `"n/a"` for stdio), `authConfigured` (bool — declared auth *or* a credential-shaped `env` var name), `envKeys` (every env var name, raw evidence), `authEnvKeys` (only the names that look credential-shaped), `command`, `args`, `toolCount` | `mcp_servers` list inside either config file |
+| `mcp_server` | `transport` (`stdio`/`http`/`sse`, SSE detected from the URL's actual path, not a substring test), `endpoint`, `endpoints[]` (native CDX field, URL-based transports only), `tls` (bool, or `"n/a"` for stdio), `authConfigured` (bool — declared auth *or* a credential-shaped `env` var name), `envKeys` (every env var name, raw evidence), `authEnvKeys` (only the names that look credential-shaped), `command`, `args`, `purl` (best-effort, stdio servers launched via `npx`/`uvx` only — see below), `versionPinned` (bool, alongside `purl`), `toolCount` | `mcp_servers` list inside either config file |
 
 `model` deliberately uses CycloneDX's native `machine-learning-model` type
 rather than a generic one — it's a real ML-BOM component, not just a file.
+
+**`tool`'s `riskClass` is a name-only heuristic, not a schema analysis.**
+An independent reviewer's own measurement of a real scan — 15 entries,
+zero with a `purl`, three MCP servers reduced to a bare `toolCount` —
+argued that a *count* can't detect the attack that matters (a tool's
+declared behavior silently changing, a "rug pull"). That's correct, and
+turning `toolCount: 3` into three named, riskClass-tagged components is a
+real improvement: an over-privilege review can now see *which* tools a
+server exposes and roughly what they do. What it deliberately does
+**not** do is detect a rug pull itself: this scanner reads static config
+files, never performs a live MCP protocol handshake, so it has no tool
+*description* or *input schema* to hash — only the bare name the config
+happens to list. Hashing just the name would only ever catch a rename,
+and shipping that under a name like `definitionSha256` would claim
+detection capability the tool doesn't have. See §5.
+
+**`mcp_server`'s `purl` is also best-effort, from the launcher only.**
+`npx -y @scope/pkg@1.2.3` and `uvx pkg==1.2.3` are recognized (npm and
+PyPI respectively); anything else gets no `purl` rather than a guess. A
+missing version (`npx -y @scope/pkg` with nothing pinned) sets
+`versionPinned: false` — the launcher fetches whatever it resolves as
+"latest" at every invocation, which is itself worth flagging, not just an
+absent field.
 
 ## 3. Fingerprinting rules
 
@@ -464,13 +562,23 @@ need `numbat hook install` run on it first.
   check runs in this package's own test suite, not in `harness-aibom
   validate` itself — a document could still drift from schema validity
   between test runs and releases without `validate` catching it.
-- **The dependency graph is flat by design** (§1) — every component and
-  service hangs directly off the harness root, rather than e.g. `runtime`
-  depending on `model_endpoint` depending on `model`. A general SBOM tool
-  sees relationship *existence* but not relationship *shape*; the verbs are
-  only in `harness-aibom:relationship` properties. Modeling a real topology
-  per componentClass is a bigger change than this release's scope covers,
-  deliberately deferred rather than attempted piecemeal.
+- **The dependency graph has real depth as of v0.2.0 (§1), but not for
+  every class.** `configuration -> model_endpoint -> model` and
+  `configuration -> mcp_server -> tool` are real parent/child edges now;
+  `skill`, `hook`, and `secrets_surface` still hang directly off the
+  root, since this scanner has no data linking a specific skill to the
+  servers or models its own `SKILL.md` prose might reference — that
+  would need parsing the skill's content, which it doesn't do. The verb
+  on every edge (`uses`, `loads`, ...) is still only in
+  `harness-aibom:relationship` properties, not a native CycloneDX field
+  (§1 explains why: `dependencies[]` itself is untyped in CycloneDX).
+- **`tool`'s `riskClass` is name-only, and there is no schema-level rug-
+  pull detection.** This scanner reads static config files, never a live
+  MCP protocol handshake, so it has no tool description or input schema
+  to hash — only whatever bare name the config happens to list. A tool
+  whose *declared name* stays the same but whose actual behavior changes
+  server-side is invisible to this scanner by construction, not by an
+  oversight that could be patched without adding live introspection.
 - **Skill/secrets-surface bom-refs can collide by name** (e.g. two `.env`
   files in different directories). `HarnessDocument.add()` disambiguates
   with a numeric suffix so the document stays valid, but the disambiguation

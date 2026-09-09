@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:4709daf5-b69e-4d78-bdb1-09b51590510b",
+  "serialNumber": "urn:uuid:aeba4bd4-a9eb-49d2-8689-d3077cd78454",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.1.15"
+          "version": "0.2.0"
         }
       ]
     },
@@ -31,20 +31,16 @@
           "value": "Ajays-MacBook-Pro.local"
         },
         {
+          "name": "harness-aibom:warning",
+          "value": "openclaw binary not found on PATH; runtime component skipped"
+        },
+        {
+          "name": "harness-aibom:warning",
+          "value": "configured model 'qwen3:8b' not found via Ollama /api/tags; recorded from config only"
+        },
+        {
           "name": "harness-aibom:relationship",
           "value": "loads:configuration:openclaw.json"
-        },
-        {
-          "name": "harness-aibom:relationship",
-          "value": "uses:model_endpoint:http-127.0.0.1-11434"
-        },
-        {
-          "name": "harness-aibom:relationship",
-          "value": "uses:model:qwen3-8b"
-        },
-        {
-          "name": "harness-aibom:relationship",
-          "value": "uses:mcp_server:local-fs"
         },
         {
           "name": "harness-aibom:relationship",
@@ -52,13 +48,19 @@
         }
       ]
     },
-    "timestamp": "2026-09-09T01:52:34+00:00"
+    "timestamp": "2026-09-09T02:21:40+00:00"
   },
   "components": [
     {
       "type": "file",
       "bom-ref": "configuration:openclaw.json",
       "name": "openclaw.json",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"
+        }
+      ],
       "properties": [
         {
           "name": "harness-aibom:componentClass",
@@ -75,6 +77,14 @@
         {
           "name": "harness-aibom:sha256",
           "value": "3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:model_endpoint:http-127.0.0.1-11434"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:mcp_server:local-fs"
         }
       ]
     },
@@ -129,6 +139,10 @@
         {
           "name": "harness-aibom:provider",
           "value": "ollama"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:model:qwen3-8b"
         }
       ]
     },
@@ -167,10 +181,20 @@
       "ref": "harness-root",
       "dependsOn": [
         "configuration:openclaw.json",
-        "model_endpoint:http-127.0.0.1-11434",
-        "model:qwen3-8b",
-        "mcp_server:local-fs",
         "secrets_surface:openclaw-agent.sqlite"
+      ]
+    },
+    {
+      "ref": "configuration:openclaw.json",
+      "dependsOn": [
+        "model_endpoint:http-127.0.0.1-11434",
+        "mcp_server:local-fs"
+      ]
+    },
+    {
+      "ref": "model_endpoint:http-127.0.0.1-11434",
+      "dependsOn": [
+        "model:qwen3-8b"
       ]
     }
   ]
