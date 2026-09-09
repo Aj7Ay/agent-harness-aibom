@@ -78,6 +78,31 @@ def test_no_mcp_servers_key_returns_empty():
     assert extract_mcp_servers({}) == []
 
 
+# ---- v0.9.0: confidence tagging (observed vs. inferred) -------------------
+
+
+def test_explicitly_declared_transport_is_tagged_observed():
+    config = {"mcp_servers": [{"name": "streamed", "url": "https://mcp.example/sse", "transport": "sse"}]}
+    server = only_server(config)
+    assert server.properties["transportConfidence"] == "observed"
+
+
+def test_derived_transport_is_tagged_inferred():
+    # No `transport` key in the config -- this scanner derives "http"
+    # from the shape of `url`/`command`, a real, narrower instance of the
+    # same observed-vs-inferred distinction skills.py's content analysis
+    # already carries.
+    config = {"mcp_servers": [{"name": "local-time", "url": "http://127.0.0.1:8001"}]}
+    server = only_server(config)
+    assert server.properties["transportConfidence"] == "inferred"
+
+
+def test_stdio_derived_transport_is_also_tagged_inferred():
+    config = {"mcp_servers": [{"name": "local-calc", "command": "calc-mcp"}]}
+    server = only_server(config)
+    assert server.properties["transportConfidence"] == "inferred"
+
+
 def test_non_credential_env_names_do_not_set_authconfigured():
     # Regression test: an independent reviewer found `authConfigured` was
     # true for *any* non-empty env dict -- a stdio server with only

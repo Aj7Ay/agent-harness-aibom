@@ -2041,3 +2041,54 @@ evidence mapping" section in `report.py` showing all three frameworks
 at once (cheap, since every mapping is a pure function over data already
 in the document) -- both labeled, in the exact same words, as evidence
 mapping rather than a certification.
+
+## 20. Confidence tagging: formalizing an already-documented observed/inferred distinction (v0.9.0)
+
+Deliberately **not** a universal per-relationship confidence model
+across every collector -- that was correctly identified in SPEC.md
+section 16 as too invasive to retrofit safely in one pass, and remains
+so. What v0.9.0 actually does is narrower: three places in this
+codebase already say, in prose, that one specific fact is a text
+mention or a guess rather than a directly confirmed one -- this release
+turns exactly those three, and only those three, into a real, queryable
+`harness-aibom:` property, without inventing a new ambiguity anywhere
+else.
+
+- **`skills.py`'s `analyze_skill_content()` output**
+  (`referencedServers`/`urls`/`shellIndicators`/`envVarReferences`) --
+  already documented since v0.6.0 as "a text mention... never
+  confirmation the skill actually invokes it at runtime". Now also
+  carries `harness-aibom:contentAnalysisConfidence: "inferred"` on the
+  skill component, set only when at least one of those four fields
+  actually found something (never fabricated for a skill whose analysis
+  came back empty -- there's no inferred fact to tag).
+- **The same skill's own `sha256`** -- contrasted directly on the same
+  component with `harness-aibom:sha256Confidence: "observed"` (this
+  scanner hashed the directory's real bytes itself). Always set
+  alongside a real hash -- `skill_dir` is guaranteed to be a real,
+  existing directory at this point (its own `SKILL.md` was just found
+  inside it), so this is never conditional.
+- **A model's own digest** (`collectors/ollama.py`) -- SPEC.md section 3
+  already states this is "taken verbatim from Ollama's own manifest
+  digest, never recomputed". Now carries
+  `harness-aibom:digestConfidence: "observed"`, set only when Ollama's
+  own response actually included a digest (never fabricated for a model
+  entry with none).
+- **An MCP server's own transport** (`collectors/mcp.py`) -- a real,
+  second instance of the same distinction, found while implementing
+  this feature rather than pre-existing in a comment: a config entry
+  that explicitly declares its own `transport` key is a directly
+  *observed* fact (read verbatim); the common case -- deriving it from
+  whether `url`/`command` is present, because most real configs don't
+  bother declaring it -- is genuinely *inferred*. Both cases now carry
+  `harness-aibom:transportConfidence` (`"observed"` or `"inferred"`
+  respectively), instead of the two cases being indistinguishable in the
+  document the way they were before this release.
+
+**Deliberately not tagged**: everything else. `path`/`category`/
+`command`/`args`/`endpoint`/etc. were never ambiguous in the first
+place -- this scanner either read them directly off disk/config or
+didn't record them at all -- so tagging them would manufacture a
+distinction that doesn't exist, exactly what this section's own
+introduction (and SPEC.md section 16) warns against. This unblocks §21
+(evidence chains) narrowly, for exactly the case now tagged here.

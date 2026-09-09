@@ -40,7 +40,15 @@ def discover_models(base_url: str, fetch: FetchFn = default_fetch) -> list[Compo
         comp = Component(component_class="model", name=m.get("name", "unknown"))
         comp.version = m.get("name")
         details = m.get("details") or {}
-        comp.set("digest", m.get("digest"))
+        digest = m.get("digest")
+        comp.set("digest", digest)
+        # v0.9.0: a real, directly *observed* fact -- taken verbatim from
+        # Ollama's own manifest digest, never recomputed or guessed
+        # (SPEC.md section 3) -- tagged explicitly so it can be read back
+        # and contrasted with a genuinely *inferred* fact elsewhere in
+        # the document (skills.py's own content-analysis properties).
+        if digest:
+            comp.set("digestConfidence", "observed")
         comp.set("sizeBytes", m.get("size"))
         comp.set("modifiedAt", m.get("modified_at"))
         comp.set("family", details.get("family"))

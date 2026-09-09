@@ -212,10 +212,20 @@ def extract_mcp_servers(config: dict) -> list[tuple[Component, list[Component], 
 
         comp = Component(component_class="mcp_server", name=name)
 
-        transport = entry.get("transport") or (
+        # v0.9.0: a config entry that explicitly declares its own
+        # `transport` is a directly *observed* fact (this scanner reads
+        # it verbatim); one this scanner has to derive from the shape of
+        # `url`/`command` instead (the common case -- most real configs
+        # don't bother declaring it when it's implied by which fields are
+        # present) is an *inferred* one -- a real, narrow instance of the
+        # same observed-vs-inferred distinction skills.py's own content
+        # analysis already carries in prose (see analyze_skill_content()).
+        transport_declared = entry.get("transport")
+        transport = transport_declared or (
             "stdio" if command and not endpoint else ("sse" if _looks_like_sse(endpoint) else "http")
         )
         comp.set("transport", transport)
+        comp.set("transportConfidence", "observed" if transport_declared else "inferred")
 
         if endpoint:
             comp.set("endpoint", endpoint)
