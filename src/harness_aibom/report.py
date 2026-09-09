@@ -220,6 +220,37 @@ pre.raw-json {
   background: var(--code-bg); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.78rem;
   overflow-x: auto; white-space: pre; margin: 0.4rem 0 0;
 }
+/* v0.8.0: Component Inspector -- a focused modal reusing an already-
+   rendered .entry's own markup (see _JS's openInspector()), never a
+   second copy of the entry-rendering logic. */
+.inspect-btn, .copy-btn {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px;
+  padding: 0.05rem 0.5rem; font-size: 0.75rem; color: var(--secondary); cursor: pointer;
+  font-family: inherit;
+}
+.inspect-btn:hover, .copy-btn:hover { color: var(--fg); border-color: var(--secondary); }
+/* display:none as the base rule, :not([hidden]) opts into flex -- setting
+   `display: flex` unconditionally on `.inspector-overlay` would win over
+   the browser's own `[hidden] { display: none }` UA rule (same
+   specificity, but an author stylesheet always outranks the UA
+   stylesheet), silently defeating `panel.hidden = true` in _JS. */
+.inspector-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  align-items: flex-start; justify-content: center; padding: 4vh 1rem; z-index: 100; overflow-y: auto;
+}
+.inspector-overlay:not([hidden]) { display: flex; }
+.inspector-panel {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  max-width: 640px; width: 100%; padding: 1rem 1.25rem 1.25rem; box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+}
+.inspector-toolbar { display: flex; justify-content: flex-end; gap: 0.5rem; margin-bottom: 0.5rem; }
+.inspector-close { font-size: 0.95rem; line-height: 1; }
+.inspector-body .entry { border-top: none; padding: 0; }
+/* The cloned entry's own "Inspect" button would just re-open the same
+   inspector on the same ref -- harmless, but pointless clutter once
+   you're already looking at it. */
+.inspector-body .inspect-btn { display: none; }
+body.inspector-open { overflow: hidden; }
 """
 
 #: v0.4.0's one deliberate exception to "no JavaScript needed at all" (see
@@ -293,14 +324,117 @@ function goToClass(cls) {
   if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
+// v0.8.0: Component Inspector -- a modal that reuses an already-rendered
+// .entry's own markup (name, badges, capability/reachability, properties,
+// blast radius, supply chain, relationships, raw-JSON reveal) instead of
+// a second render path. Same reasoning `report --baseline` (v0.7.0)
+// applied to diff logic: never duplicate what's already computed and
+// tested elsewhere -- here that's `_render_entry()` itself, not a
+// security computation, but the principle is the same.
+var inspectorLastFocus = null;
+
+function findEntryByRef(ref) {
+  // Loop-and-compare, not a concatenated CSS attribute selector -- same
+  // `data-goto`/`findGroupForClass` discipline above: a bom-ref this
+  // renderer didn't itself generate (report accepts any JSON file) could
+  // contain a character that breaks a hand-built selector string.
+  var entries = document.querySelectorAll('.entry[data-bom-ref]');
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i].getAttribute('data-bom-ref') === ref) return entries[i];
+  }
+  return null;
+}
+
+function openInspector(ref) {
+  var source = findEntryByRef(ref);
+  var panel = document.getElementById('inspector-panel');
+  var body = document.getElementById('inspector-body');
+  var copyBtn = document.getElementById('inspector-copy');
+  if (!source || !panel || !body) return;
+  body.innerHTML = '';
+  // Clone, don't move -- the entry stays in the Components/Services list
+  // exactly as it was. The cloned <details data-bom-ref> for Raw JSON
+  // still works with no extra wiring: the lazy-render `toggle` listener
+  // below is delegated on `document`, so it fires for this clone too,
+  // whenever it's actually opened -- clone timing doesn't matter to it.
+  body.appendChild(source.cloneNode(true));
+  if (copyBtn) copyBtn.setAttribute('data-copy', ref);
+  panel.hidden = false;
+  document.body.classList.add('inspector-open');
+  inspectorLastFocus = document.activeElement;
+  var closeBtn = document.getElementById('inspector-close');
+  if (closeBtn) closeBtn.focus();
+}
+
+function closeInspector() {
+  var panel = document.getElementById('inspector-panel');
+  if (!panel || panel.hidden) return;
+  panel.hidden = true;
+  document.body.classList.remove('inspector-open');
+  if (inspectorLastFocus && inspectorLastFocus.focus) inspectorLastFocus.focus();
+  inspectorLastFocus = null;
+}
+
+function fallbackCopy(text) {
+  // navigator.clipboard is unavailable in some browsers when a report is
+  // opened straight from disk (file://, not a secure context) -- a
+  // temporary off-screen textarea + execCommand('copy') still works
+  // there. Never throws outward: a failed copy just doesn't show
+  // "Copied", it never breaks the inspector.
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    var ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+function copyBomRef(button) {
+  var text = button.getAttribute('data-copy') || '';
+  var original = button.textContent;
+  function announce(ok) {
+    button.textContent = ok ? 'Copied' : 'Copy failed';
+    setTimeout(function () { button.textContent = original; }, 1200);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () { announce(true); }, function () {
+      announce(fallbackCopy(text));
+    });
+  } else {
+    announce(fallbackCopy(text));
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function () {
   var searchBox = document.getElementById('search-box');
   var classFilter = document.getElementById('class-filter');
   if (searchBox) searchBox.addEventListener('input', applyFilters);
   if (classFilter) classFilter.addEventListener('change', applyFilters);
   document.addEventListener('click', function (event) {
-    var node = event.target.closest && event.target.closest('[data-goto]');
-    if (node) goToClass(node.getAttribute('data-goto'));
+    var goto = event.target.closest && event.target.closest('[data-goto]');
+    if (goto) { goToClass(goto.getAttribute('data-goto')); return; }
+    var inspect = event.target.closest && event.target.closest('[data-inspect]');
+    if (inspect) { openInspector(inspect.getAttribute('data-inspect')); return; }
+    var closeBtn = event.target.closest && event.target.closest('#inspector-close');
+    if (closeBtn) { closeInspector(); return; }
+    var copyBtn = event.target.closest && event.target.closest('#inspector-copy');
+    if (copyBtn) { copyBomRef(copyBtn); return; }
+    // Backdrop click: only the overlay element itself (an exact target
+    // match, not .closest()) -- .closest('#inspector-panel') would also
+    // match every click *inside* the panel, since the panel is the
+    // overlay's own ancestor, closing the modal on every click inside it.
+    if (event.target.id === 'inspector-panel') closeInspector();
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') closeInspector();
   });
   applyFilters();
 });
@@ -475,7 +609,10 @@ def _render_entry(entry: dict, cls: str, ctx: dict) -> str:
     single, relationships = _split_properties(entry)
     single.pop("harness-aibom:componentClass", None)
 
-    header_bits = [_class_dot(cls), f"<strong>{_esc(entry.get('name', ''))}</strong>"]
+    name = entry.get("name", "")
+    bom_ref = entry.get("bom-ref", "")
+
+    header_bits = [_class_dot(cls), f"<strong>{_esc(name)}</strong>"]
     # A `model` component's version is set to the model name itself
     # (ollama.py), so "v" + version would just repeat the name right
     # after it (e.g. "qwen3:8b vqwen3:8b") -- only show it when it's
@@ -504,9 +641,8 @@ def _render_entry(entry: dict, cls: str, ctx: dict) -> str:
     # blob, see `render_html`) rather than server-embedded here. See
     # SPEC.md section 10 for the original v0.4.0 design and section 12
     # for why v0.5.1 stopped embedding it directly.
-    raw_json = f"<details data-bom-ref='{_esc(entry.get('bom-ref', ''))}'><summary>Raw JSON</summary><pre class='raw-json'></pre></details>"
+    raw_json = f"<details data-bom-ref='{_esc(bom_ref)}'><summary>Raw JSON</summary><pre class='raw-json'></pre></details>"
 
-    bom_ref = entry.get("bom-ref", "")
     supply_chain_html = _render_reachable_list(
         bom_ref, ctx["supply_chains"], "reachable", "Depends on",
         "Everything this component itself relies on, transitively -- an exact graph traversal, not a guess.",
@@ -517,10 +653,24 @@ def _render_entry(entry: dict, cls: str, ctx: dict) -> str:
         "\"Depends on\" above, an exact graph traversal over the same recorded relationships.",
     )
 
+    # v0.8.0: the Component Inspector's own entry point -- a real
+    # <button>, not the whole header, so it's keyboard-reachable and
+    # screen-reader-labeled for free, no extra tabindex/role plumbing
+    # needed. `data-inspect` (read via getAttribute, not built into a CSS
+    # selector) is the same delegated-click pattern `data-goto` already
+    # established in v0.5.1, for the same reason: never build a selector
+    # or a JS string by concatenating a value this file doesn't fully
+    # control the shape of (`report` renders any JSON handed to it).
+    inspect_btn = (
+        f"<button type='button' class='inspect-btn' data-inspect='{_esc(bom_ref)}' "
+        f"aria-label='Inspect {_esc(name)}'>Inspect</button>"
+    )
+
     return (
-        f"<div class='entry' data-class='{_esc(cls)}' data-search='{_esc(_search_blob(entry, cls))}'>"
+        f"<div class='entry' data-class='{_esc(cls)}' data-bom-ref='{_esc(bom_ref)}' "
+        f"data-search='{_esc(_search_blob(entry, cls))}'>"
         f"<div class='entry-header'>{' '.join(header_bits)}"
-        f" <span class='small'>{_esc(bom_ref)}</span></div>"
+        f" <span class='small'>{_esc(bom_ref)}</span> {inspect_btn}</div>"
         f"{surface_line}"
         f"{endpoints_html}"
         f"{_render_props_table(single)}"
@@ -1316,6 +1466,21 @@ def render_html(bom: dict, diff_result: dict | None = None) -> str:
   {generated_line} ·
   every property of every component is rendered, nothing summarized away.
 </footer>
+
+<!-- v0.8.0: Component Inspector -- populated client-side by openInspector()
+     in _JS from an already-rendered .entry's own markup, never a second
+     copy of it server-side. hidden by default; see _CSS's
+     .inspector-overlay:not([hidden]) for why display isn't set here. -->
+<div id="inspector-panel" class="inspector-overlay" hidden>
+  <div class="inspector-panel" role="dialog" aria-modal="true" aria-label="Component inspector">
+    <div class="inspector-toolbar">
+      <button type="button" id="inspector-copy" class="copy-btn">Copy bom-ref</button>
+      <button type="button" id="inspector-close" class="inspector-close" aria-label="Close inspector">✕ Close</button>
+    </div>
+    <div id="inspector-body" class="inspector-body"></div>
+  </div>
+</div>
+
 <script type="application/json" id="bom-data">{bom_data_json}</script>
 <script>{_JS}</script>
 </body>

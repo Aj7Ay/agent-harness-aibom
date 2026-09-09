@@ -569,3 +569,67 @@ def test_security_summary_baseline_line_reflects_real_diff_counts():
     html_text = render_html(after, diff_result=diff_result)
     assert "1 added" in html_text
     assert "not available for a single scan" not in html_text
+
+
+# ---- v0.8.0: Component Inspector --------------------------------------
+
+
+def test_entries_carry_a_bom_ref_and_an_inspect_button():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    doc.add(Component(component_class="skill", name="research"), "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "data-bom-ref='skill:research'" in html_text
+    assert "data-inspect='skill:research'" in html_text
+    assert "class='inspect-btn'" in html_text
+    assert "onclick=" not in html_text  # same data-* delegated pattern as data-goto, never inline
+
+
+def test_inspector_modal_markup_is_present_once():
+    html_text = render_html(_doc_with_everything())
+    assert html_text.count('id="inspector-panel"') == 1
+    assert 'id="inspector-body"' in html_text
+    assert 'id="inspector-close"' in html_text
+    assert 'id="inspector-copy"' in html_text
+    # hidden by default -- see _CSS's .inspector-overlay:not([hidden])
+    # note for why `hidden` (the attribute JS toggles) has to be the real
+    # gate, not just the base CSS rule.
+    assert '<div id="inspector-panel" class="inspector-overlay" hidden>' in html_text
+
+
+def test_inspector_functions_are_wired_into_js():
+    html_text = render_html(_doc_with_everything())
+    assert "function openInspector(" in html_text
+    assert "function closeInspector(" in html_text
+    assert "function findEntryByRef(" in html_text
+    assert "function copyBomRef(" in html_text
+    # Escape-to-close is real behavior, not just markup -- along with
+    # open/backdrop-click-close/inner-click-does-not-close/lazy raw-JSON
+    # population inside the clone, all verified with real dispatched
+    # browser events (headless Chrome, iframe + contentWindow.Event)
+    # before shipping, same discipline as every prior JS-touching release.
+    assert "event.key === 'Escape'" in html_text
+
+
+def test_inspect_button_survives_a_bom_ref_containing_a_quote():
+    # Same regression class as the data-goto XSS fix (v0.5.1): a bom-ref
+    # this scanner didn't itself generate (report accepts any JSON file --
+    # collectors are restricted to a safe bom_ref slug, but a hand-crafted
+    # document isn't) must not be able to break out of the data-inspect
+    # attribute and inject script.
+    bom = {
+        "bomFormat": "CycloneDX", "specVersion": "1.6", "version": 1,
+        "metadata": {"component": {"type": "application", "bom-ref": "harness-root", "name": "evil@test"}},
+        "components": [{
+            "type": "application", "bom-ref": "c1'); alert(document.domain); //", "name": "x",
+            "properties": [{"name": "harness-aibom:componentClass", "value": "skill"}],
+        }],
+        "dependencies": [{"ref": "harness-root", "dependsOn": ["c1'); alert(document.domain); //"]}],
+    }
+    html_text = render_html(bom)
+    assert "onclick=" not in html_text
+    # The payload reaches the page only as an HTML-escaped attribute
+    # *value* -- the escaped quote (&#x27;, never a literal ') means there
+    # is no unescaped `'` left to close the attribute early with, so the
+    # rest of the string can never be interpreted as a second attribute or
+    # break out into markup, regardless of what text it contains.
+    assert "data-inspect='c1&#x27;); alert(document.domain); //'" in html_text

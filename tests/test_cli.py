@@ -410,3 +410,44 @@ def test_policy_rejects_non_dict_json(tmp_path, capsys):
     exit_code = main(["policy", str(bad)])
     assert exit_code == 1
     assert "not a CycloneDX document" in capsys.readouterr().err
+
+
+# ---- v0.8.0: validate's own referential-integrity / orphan checks -----
+
+
+def test_validate_flags_referential_integrity_errors(tmp_path, capsys):
+    out = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out)])
+    bom = json.loads(out.read_text())
+    bom["dependencies"].append({"ref": "no-such-ref", "dependsOn": []})
+    out.write_text(json.dumps(bom))
+
+    capsys.readouterr()
+    exit_code = main(["validate", str(out)])
+    assert exit_code == 1
+    assert "no-such-ref" in capsys.readouterr().err
+
+
+def test_validate_reports_orphans_as_warnings_not_failures(tmp_path, capsys):
+    out = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out)])
+    bom = json.loads(out.read_text())
+    bom["components"].append(
+        {
+            "type": "library",
+            "bom-ref": "skill:orphaned",
+            "name": "orphaned",
+            "properties": [{"name": "harness-aibom:componentClass", "value": "skill"}],
+        }
+    )
+    out.write_text(json.dumps(bom))
+
+    capsys.readouterr()
+    exit_code = main(["validate", str(out)])
+    captured = capsys.readouterr()
+    # An orphan is still a valid document -- `validate` succeeds (exit 0),
+    # but says so, on stderr, as a warning rather than staying silent.
+    assert exit_code == 0
+    assert "skill:orphaned" in captured.err
+    assert "orphan" in captured.err
+    assert "valid (1 orphan warning)" in captured.out

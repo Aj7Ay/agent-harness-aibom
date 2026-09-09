@@ -1492,3 +1492,139 @@ sidecar-JSON security output, a supply-chain timeline view, compliance
 mapping, and cosign signing -- all still-open original-roadmap items
 `policy` and `report --baseline` were the two highest-priority picks
 from, not full closure of the roadmap.
+
+## 15. AIBOM self-integrity and the Component Inspector (v0.8.0)
+
+An independent reviewer's 33-item wishlist framed this project's next
+horizon as "an Agent AIBOM Security Explorer + evidence system", spanning
+correctness checks, a richer explorer UI, capability/trust-boundary
+analysis, AI-specific provenance, and enterprise supply-chain features
+(VEX, SARIF, attestations, signing). Building all 33 at once would mean
+shipping unverified stubs -- against this project's whole discipline (every
+fix/feature gets a regression test, every JS change gets real-browser
+verification, nothing ships without checking it against this actual
+codebase first, not a hypothetical one). v0.8.0 instead ships the two
+items from that list that are (a) concretely verifiable against this
+codebase's real behavior today and (b) don't require a new data-model
+concept (confidence tiers, evidence chains, trust zones -- all real,
+substantial future work, not attempted here). The full wishlist is
+preserved as the persisted roadmap for the stages after this one -- see
+`memory/aibom-explorer-roadmap.md`.
+
+**AIBOM self-integrity (`validate.py`).** `validate_document()` already
+checked that the envelope is present and every component/service carries
+a recognized `componentClass` in the right array; it now also checks the
+document's own graph is internally consistent, none of which a generic
+CycloneDX schema validator can check (a schema has no idea what a *valid*
+bom-ref even is beyond "a string" -- it can't know `dependsOn:
+["typo-ref"]` points at nothing):
+
+- **Duplicate bom-ref** -- the same bom-ref used twice (root, a
+  `components[]` entry, or a `services[]` entry), reported with every
+  location it was found at.
+- **Dangling `dependencies[]` edges** -- an entry's own `ref`, or any of
+  its `dependsOn` targets, that doesn't match any known bom-ref.
+- **Malformed `hashes[]`** -- a `SHA-256` hash entry whose `content` isn't
+  actually 64 lowercase hex characters.
+
+All three are errors (fail `validate`, exit 1) -- a document with any of
+these would silently mis-render or crash a generic CycloneDX consumer
+that trusts `dependsOn` or `hashes[]` to be what they claim. This is
+exactly the class of bug this project's own diff-identity fix (v0.2.3)
+and blast-radius-direction fix (v0.5.1) were each caught by a *reviewer*
+rather than by tooling -- these checks are the ones that would catch a
+bug in that same family automatically, on any document, not just this
+scanner's own output.
+
+**Orphan detection (`find_orphan_components()`), deliberately separate.**
+A component/service `dependencies[]` never actually reaches by walking
+from the root is still a fully *valid* CycloneDX document -- schema-valid,
+and passes every check above. Most likely a scanner bug (registered but
+never `add()`/`add_child()`-ed) or a hand-edit that dropped an edge
+without dropping the component it pointed at, but not itself a broken
+document. Kept out of `validate_document()`'s error list for exactly that
+reason: `cli.py`'s `_run_validate` prints these as warnings on stderr
+(`validate` still exits 0), the same "informational, not fatal" treatment
+`scan`'s own `doc.warnings` already gets, never a `report --baseline`
+either -- confirmed real by running `validate` against both real
+examples (`examples/*.example.json`) and finding zero orphans, zero
+referential-integrity errors, exactly as the graph's own construction
+discipline (`HarnessDocument._register()`, `add()`/`add_child()`)
+predicts.
+
+**Component Inspector (`report.py`).** The reviewer's own "single best UI
+improvement": every entry (component or service) now has an "Inspect"
+button that opens a focused modal -- Identity, capability/reachability,
+properties, blast radius, supply chain, relationships, and the Raw JSON
+reveal, all in one place, reachable without scrolling through a long
+grouped list. Deliberately implemented as *reuse*, not a second render
+path: `openInspector()` (`_JS`) clones an already-rendered `.entry`
+element's own DOM into the modal body rather than the server building a
+second copy of the same content, or the client re-deriving
+capability/reachability/blast-radius from scratch in JavaScript (which
+would risk the exact "two engines disagree" problem `policy`'s own design
+note in section 14 was written to avoid at the Python level -- the same
+principle, applied here to the client side). The cloned raw-JSON
+`<details>` needs no extra wiring either: the v0.5.1 lazy-render `toggle`
+listener is already delegated on `document`, so it fires for a freshly
+cloned node the same as an original one.
+
+Two defensive patterns already established elsewhere on this page carried
+straight over, deliberately, not reinvented:
+
+- `data-inspect` (read via `getAttribute()`, compared in a loop by
+  `findEntryByRef()` -- never built into a CSS selector or a JS string by
+  concatenation) is the same delegated-click discipline `data-goto`
+  established in v0.5.1, for the same reason: a bom-ref this scanner
+  didn't itself generate (`report` accepts any JSON file) could contain a
+  character that breaks a hand-built selector. Regression test mirrors
+  the v0.5.1 XSS test exactly, with a quote-containing bom-ref in place
+  of a quote-containing componentClass.
+- The modal's own `hidden` attribute is the real visibility gate, not
+  just a CSS class -- `.inspector-overlay { display: none }` as the base
+  rule, `:not([hidden])` opts into `display: flex`. Setting `display:
+  flex` unconditionally on the class would have silently defeated
+  `panel.hidden = true`: an author stylesheet always outranks the
+  browser's own `[hidden] { display: none }` UA rule at equal
+  specificity, regardless of which selector looks more specific on paper.
+
+Backdrop-click-to-close is an exact `event.target.id === 'inspector-panel'`
+check, not `event.target.closest('[data-inspector-close]')` on the
+overlay element itself -- `.closest()` walks up through ancestors, so a
+`data-inspector-close` attribute on the overlay div would also match
+every click *inside* the panel (the panel is the overlay's own
+descendant), closing the modal on every interaction with its own content.
+Confirmed with real dispatched browser events (headless Chrome, an
+`iframe` + the iframe's own `contentWindow.Event`/`KeyboardEvent`
+constructors, exactly the harness this project has used for every
+JS-touching release since the v0.4.0 lesson -- see the "real bug this
+caught" note in `memory/aibom-explorer-roadmap.md`): open via a real
+button click, lazy raw-JSON population inside the clone, Escape-to-close
+with focus restored to whatever had focus before opening, backdrop-click-
+to-close, and -- the actual regression this pattern exists to prevent -- a
+click *inside* the panel does NOT close it. "Copy bom-ref" itself
+(`copyBomRef()`, `navigator.clipboard.writeText` with an
+`execCommand('copy')` fallback for a `file://`-opened report where
+`navigator.clipboard` may not exist at all) degrades to a plain "Copy
+failed" button label rather than throwing when a browser blocks the
+write -- confirmed real that this happens for a *synthetic* (untrusted)
+click event specifically, which is expected browser security behavior for
+both clipboard APIs, not a defect in this code; a real user click is a
+trusted event and isn't subject to that restriction.
+
+**Deliberately not attempted in v0.8.0**: everything else on the
+reviewer's 33-item list -- confidence/observation levels per relationship
+(OBSERVED/DERIVED/INFERRED/UNKNOWN), evidence chains, attack-path
+analysis, blast-radius-as-a-dedicated-view (the data already exists per
+v0.5.0/v0.5.1, just not yet its own top-level section), trust zones, a
+capability matrix, prompt/memory BOM drift tracking beyond what `report
+--baseline` already shows, model digest/provenance depth, VEX,
+policy-as-code beyond the `policy` command's fixed rule set, SARIF, a
+security scorecard, security assumptions/negative-evidence sections,
+reproducibility metadata, CycloneDX 1.7 (this project stays on 1.6 as its
+canonical output until 1.7 tooling and tests are ready -- confirmed 1.7
+is real and released, per the reviewer, but a canonical-format bump is
+its own migration, not a side effect of an unrelated feature),
+compositions/formulation/declarations/attestations, and signing. All
+staged as future work in `memory/aibom-explorer-roadmap.md`, organized
+into the reviewer's own P0-P4 priority tiers, not dropped.

@@ -142,6 +142,37 @@ pre.raw-json {
   background: var(--code-bg); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.78rem;
   overflow-x: auto; white-space: pre; margin: 0.4rem 0 0;
 }
+/* v0.8.0: Component Inspector -- a focused modal reusing an already-
+   rendered .entry's own markup (see _JS's openInspector()), never a
+   second copy of the entry-rendering logic. */
+.inspect-btn, .copy-btn {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px;
+  padding: 0.05rem 0.5rem; font-size: 0.75rem; color: var(--secondary); cursor: pointer;
+  font-family: inherit;
+}
+.inspect-btn:hover, .copy-btn:hover { color: var(--fg); border-color: var(--secondary); }
+/* display:none as the base rule, :not([hidden]) opts into flex -- setting
+   `display: flex` unconditionally on `.inspector-overlay` would win over
+   the browser's own `[hidden] { display: none }` UA rule (same
+   specificity, but an author stylesheet always outranks the UA
+   stylesheet), silently defeating `panel.hidden = true` in _JS. */
+.inspector-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  align-items: flex-start; justify-content: center; padding: 4vh 1rem; z-index: 100; overflow-y: auto;
+}
+.inspector-overlay:not([hidden]) { display: flex; }
+.inspector-panel {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  max-width: 640px; width: 100%; padding: 1rem 1.25rem 1.25rem; box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+}
+.inspector-toolbar { display: flex; justify-content: flex-end; gap: 0.5rem; margin-bottom: 0.5rem; }
+.inspector-close { font-size: 0.95rem; line-height: 1; }
+.inspector-body .entry { border-top: none; padding: 0; }
+/* The cloned entry's own "Inspect" button would just re-open the same
+   inspector on the same ref -- harmless, but pointless clutter once
+   you're already looking at it. */
+.inspector-body .inspect-btn { display: none; }
+body.inspector-open { overflow: hidden; }
 </style>
 </head>
 <body>
@@ -150,8 +181,8 @@ pre.raw-json {
   <p class="muted">
     runtime: <strong>openclaw</strong> ·
     host: <strong>Ajays-MacBook-Pro.local</strong> ·
-    scanned: 2026-09-09T12:58:16+00:00 ·
-    serial: urn:uuid:b9731a37-84a2-43b2-bfac-8657a1eb3d14
+    scanned: 2026-09-09T13:17:36+00:00 ·
+    serial: urn:uuid:79f5e220-f741-481a-a57f-62b98dbad5cd
   </p>
 </header>
 
@@ -234,17 +265,17 @@ pre.raw-json {
 <section id="components">
   <h2>Components</h2>
   
-  <details open class='group' data-class='configuration'><summary><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span>configuration <span class='count'>(1)</span></summary><div class='entry' data-class='configuration' data-search='openclaw.json configuration:openclaw.json file configuration componentclass configuration path /users/ajay/aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json relpath .openclaw/openclaw.json sha256 3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317 relationship uses:model_endpoint:http-127.0.0.1-11434 relationship uses:mcp_server:local-fs'><div class='entry-header'><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span> <strong>openclaw.json</strong> <span class='badge'>file</span> <span class='small'>configuration:openclaw.json</span></div><p class='muted small'>capability: read &middot; reachability: filesystem</p><table class='props'><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json</td></tr><tr><th>relPath</th><td>.openclaw/openclaw.json</td></tr><tr><th>sha256</th><td>3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317</td></tr></table><details><summary>Blast radius (1 reachable, observed)</summary><p class='muted small'>Everything that would be affected if this component were compromised -- the reverse of "Depends on" above, an exact graph traversal over the same recorded relationships.</p><ul><li>harness-root</li></ul></details><details><summary>Depends on (3 reachable, observed)</summary><p class='muted small'>Everything this component itself relies on, transitively -- an exact graph traversal, not a guess.</p><ul><li>mcp_server:local-fs</li><li>model:qwen3-8b</li><li>model_endpoint:http-127.0.0.1-11434</li></ul></details><details><summary>relationships (2)</summary><ul><li>uses:model_endpoint:http-127.0.0.1-11434</li><li>uses:mcp_server:local-fs</li></ul></details><details data-bom-ref='configuration:openclaw.json'><summary>Raw JSON</summary><pre class='raw-json'></pre></details></div></details><details open class='group' data-class='model'><summary><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span>model <span class='count'>(1)</span></summary><div class='entry' data-class='model' data-search='qwen3:8b model:qwen3-8b machine-learning-model qwen3:8b model componentclass model version qwen3:8b'><div class='entry-header'><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span> <strong>qwen3:8b</strong> <span class='badge'>machine-learning-model</span> <span class='small'>model:qwen3-8b</span></div><p class='muted small'>capability: inference &middot; reachability: model-provider</p><table class='props'><tr><th>version</th><td>qwen3:8b</td></tr></table><details><summary>Blast radius (3 reachable, observed)</summary><p class='muted small'>Everything that would be affected if this component were compromised -- the reverse of "Depends on" above, an exact graph traversal over the same recorded relationships.</p><ul><li>configuration:openclaw.json</li><li>harness-root</li><li>model_endpoint:http-127.0.0.1-11434</li></ul></details><details data-bom-ref='model:qwen3-8b'><summary>Raw JSON</summary><pre class='raw-json'></pre></details></div></details><details open class='group' data-class='secrets_surface'><summary><span class='class-dot' style='background:var(--class-secrets_surface)' aria-hidden='true'></span>secrets_surface <span class='count'>(1)</span></summary><div class='entry' data-class='secrets_surface' data-search='openclaw-agent.sqlite secrets_surface:openclaw-agent.sqlite data secrets_surface componentclass secrets_surface path /users/ajay/aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite relpath .openclaw/agents/main/agent/openclaw-agent.sqlite note per-agent provider credential store (sqlite); contents never read'><div class='entry-header'><span class='class-dot' style='background:var(--class-secrets_surface)' aria-hidden='true'></span> <strong>openclaw-agent.sqlite</strong> <span class='badge'>data</span> <span class='small'>secrets_surface:openclaw-agent.sqlite</span></div><p class='muted small'>capability: credential &middot; reachability: credential-store</p><table class='props'><tr><th>note</th><td>per-agent provider credential store (SQLite); contents never read</td></tr><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite</td></tr><tr><th>relPath</th><td>.openclaw/agents/main/agent/openclaw-agent.sqlite</td></tr></table><details><summary>Blast radius (1 reachable, observed)</summary><p class='muted small'>Everything that would be affected if this component were compromised -- the reverse of "Depends on" above, an exact graph traversal over the same recorded relationships.</p><ul><li>harness-root</li></ul></details><details data-bom-ref='secrets_surface:openclaw-agent.sqlite'><summary>Raw JSON</summary><pre class='raw-json'></pre></details></div></details>
+  <details open class='group' data-class='configuration'><summary><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span>configuration <span class='count'>(1)</span></summary><div class='entry' data-class='configuration' data-bom-ref='configuration:openclaw.json' data-search='openclaw.json configuration:openclaw.json file configuration componentclass configuration path /users/ajay/aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json relpath .openclaw/openclaw.json sha256 3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317 relationship uses:model_endpoint:http-127.0.0.1-11434 relationship uses:mcp_server:local-fs'><div class='entry-header'><span class='class-dot' style='background:var(--class-configuration)' aria-hidden='true'></span> <strong>openclaw.json</strong> <span class='badge'>file</span> <span class='small'>configuration:openclaw.json</span> <button type='button' class='inspect-btn' data-inspect='configuration:openclaw.json' aria-label='Inspect openclaw.json'>Inspect</button></div><p class='muted small'>capability: read &middot; reachability: filesystem</p><table class='props'><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json</td></tr><tr><th>relPath</th><td>.openclaw/openclaw.json</td></tr><tr><th>sha256</th><td>3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317</td></tr></table><details><summary>Blast radius (1 reachable, observed)</summary><p class='muted small'>Everything that would be affected if this component were compromised -- the reverse of "Depends on" above, an exact graph traversal over the same recorded relationships.</p><ul><li>harness-root</li></ul></details><details><summary>Depends on (3 reachable, observed)</summary><p class='muted small'>Everything this component itself relies on, transitively -- an exact graph traversal, not a guess.</p><ul><li>mcp_server:local-fs</li><li>model:qwen3-8b</li><li>model_endpoint:http-127.0.0.1-11434</li></ul></details><details><summary>relationships (2)</summary><ul><li>uses:model_endpoint:http-127.0.0.1-11434</li><li>uses:mcp_server:local-fs</li></ul></details><details data-bom-ref='configuration:openclaw.json'><summary>Raw JSON</summary><pre class='raw-json'></pre></details></div></details><details open class='group' data-class='model'><summary><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span>model <span class='count'>(1)</span></summary><div class='entry' data-class='model' data-bom-ref='model:qwen3-8b' data-search='qwen3:8b model:qwen3-8b machine-learning-model qwen3:8b model componentclass model version qwen3:8b'><div class='entry-header'><span class='class-dot' style='background:var(--class-model)' aria-hidden='true'></span> <strong>qwen3:8b</strong> <span class='badge'>machine-learning-model</span> <span class='small'>model:qwen3-8b</span> <button type='button' class='inspect-btn' data-inspect='model:qwen3-8b' aria-label='Inspect qwen3:8b'>Inspect</button></div><p class='muted small'>capability: inference &middot; reachability: model-provider</p><table class='props'><tr><th>version</th><td>qwen3:8b</td></tr></table><details><summary>Blast radius (3 reachable, observed)</summary><p class='muted small'>Everything that would be affected if this component were compromised -- the reverse of "Depends on" above, an exact graph traversal over the same recorded relationships.</p><ul><li>configuration:openclaw.json</li><li>harness-root</li><li>model_endpoint:http-127.0.0.1-11434</li></ul></details><details data-bom-ref='model:qwen3-8b'><summary>Raw JSON</summary><pre class='raw-json'></pre></details></div></details><details open class='group' data-class='secrets_surface'><summary><span class='class-dot' style='background:var(--class-secrets_surface)' aria-hidden='true'></span>secrets_surface <span class='count'>(1)</span></summary><div class='entry' data-class='secrets_surface' data-bom-ref='secrets_surface:openclaw-agent.sqlite' data-search='openclaw-agent.sqlite secrets_surface:openclaw-agent.sqlite data secrets_surface componentclass secrets_surface path /users/ajay/aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite relpath .openclaw/agents/main/agent/openclaw-agent.sqlite note per-agent provider credential store (sqlite); contents never read'><div class='entry-header'><span class='class-dot' style='background:var(--class-secrets_surface)' aria-hidden='true'></span> <strong>openclaw-agent.sqlite</strong> <span class='badge'>data</span> <span class='small'>secrets_surface:openclaw-agent.sqlite</span> <button type='button' class='inspect-btn' data-inspect='secrets_surface:openclaw-agent.sqlite' aria-label='Inspect openclaw-agent.sqlite'>Inspect</button></div><p class='muted small'>capability: credential &middot; reachability: credential-store</p><table class='props'><tr><th>note</th><td>per-agent provider credential store (SQLite); contents never read</td></tr><tr><th>path</th><td>/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite</td></tr><tr><th>relPath</th><td>.openclaw/agents/main/agent/openclaw-agent.sqlite</td></tr></table><details><summary>Blast radius (1 reachable, observed)</summary><p class='muted small'>Everything that would be affected if this component were compromised -- the reverse of "Depends on" above, an exact graph traversal over the same recorded relationships.</p><ul><li>harness-root</li></ul></details><details data-bom-ref='secrets_surface:openclaw-agent.sqlite'><summary>Raw JSON</summary><pre class='raw-json'></pre></details></div></details>
 </section>
 
 <section id="services">
   <h2>Services</h2>
-  <details open class='group' data-class='model_endpoint'><summary><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span>model_endpoint <span class='count'>(1)</span></summary><div class='entry' data-class='model_endpoint' data-search='http://127.0.0.1:11434 model_endpoint:http-127.0.0.1-11434 model_endpoint componentclass model_endpoint provider ollama relationship uses:model:qwen3-8b'><div class='entry-header'><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span> <strong>http://127.0.0.1:11434</strong> <span class='small'>model_endpoint:http-127.0.0.1-11434</span></div><p class='muted small'>capability: network &middot; reachability: loopback</p><p class='muted'>endpoints: http://127.0.0.1:11434</p><table class='props'><tr><th>provider</th><td>ollama</td></tr></table><details><summary>Blast radius (2 reachable, observed)</summary><p class='muted small'>Everything that would be affected if this component were compromised -- the reverse of "Depends on" above, an exact graph traversal over the same recorded relationships.</p><ul><li>configuration:openclaw.json</li><li>harness-root</li></ul></details><details><summary>Depends on (1 reachable, observed)</summary><p class='muted small'>Everything this component itself relies on, transitively -- an exact graph traversal, not a guess.</p><ul><li>model:qwen3-8b</li></ul></details><details><summary>relationships (1)</summary><ul><li>uses:model:qwen3-8b</li></ul></details><details data-bom-ref='model_endpoint:http-127.0.0.1-11434'><summary>Raw JSON</summary><pre class='raw-json'></pre></details></div></details><details open class='group' data-class='mcp_server'><summary><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span>mcp_server <span class='count'>(1)</span></summary><div class='entry' data-class='mcp_server' data-search='local-fs mcp_server:local-fs mcp_server componentclass mcp_server transport http endpoint http://127.0.0.1:9001 tls false authconfigured false'><div class='entry-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span> <strong>local-fs</strong> <span class='small'>mcp_server:local-fs</span></div><p class='muted small'>capability: network &middot; reachability: loopback</p><p class='muted'>endpoints: http://127.0.0.1:9001</p><table class='props'><tr><th>authConfigured</th><td>False</td></tr><tr><th>endpoint</th><td>http://127.0.0.1:9001</td></tr><tr><th>tls</th><td>False</td></tr><tr><th>transport</th><td>http</td></tr></table><details><summary>Blast radius (2 reachable, observed)</summary><p class='muted small'>Everything that would be affected if this component were compromised -- the reverse of "Depends on" above, an exact graph traversal over the same recorded relationships.</p><ul><li>configuration:openclaw.json</li><li>harness-root</li></ul></details><details data-bom-ref='mcp_server:local-fs'><summary>Raw JSON</summary><pre class='raw-json'></pre></details></div></details>
+  <details open class='group' data-class='model_endpoint'><summary><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span>model_endpoint <span class='count'>(1)</span></summary><div class='entry' data-class='model_endpoint' data-bom-ref='model_endpoint:http-127.0.0.1-11434' data-search='http://127.0.0.1:11434 model_endpoint:http-127.0.0.1-11434 model_endpoint componentclass model_endpoint provider ollama relationship uses:model:qwen3-8b'><div class='entry-header'><span class='class-dot' style='background:var(--class-model_endpoint)' aria-hidden='true'></span> <strong>http://127.0.0.1:11434</strong> <span class='small'>model_endpoint:http-127.0.0.1-11434</span> <button type='button' class='inspect-btn' data-inspect='model_endpoint:http-127.0.0.1-11434' aria-label='Inspect http://127.0.0.1:11434'>Inspect</button></div><p class='muted small'>capability: network &middot; reachability: loopback</p><p class='muted'>endpoints: http://127.0.0.1:11434</p><table class='props'><tr><th>provider</th><td>ollama</td></tr></table><details><summary>Blast radius (2 reachable, observed)</summary><p class='muted small'>Everything that would be affected if this component were compromised -- the reverse of "Depends on" above, an exact graph traversal over the same recorded relationships.</p><ul><li>configuration:openclaw.json</li><li>harness-root</li></ul></details><details><summary>Depends on (1 reachable, observed)</summary><p class='muted small'>Everything this component itself relies on, transitively -- an exact graph traversal, not a guess.</p><ul><li>model:qwen3-8b</li></ul></details><details><summary>relationships (1)</summary><ul><li>uses:model:qwen3-8b</li></ul></details><details data-bom-ref='model_endpoint:http-127.0.0.1-11434'><summary>Raw JSON</summary><pre class='raw-json'></pre></details></div></details><details open class='group' data-class='mcp_server'><summary><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span>mcp_server <span class='count'>(1)</span></summary><div class='entry' data-class='mcp_server' data-bom-ref='mcp_server:local-fs' data-search='local-fs mcp_server:local-fs mcp_server componentclass mcp_server transport http endpoint http://127.0.0.1:9001 tls false authconfigured false'><div class='entry-header'><span class='class-dot' style='background:var(--class-mcp_server)' aria-hidden='true'></span> <strong>local-fs</strong> <span class='small'>mcp_server:local-fs</span> <button type='button' class='inspect-btn' data-inspect='mcp_server:local-fs' aria-label='Inspect local-fs'>Inspect</button></div><p class='muted small'>capability: network &middot; reachability: loopback</p><p class='muted'>endpoints: http://127.0.0.1:9001</p><table class='props'><tr><th>authConfigured</th><td>False</td></tr><tr><th>endpoint</th><td>http://127.0.0.1:9001</td></tr><tr><th>tls</th><td>False</td></tr><tr><th>transport</th><td>http</td></tr></table><details><summary>Blast radius (2 reachable, observed)</summary><p class='muted small'>Everything that would be affected if this component were compromised -- the reverse of "Depends on" above, an exact graph traversal over the same recorded relationships.</p><ul><li>configuration:openclaw.json</li><li>harness-root</li></ul></details><details data-bom-ref='mcp_server:local-fs'><summary>Raw JSON</summary><pre class='raw-json'></pre></details></div></details>
 </section>
 
 <section id="metadata">
   <h2>Metadata</h2>
-  <table class='summary'><tr><td>bomFormat</td><td>CycloneDX</td></tr><tr><td>specVersion</td><td>1.6</td></tr><tr><td>version</td><td>1</td></tr><tr><td>serialNumber</td><td>urn:uuid:b9731a37-84a2-43b2-bfac-8657a1eb3d14</td></tr><tr><td>timestamp</td><td>2026-09-09T12:58:16+00:00</td></tr><tr><td>root bom-ref</td><td>harness-root</td></tr></table><table class='summary'><tr><th>generating tool</th><th>version</th></tr><tr><td>agent-harness-aibom</td><td>0.7.0</td></tr></table>
+  <table class='summary'><tr><td>bomFormat</td><td>CycloneDX</td></tr><tr><td>specVersion</td><td>1.6</td></tr><tr><td>version</td><td>1</td></tr><tr><td>serialNumber</td><td>urn:uuid:79f5e220-f741-481a-a57f-62b98dbad5cd</td></tr><tr><td>timestamp</td><td>2026-09-09T13:17:36+00:00</td></tr><tr><td>root bom-ref</td><td>harness-root</td></tr></table><table class='summary'><tr><th>generating tool</th><th>version</th></tr><tr><td>agent-harness-aibom</td><td>0.8.0</td></tr></table>
 </section>
 
 <section id="external-references">
@@ -278,10 +309,25 @@ pre.raw-json {
 </section>
 
 <footer class="muted">
-  Generated by agent-harness-aibom · 2026-09-09T12:58:17+00:00 ·
+  Generated by agent-harness-aibom · 2026-09-09T13:17:37+00:00 ·
   every property of every component is rendered, nothing summarized away.
 </footer>
-<script type="application/json" id="bom-data">{"bomFormat":"CycloneDX","specVersion":"1.6","serialNumber":"urn:uuid:b9731a37-84a2-43b2-bfac-8657a1eb3d14","version":1,"metadata":{"tools":{"components":[{"type":"application","name":"agent-harness-aibom","version":"0.7.0"}]},"component":{"type":"application","bom-ref":"harness-root","name":"openclaw@Ajays-MacBook-Pro.local","properties":[{"name":"harness-aibom:componentClass","value":"harness"},{"name":"harness-aibom:runtimeKind","value":"openclaw"},{"name":"harness-aibom:hostname","value":"Ajays-MacBook-Pro.local"},{"name":"harness-aibom:warning","value":"openclaw binary not found on PATH; runtime component skipped"},{"name":"harness-aibom:warning","value":"configured model 'qwen3:8b' not found via Ollama /api/tags; recorded from config only"},{"name":"harness-aibom:relationship","value":"loads:configuration:openclaw.json"},{"name":"harness-aibom:relationship","value":"accesses:secrets_surface:openclaw-agent.sqlite"}]},"timestamp":"2026-09-09T12:58:16+00:00"},"components":[{"type":"file","bom-ref":"configuration:openclaw.json","name":"openclaw.json","hashes":[{"alg":"SHA-256","content":"3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"}],"properties":[{"name":"harness-aibom:componentClass","value":"configuration"},{"name":"harness-aibom:path","value":"/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json"},{"name":"harness-aibom:relPath","value":".openclaw/openclaw.json"},{"name":"harness-aibom:sha256","value":"3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"},{"name":"harness-aibom:relationship","value":"uses:model_endpoint:http-127.0.0.1-11434"},{"name":"harness-aibom:relationship","value":"uses:mcp_server:local-fs"}]},{"type":"machine-learning-model","bom-ref":"model:qwen3-8b","name":"qwen3:8b","version":"qwen3:8b","properties":[{"name":"harness-aibom:componentClass","value":"model"},{"name":"harness-aibom:version","value":"qwen3:8b"}]},{"type":"data","bom-ref":"secrets_surface:openclaw-agent.sqlite","name":"openclaw-agent.sqlite","properties":[{"name":"harness-aibom:componentClass","value":"secrets_surface"},{"name":"harness-aibom:path","value":"/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite"},{"name":"harness-aibom:relPath","value":".openclaw/agents/main/agent/openclaw-agent.sqlite"},{"name":"harness-aibom:note","value":"per-agent provider credential store (SQLite); contents never read"}]}],"services":[{"bom-ref":"model_endpoint:http-127.0.0.1-11434","name":"http://127.0.0.1:11434","endpoints":["http://127.0.0.1:11434"],"properties":[{"name":"harness-aibom:componentClass","value":"model_endpoint"},{"name":"harness-aibom:provider","value":"ollama"},{"name":"harness-aibom:relationship","value":"uses:model:qwen3-8b"}]},{"bom-ref":"mcp_server:local-fs","name":"local-fs","endpoints":["http://127.0.0.1:9001"],"properties":[{"name":"harness-aibom:componentClass","value":"mcp_server"},{"name":"harness-aibom:transport","value":"http"},{"name":"harness-aibom:endpoint","value":"http://127.0.0.1:9001"},{"name":"harness-aibom:tls","value":"False"},{"name":"harness-aibom:authConfigured","value":"False"}]}],"dependencies":[{"ref":"harness-root","dependsOn":["configuration:openclaw.json","secrets_surface:openclaw-agent.sqlite"]},{"ref":"configuration:openclaw.json","dependsOn":["model_endpoint:http-127.0.0.1-11434","mcp_server:local-fs"]},{"ref":"model_endpoint:http-127.0.0.1-11434","dependsOn":["model:qwen3-8b"]}]}</script>
+
+<!-- v0.8.0: Component Inspector -- populated client-side by openInspector()
+     in _JS from an already-rendered .entry's own markup, never a second
+     copy of it server-side. hidden by default; see _CSS's
+     .inspector-overlay:not([hidden]) for why display isn't set here. -->
+<div id="inspector-panel" class="inspector-overlay" hidden>
+  <div class="inspector-panel" role="dialog" aria-modal="true" aria-label="Component inspector">
+    <div class="inspector-toolbar">
+      <button type="button" id="inspector-copy" class="copy-btn">Copy bom-ref</button>
+      <button type="button" id="inspector-close" class="inspector-close" aria-label="Close inspector">✕ Close</button>
+    </div>
+    <div id="inspector-body" class="inspector-body"></div>
+  </div>
+</div>
+
+<script type="application/json" id="bom-data">{"bomFormat":"CycloneDX","specVersion":"1.6","serialNumber":"urn:uuid:79f5e220-f741-481a-a57f-62b98dbad5cd","version":1,"metadata":{"tools":{"components":[{"type":"application","name":"agent-harness-aibom","version":"0.8.0"}]},"component":{"type":"application","bom-ref":"harness-root","name":"openclaw@Ajays-MacBook-Pro.local","properties":[{"name":"harness-aibom:componentClass","value":"harness"},{"name":"harness-aibom:runtimeKind","value":"openclaw"},{"name":"harness-aibom:hostname","value":"Ajays-MacBook-Pro.local"},{"name":"harness-aibom:warning","value":"openclaw binary not found on PATH; runtime component skipped"},{"name":"harness-aibom:warning","value":"configured model 'qwen3:8b' not found via Ollama /api/tags; recorded from config only"},{"name":"harness-aibom:relationship","value":"loads:configuration:openclaw.json"},{"name":"harness-aibom:relationship","value":"accesses:secrets_surface:openclaw-agent.sqlite"}]},"timestamp":"2026-09-09T13:17:36+00:00"},"components":[{"type":"file","bom-ref":"configuration:openclaw.json","name":"openclaw.json","hashes":[{"alg":"SHA-256","content":"3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"}],"properties":[{"name":"harness-aibom:componentClass","value":"configuration"},{"name":"harness-aibom:path","value":"/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json"},{"name":"harness-aibom:relPath","value":".openclaw/openclaw.json"},{"name":"harness-aibom:sha256","value":"3717565d7e310603ef73a75a73d2dc3382a41303e645377e22716912382c4317"},{"name":"harness-aibom:relationship","value":"uses:model_endpoint:http-127.0.0.1-11434"},{"name":"harness-aibom:relationship","value":"uses:mcp_server:local-fs"}]},{"type":"machine-learning-model","bom-ref":"model:qwen3-8b","name":"qwen3:8b","version":"qwen3:8b","properties":[{"name":"harness-aibom:componentClass","value":"model"},{"name":"harness-aibom:version","value":"qwen3:8b"}]},{"type":"data","bom-ref":"secrets_surface:openclaw-agent.sqlite","name":"openclaw-agent.sqlite","properties":[{"name":"harness-aibom:componentClass","value":"secrets_surface"},{"name":"harness-aibom:path","value":"/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite"},{"name":"harness-aibom:relPath","value":".openclaw/agents/main/agent/openclaw-agent.sqlite"},{"name":"harness-aibom:note","value":"per-agent provider credential store (SQLite); contents never read"}]}],"services":[{"bom-ref":"model_endpoint:http-127.0.0.1-11434","name":"http://127.0.0.1:11434","endpoints":["http://127.0.0.1:11434"],"properties":[{"name":"harness-aibom:componentClass","value":"model_endpoint"},{"name":"harness-aibom:provider","value":"ollama"},{"name":"harness-aibom:relationship","value":"uses:model:qwen3-8b"}]},{"bom-ref":"mcp_server:local-fs","name":"local-fs","endpoints":["http://127.0.0.1:9001"],"properties":[{"name":"harness-aibom:componentClass","value":"mcp_server"},{"name":"harness-aibom:transport","value":"http"},{"name":"harness-aibom:endpoint","value":"http://127.0.0.1:9001"},{"name":"harness-aibom:tls","value":"False"},{"name":"harness-aibom:authConfigured","value":"False"}]}],"dependencies":[{"ref":"harness-root","dependsOn":["configuration:openclaw.json","secrets_surface:openclaw-agent.sqlite"]},{"ref":"configuration:openclaw.json","dependsOn":["model_endpoint:http-127.0.0.1-11434","mcp_server:local-fs"]},{"ref":"model_endpoint:http-127.0.0.1-11434","dependsOn":["model:qwen3-8b"]}]}</script>
 <script>
 function normalizeText(s) { return (s || '').toLowerCase(); }
 
@@ -326,14 +372,117 @@ function goToClass(cls) {
   if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
+// v0.8.0: Component Inspector -- a modal that reuses an already-rendered
+// .entry's own markup (name, badges, capability/reachability, properties,
+// blast radius, supply chain, relationships, raw-JSON reveal) instead of
+// a second render path. Same reasoning `report --baseline` (v0.7.0)
+// applied to diff logic: never duplicate what's already computed and
+// tested elsewhere -- here that's `_render_entry()` itself, not a
+// security computation, but the principle is the same.
+var inspectorLastFocus = null;
+
+function findEntryByRef(ref) {
+  // Loop-and-compare, not a concatenated CSS attribute selector -- same
+  // `data-goto`/`findGroupForClass` discipline above: a bom-ref this
+  // renderer didn't itself generate (report accepts any JSON file) could
+  // contain a character that breaks a hand-built selector string.
+  var entries = document.querySelectorAll('.entry[data-bom-ref]');
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i].getAttribute('data-bom-ref') === ref) return entries[i];
+  }
+  return null;
+}
+
+function openInspector(ref) {
+  var source = findEntryByRef(ref);
+  var panel = document.getElementById('inspector-panel');
+  var body = document.getElementById('inspector-body');
+  var copyBtn = document.getElementById('inspector-copy');
+  if (!source || !panel || !body) return;
+  body.innerHTML = '';
+  // Clone, don't move -- the entry stays in the Components/Services list
+  // exactly as it was. The cloned <details data-bom-ref> for Raw JSON
+  // still works with no extra wiring: the lazy-render `toggle` listener
+  // below is delegated on `document`, so it fires for this clone too,
+  // whenever it's actually opened -- clone timing doesn't matter to it.
+  body.appendChild(source.cloneNode(true));
+  if (copyBtn) copyBtn.setAttribute('data-copy', ref);
+  panel.hidden = false;
+  document.body.classList.add('inspector-open');
+  inspectorLastFocus = document.activeElement;
+  var closeBtn = document.getElementById('inspector-close');
+  if (closeBtn) closeBtn.focus();
+}
+
+function closeInspector() {
+  var panel = document.getElementById('inspector-panel');
+  if (!panel || panel.hidden) return;
+  panel.hidden = true;
+  document.body.classList.remove('inspector-open');
+  if (inspectorLastFocus && inspectorLastFocus.focus) inspectorLastFocus.focus();
+  inspectorLastFocus = null;
+}
+
+function fallbackCopy(text) {
+  // navigator.clipboard is unavailable in some browsers when a report is
+  // opened straight from disk (file://, not a secure context) -- a
+  // temporary off-screen textarea + execCommand('copy') still works
+  // there. Never throws outward: a failed copy just doesn't show
+  // "Copied", it never breaks the inspector.
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    var ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+function copyBomRef(button) {
+  var text = button.getAttribute('data-copy') || '';
+  var original = button.textContent;
+  function announce(ok) {
+    button.textContent = ok ? 'Copied' : 'Copy failed';
+    setTimeout(function () { button.textContent = original; }, 1200);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () { announce(true); }, function () {
+      announce(fallbackCopy(text));
+    });
+  } else {
+    announce(fallbackCopy(text));
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function () {
   var searchBox = document.getElementById('search-box');
   var classFilter = document.getElementById('class-filter');
   if (searchBox) searchBox.addEventListener('input', applyFilters);
   if (classFilter) classFilter.addEventListener('change', applyFilters);
   document.addEventListener('click', function (event) {
-    var node = event.target.closest && event.target.closest('[data-goto]');
-    if (node) goToClass(node.getAttribute('data-goto'));
+    var goto = event.target.closest && event.target.closest('[data-goto]');
+    if (goto) { goToClass(goto.getAttribute('data-goto')); return; }
+    var inspect = event.target.closest && event.target.closest('[data-inspect]');
+    if (inspect) { openInspector(inspect.getAttribute('data-inspect')); return; }
+    var closeBtn = event.target.closest && event.target.closest('#inspector-close');
+    if (closeBtn) { closeInspector(); return; }
+    var copyBtn = event.target.closest && event.target.closest('#inspector-copy');
+    if (copyBtn) { copyBomRef(copyBtn); return; }
+    // Backdrop click: only the overlay element itself (an exact target
+    // match, not .closest()) -- .closest('#inspector-panel') would also
+    // match every click *inside* the panel, since the panel is the
+    // overlay's own ancestor, closing the modal on every click inside it.
+    if (event.target.id === 'inspector-panel') closeInspector();
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') closeInspector();
   });
   applyFilters();
 });

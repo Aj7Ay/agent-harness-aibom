@@ -15,7 +15,7 @@ from .diff import diff_documents
 from .model import HarnessDocument
 from .report import render_html
 from .security import compute_risk_observations
-from .validate import validate_document
+from .validate import find_orphan_components, validate_document
 
 COLLECTORS = {
     "hermes": HermesCollector,
@@ -101,7 +101,15 @@ def _run_validate(args: argparse.Namespace) -> int:
         for e in errors:
             print(f"error: {e}", file=sys.stderr)
         return 1
-    print(f"{args.file}: valid")
+    # v0.8.0: orphan components are printed but never fail the command --
+    # a document with one is still fully valid (validate_document() above
+    # already passed), just possibly worth a human's attention. Same
+    # "informational, not fatal" treatment `scan`'s own warnings get.
+    orphans = find_orphan_components(data)
+    for ref in orphans:
+        print(f"warning: {ref}: not reachable from the harness root via dependencies[] (orphan)", file=sys.stderr)
+    suffix = f" ({len(orphans)} orphan warning{'s' if len(orphans) != 1 else ''})" if orphans else ""
+    print(f"{args.file}: valid{suffix}")
     return 0
 
 
