@@ -19,6 +19,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # v0.8.2: sign/verify-signature's own tests (test_sign.py,
+      # test_cli.py) skip themselves entirely when cosign isn't on PATH --
+      # installed here specifically so those real, non-mocked subprocess
+      # tests actually run in CI too, not just locally.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
       - name: Install the package and dev dependencies
         run: uv sync --extra dev
 

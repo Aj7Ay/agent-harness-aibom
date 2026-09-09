@@ -8,7 +8,7 @@ resolution-markers = [
 
 [[package]]
 name = "agent-harness-aibom"
-version = "0.8.0"
+version = "0.8.2"
 source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },
@@ -17,12 +17,14 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "cyclonedx-python-lib", extra = ["json-validation"] },
+    { name = "jsonschema" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "cyclonedx-python-lib", extras = ["json-validation"], marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]

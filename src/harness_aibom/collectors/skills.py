@@ -15,6 +15,8 @@ import os
 import re
 from pathlib import Path
 
+import yaml
+
 from ..fingerprint import sha256_directory
 from ..model import Component
 from ..paths import relative_to_or_none
@@ -74,6 +76,46 @@ def analyze_skill_content(text: str, known_server_names: frozenset[str] = frozen
     }
 
 
+#: YAML frontmatter at the very top of a file, `---`-delimited -- v0.8.2.
+#: This is a real, documented, cross-project convention (Claude Code's own
+#: Agent Skills format: `name`/`description` as the two fields that
+#: matter for this scanner, `license`/`allowed-tools` optional), the same
+#: "real, confirmed convention, not harness-specific guessing" basis
+#: `prompt_surface.py`'s AGENTS.md/CLAUDE.md filenames already stand on
+#: (SPEC.md section 13) -- not confirmed specifically for Hermes/OpenClaw
+#: from this project's own source material, but a real filename/format
+#: fact this scanner is allowed to recognize on sight either way.
+_FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n?", re.DOTALL)
+
+
+def _parse_frontmatter(text: str) -> dict:
+    """The parsed frontmatter block, or `{}` for a SKILL.md with none at
+    all (real and valid -- frontmatter isn't required) or malformed YAML.
+    Never raises: same "record what's actually there, don't crash the
+    scan over one bad file" discipline this module already applies to an
+    unreadable SKILL.md below.
+    """
+    match = _FRONTMATTER_RE.match(text)
+    if not match:
+        return {}
+    try:
+        data = yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _strip_frontmatter(text: str) -> str:
+    """`text` with a leading frontmatter block (if any) removed -- so the
+    heading-based description fallback below reads the first line of the
+    actual markdown body, not the literal `---` delimiter or a YAML
+    `key: value` line a frontmatter-bearing SKILL.md with no `description:`
+    field would otherwise produce.
+    """
+    match = _FRONTMATTER_RE.match(text)
+    return text[match.end():] if match else text
+
+
 def _find_skill_md_files(skills_dir: Path) -> list[Path]:
     # os.walk(onerror=...) skips a subdirectory it can't list instead of
     # raising -- confirmed necessary scanning root-owned skills as a
@@ -125,7 +167,42 @@ def discover_skills(skills_dir: Path, home: Path, known_server_names: frozenset[
             # crashing the scan.
             text = ""
         if text:
-            comp.set("description", text.splitlines()[0].lstrip("# ").strip()[:200])
+            frontmatter = _parse_frontmatter(text)
+            fm_name = frontmatter.get("name")
+            fm_description = frontmatter.get("description")
+            fm_license = frontmatter.get("license")
+            allowed_tools = frontmatter.get("allowed-tools")
+
+            # The declared `name:` is informational only -- `comp.name`
+            # itself (directory-derived, above) stays the real identity
+            # this component's bom-ref and `diff` matching are keyed on;
+            # a SKILL.md author's own declared name is additive, same
+            # "never replace the identity a real field already carries"
+            # reasoning as every other harness-aibom: property.
+            if isinstance(fm_name, str) and fm_name.strip():
+                comp.set("frontmatterName", fm_name.strip())
+            if isinstance(fm_license, str) and fm_license.strip():
+                comp.set("license", fm_license.strip())
+            if isinstance(allowed_tools, list):
+                comp.set("allowedTools", ",".join(str(t) for t in allowed_tools))
+            elif isinstance(allowed_tools, str) and allowed_tools.strip():
+                comp.set("allowedTools", allowed_tools.strip())
+
+            # A real `description:` field is a more reliable source than
+            # guessing from the first markdown heading -- prefer it when
+            # present, falling back to the heading heuristic otherwise.
+            # `descriptionSource` records which one actually won, so a
+            # reader never mistakes a heading-derived guess for an
+            # author's own declared description.
+            if isinstance(fm_description, str) and fm_description.strip():
+                comp.set("description", fm_description.strip()[:200])
+                comp.set("descriptionSource", "frontmatter")
+            else:
+                body = _strip_frontmatter(text)
+                first_line = body.splitlines()[0] if body.splitlines() else ""
+                comp.set("description", first_line.lstrip("# ").strip()[:200])
+                comp.set("descriptionSource", "heading")
+
             analysis = analyze_skill_content(text, known_server_names)
             comp.set("referencedServers", ",".join(analysis["referencedServers"]))
             comp.set("shellIndicators", ",".join(analysis["shellIndicators"]))

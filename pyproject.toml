@@ -1,11 +1,11 @@
 [project]
 name = "agent-harness-aibom"
-version = "0.8.0"
+version = "0.8.2"
 description = "AIBOM generator for AI agent harnesses (Hermes, OpenClaw) and their model/skill/MCP/hook surface"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Practical DevSecOps" }]
+authors = [{ name = "Ajay Kumar Yegireddi" }]
 dependencies = [
     "PyYAML>=6.0",
 ]
@@ -27,6 +27,13 @@ dev = [
     # own hand-rolled validate.py can't, since validate.py checks structure
     # against SPEC.md, not the actual CycloneDX schema.
     "cyclonedx-python-lib[json-validation]>=8.0",
+    # Real SARIF 2.1.0 schema validation for tests/test_sarif.py (the
+    # schema itself is vendored at tests/fixtures/sarif-schema-2.1.0.json,
+    # not fetched at test time). Declared explicitly rather than relying
+    # on it staying a transitive dependency of cyclonedx-python-lib's own
+    # json-validation extra above, which happens to pull it in today but
+    # isn't a promise this project should depend on silently.
+    "jsonschema>=4.0",
 ]
 
 [project.scripts]

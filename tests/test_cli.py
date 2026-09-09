@@ -1,6 +1,9 @@
 import json
 import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from harness_aibom.cli import main
 
@@ -36,6 +39,33 @@ def test_scan_writes_valid_document(tmp_path, capsys):
     service_classes = classes_in(data["services"])
     assert "mcp_server" in service_classes
     assert "model_endpoint" in service_classes
+
+
+def test_scan_verify_deterministic_passes_on_an_unchanged_fixture(capsys):
+    capsys.readouterr()
+    exit_code = main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--verify-deterministic"])
+    assert exit_code == 0
+    assert "PASS [hermes]" in capsys.readouterr().out
+
+
+def test_scan_verify_deterministic_fails_on_a_genuinely_flaky_collector(capsys):
+    # A real collector never behaves this way -- this proves the check
+    # actually catches a difference, not just that it always prints PASS.
+    from harness_aibom.cli import _run_verify_deterministic
+    from harness_aibom.model import Component
+
+    class _FlakyCollector:
+        runtime_kind = "hermes"
+        _calls = 0
+
+        def collect(self, doc):
+            self._calls += 1
+            doc.add(Component(component_class="skill", name=f"run-{self._calls}"), "loads")
+
+    capsys.readouterr()
+    exit_code = _run_verify_deterministic([_FlakyCollector()])
+    assert exit_code == 1
+    assert "FAIL [hermes]" in capsys.readouterr().err
 
 
 def test_validate_accepts_its_own_scan_output(tmp_path):
@@ -307,6 +337,35 @@ def test_report_baseline_missing_file_is_a_clean_error(tmp_path, capsys):
     assert "no such file" in capsys.readouterr().err
 
 
+@pytest.mark.skipif(shutil.which("cosign") is None, reason="cosign not installed")
+def test_report_bundle_and_key_renders_a_verified_artifact_integrity_section(tmp_path, monkeypatch):
+    key_path, pub_path = _cosign_keypair(tmp_path, monkeypatch)
+    bom_path = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(bom_path), "--deterministic"])
+
+    bundle_path = tmp_path / "aibom.json.bundle"
+    assert main(["sign", str(bom_path), "--key", str(key_path), "--bundle", str(bundle_path)]) == 0
+
+    html_out = tmp_path / "report.html"
+    exit_code = main([
+        "report", str(bom_path), "--output", str(html_out),
+        "--bundle", str(bundle_path), "--key", str(pub_path),
+    ])
+    assert exit_code == 0
+    html_text = html_out.read_text()
+    section = html_text.split('id="artifact-integrity"')[1].split('id="raw-bom"')[0]
+    assert "Signature verified" in section
+    assert "No signature bundle supplied" not in section
+
+
+def test_report_bundle_without_key_is_a_clean_error(tmp_path, capsys):
+    bom_path = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(bom_path)])
+    exit_code = main(["report", str(bom_path), "--bundle", "some.bundle", "--output", str(tmp_path / "x.html")])
+    assert exit_code == 1
+    assert "--bundle and --key must be given together" in capsys.readouterr().err
+
+
 def test_policy_passes_when_nothing_qualifies(tmp_path, capsys):
     # A minimal, purpose-built clean document -- not the real hermes_home
     # fixture, which (correctly) has real findings of its own as of
@@ -451,3 +510,226 @@ def test_validate_reports_orphans_as_warnings_not_failures(tmp_path, capsys):
     assert "skill:orphaned" in captured.err
     assert "orphan" in captured.err
     assert "valid (1 orphan warning)" in captured.out
+
+
+# ---- v0.8.2: diff --security -------------------------------------------
+
+
+def test_diff_security_reports_a_new_finding(tmp_path, capsys):
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    baseline_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    old = Component(component_class="secrets_surface", name=".env")
+    old.set("worldReadable", True)
+    baseline_doc.add(old, "accesses")
+
+    current_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    same = Component(component_class="secrets_surface", name=".env")
+    same.set("worldReadable", True)
+    current_doc.add(same, "accesses")
+    new = Component(component_class="secrets_surface", name="newly-exposed.env")
+    new.set("worldReadable", True)
+    current_doc.add(new, "accesses")
+
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    baseline.write_text(json.dumps(to_cyclonedx(baseline_doc)))
+    current.write_text(json.dumps(to_cyclonedx(current_doc)))
+
+    capsys.readouterr()
+    exit_code = main(["diff", str(baseline), str(current), "--security"])
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0  # no --exit-code passed
+    new_refs = [ref for o in result["new"] for ref in o["components"]]
+    assert any("newly-exposed.env" in ref for ref in new_refs)
+    assert result["resolved"] == []
+
+
+def test_diff_security_exit_code_gates_on_new_findings_only(tmp_path, capsys):
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    secret = Component(component_class="secrets_surface", name=".env")
+    secret.set("worldReadable", True)
+    doc.add(secret, "accesses")
+    bom_text = json.dumps(to_cyclonedx(doc))
+
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    baseline.write_text(bom_text)
+    current.write_text(bom_text)  # identical -- nothing new
+
+    capsys.readouterr()
+    exit_code = main(["diff", str(baseline), str(current), "--security", "--exit-code"])
+    assert exit_code == 0  # persisting, not new -- --exit-code must not fire
+
+
+# ---- v0.8.2: sign / verify-signature (real cosign, skipped if absent) --
+
+
+def _cosign_keypair(tmp_path, monkeypatch):
+    monkeypatch.setenv("COSIGN_PASSWORD", "")
+    prefix = tmp_path / "cosign"
+    subprocess.run(
+        ["cosign", "generate-key-pair", "--output-key-prefix", str(prefix)],
+        capture_output=True, text=True, check=True,
+    )
+    return tmp_path / "cosign.key", tmp_path / "cosign.pub"
+
+
+@pytest.mark.skipif(shutil.which("cosign") is None, reason="cosign not installed")
+def test_sign_then_verify_signature_round_trip(tmp_path, monkeypatch, capsys):
+    key_path, pub_path = _cosign_keypair(tmp_path, monkeypatch)
+    doc = tmp_path / "aibom.json"
+    doc.write_text('{"bomFormat": "CycloneDX"}')
+
+    capsys.readouterr()
+    sign_exit = main(["sign", str(doc), "--key", str(key_path)])
+    assert sign_exit == 0
+    bundle_path = doc.with_suffix(".json.bundle")
+    assert bundle_path.is_file()
+
+    capsys.readouterr()
+    verify_exit = main(["verify-signature", str(doc), "--key", str(pub_path)])
+    assert verify_exit == 0
+    captured = capsys.readouterr()
+    # cosign writes "Verified OK" to its own stderr, not stdout (confirmed
+    # against the real binary) -- relayed verbatim either way, so check
+    # both rather than assume a stream this project doesn't control.
+    assert "Verified OK" in captured.out + captured.err
+
+
+@pytest.mark.skipif(shutil.which("cosign") is None, reason="cosign not installed")
+def test_verify_signature_fails_on_tampered_file(tmp_path, monkeypatch):
+    key_path, pub_path = _cosign_keypair(tmp_path, monkeypatch)
+    doc = tmp_path / "aibom.json"
+    doc.write_text('{"bomFormat": "CycloneDX"}')
+    assert main(["sign", str(doc), "--key", str(key_path)]) == 0
+
+    doc.write_text('{"bomFormat": "CycloneDX", "tampered": true}')
+    assert main(["verify-signature", str(doc), "--key", str(pub_path)]) != 0
+
+
+def test_verify_signature_missing_bundle_is_a_clean_error(tmp_path, capsys):
+    doc = tmp_path / "aibom.json"
+    doc.write_text("{}")
+    exit_code = main(["verify-signature", str(doc), "--key", "/no/such/key.pub"])
+    assert exit_code == 1
+    assert "no such file" in capsys.readouterr().err
+
+
+def test_sign_missing_input_file_is_a_clean_error(capsys):
+    exit_code = main(["sign", "/no/such/aibom.json", "--key", "/no/such/key"])
+    assert exit_code == 1
+    assert "no such file" in capsys.readouterr().err
+
+
+# ---- v0.8.2: policy --format sarif --------------------------------------
+
+
+def test_policy_format_sarif_writes_a_schema_shaped_document(tmp_path, capsys):
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    secret = Component(component_class="secrets_surface", name=".env")
+    secret.set("worldReadable", True)
+    doc.add(secret, "accesses")
+    bom_path = tmp_path / "aibom.json"
+    bom_path.write_text(json.dumps(to_cyclonedx(doc)))
+
+    out_path = tmp_path / "results.sarif"
+    capsys.readouterr()
+    exit_code = main(["policy", str(bom_path), "--format", "sarif", "--output", str(out_path)])
+    assert exit_code == 1  # a high-severity finding exists, at or above the default --fail-on medium
+    assert f"wrote {out_path}" in capsys.readouterr().out
+
+    sarif_doc = json.loads(out_path.read_text())
+    assert sarif_doc["version"] == "2.1.0"
+    assert len(sarif_doc["runs"][0]["results"]) == 1
+
+
+def test_policy_format_sarif_to_stdout_when_no_output_given(tmp_path, capsys):
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import HarnessDocument
+
+    bom_path = tmp_path / "aibom.json"
+    bom_path.write_text(json.dumps(to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t"))))
+
+    capsys.readouterr()
+    exit_code = main(["policy", str(bom_path), "--format", "sarif"])
+    assert exit_code == 0  # no findings at all
+    out = capsys.readouterr().out
+    assert '"version": "2.1.0"' in out
+
+
+# ---- v0.8.2: policy --policy-file (policy-as-code) ----------------------
+
+
+def _bom_with_dependency(tmp_path):
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="some-package", version="1.0.0")
+    doc.add(dep, "uses")
+    bom_path = tmp_path / "aibom.json"
+    bom_path.write_text(json.dumps(to_cyclonedx(doc)))
+    return bom_path
+
+
+def test_policy_file_fail_action_fails_the_command(tmp_path, capsys):
+    bom_path = _bom_with_dependency(tmp_path)
+    policy_file = tmp_path / "policy.yaml"
+    policy_file.write_text(
+        "rules:\n  - id: NO-DEPS\n    severity: high\n    action: fail\n    "
+        "condition:\n      componentClass: dependency\n"
+    )
+    capsys.readouterr()
+    exit_code = main(["policy", str(bom_path), "--policy-file", str(policy_file)])
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "NO-DEPS" in captured.out
+    assert "policy-file rule(s) with action: fail" in captured.err
+
+
+def test_policy_file_warn_action_does_not_fail_the_command(tmp_path, capsys):
+    bom_path = _bom_with_dependency(tmp_path)
+    policy_file = tmp_path / "policy.yaml"
+    policy_file.write_text(
+        "rules:\n  - id: DEPS-NOTICE\n    severity: low\n    action: warn\n    "
+        "condition:\n      componentClass: dependency\n"
+    )
+    capsys.readouterr()
+    exit_code = main(["policy", str(bom_path), "--policy-file", str(policy_file)])
+    captured = capsys.readouterr()
+    assert exit_code == 0  # no built-in findings either, on this minimal document
+    assert "DEPS-NOTICE" in captured.out
+
+
+def test_policy_file_malformed_yaml_is_a_clean_error(tmp_path, capsys):
+    bom_path = _bom_with_dependency(tmp_path)
+    policy_file = tmp_path / "policy.yaml"
+    policy_file.write_text("not: a policy file\n")
+    exit_code = main(["policy", str(bom_path), "--policy-file", str(policy_file)])
+    assert exit_code == 1
+    assert "expected a top-level 'rules:' list" in capsys.readouterr().err
+
+
+def test_policy_file_missing_file_is_a_clean_error(tmp_path, capsys):
+    bom_path = _bom_with_dependency(tmp_path)
+    capsys.readouterr()
+    exit_code = main(["policy", str(bom_path), "--policy-file", "/no/such/policy.yaml"])
+    assert exit_code == 1
+    assert "no such file" in capsys.readouterr().err.lower()
+
+
+def test_policy_file_together_with_sarif_format_is_a_clean_error(tmp_path, capsys):
+    bom_path = _bom_with_dependency(tmp_path)
+    policy_file = tmp_path / "policy.yaml"
+    policy_file.write_text("rules: []\n")
+    exit_code = main(["policy", str(bom_path), "--policy-file", str(policy_file), "--format", "sarif"])
+    assert exit_code == 1
+    assert "not supported together with --format sarif" in capsys.readouterr().err

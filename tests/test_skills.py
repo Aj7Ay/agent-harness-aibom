@@ -111,3 +111,98 @@ def test_discover_skills_omits_content_analysis_properties_when_nothing_found(tm
     assert "shellIndicators" not in skill.properties
     assert "urls" not in skill.properties
     assert "envVarReferences" not in skill.properties
+
+
+# ---- v0.8.2: YAML frontmatter -----------------------------------------
+
+
+def test_frontmatter_description_is_preferred_over_the_heading_guess(tmp_path):
+    skills_dir = tmp_path / "skills"
+    skill_dir = skills_dir / "documented-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: documented-skill\n"
+        "description: Fetches and summarizes internal runbooks.\n"
+        "license: Apache-2.0\n"
+        "allowed-tools:\n"
+        "  - Bash\n"
+        "  - Read\n"
+        "---\n"
+        "# Documented Skill\n\nBody text here.\n"
+    )
+
+    [skill] = discover_skills(skills_dir, tmp_path)
+    assert skill.properties["description"] == "Fetches and summarizes internal runbooks."
+    assert skill.properties["descriptionSource"] == "frontmatter"
+    assert skill.properties["frontmatterName"] == "documented-skill"
+    assert skill.properties["license"] == "Apache-2.0"
+    assert skill.properties["allowedTools"] == "Bash,Read"
+    # comp.name -- the real diff/bom-ref identity -- is still directory-
+    # derived, never overwritten by the frontmatter's own declared name.
+    assert skill.name == "documented-skill"
+
+
+def test_no_frontmatter_falls_back_to_the_heading_guess(tmp_path):
+    skills_dir = tmp_path / "skills"
+    skill_dir = skills_dir / "plain-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("# Plain Skill\n\nNo frontmatter here.\n")
+
+    [skill] = discover_skills(skills_dir, tmp_path)
+    assert skill.properties["description"] == "Plain Skill"
+    assert skill.properties["descriptionSource"] == "heading"
+    assert "frontmatterName" not in skill.properties
+    assert "license" not in skill.properties
+    assert "allowedTools" not in skill.properties
+
+
+def test_frontmatter_with_no_description_still_falls_back_to_the_body_heading(tmp_path):
+    # Regression: the heading fallback must read the first line of the
+    # markdown *body*, not the raw file's first line -- which would be
+    # the literal "---" delimiter or a YAML key when frontmatter exists
+    # but declares no description of its own.
+    skills_dir = tmp_path / "skills"
+    skill_dir = skills_dir / "partial-frontmatter"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: partial-frontmatter\n---\n# Partial Frontmatter\n\nBody.\n"
+    )
+
+    [skill] = discover_skills(skills_dir, tmp_path)
+    assert skill.properties["description"] == "Partial Frontmatter"
+    assert skill.properties["descriptionSource"] == "heading"
+    assert skill.properties["frontmatterName"] == "partial-frontmatter"
+
+
+def test_malformed_frontmatter_yaml_does_not_crash_the_scan(tmp_path):
+    skills_dir = tmp_path / "skills"
+    skill_dir = skills_dir / "broken-frontmatter"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: [unterminated\n---\n# Broken Frontmatter\n\nBody.\n"
+    )
+
+    [skill] = discover_skills(skills_dir, tmp_path)
+    assert skill.properties["descriptionSource"] == "heading"
+    assert "frontmatterName" not in skill.properties
+
+
+def test_frontmatter_that_is_not_a_mapping_is_ignored(tmp_path):
+    # "---\n- a\n- b\n---\n..." is valid YAML but a list, not a mapping --
+    # frontmatter must be key: value pairs to mean anything here.
+    skills_dir = tmp_path / "skills"
+    skill_dir = skills_dir / "list-frontmatter"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\n- a\n- b\n---\n# List Frontmatter\n\nBody.\n")
+
+    [skill] = discover_skills(skills_dir, tmp_path)
+    assert skill.properties["descriptionSource"] == "heading"
+
+
+def test_real_fixture_skill_with_no_frontmatter_still_works():
+    # Real fixture, unmodified -- confirms the v0.8.2 change is fully
+    # backward compatible with every skill this scanner already handled.
+    skill = by_name(discover_skills(FIXTURE_SKILLS, FIXTURE_HOME), "incident-response")
+    assert skill.properties["descriptionSource"] == "heading"
+    assert skill.properties["description"] == "Incident Response"

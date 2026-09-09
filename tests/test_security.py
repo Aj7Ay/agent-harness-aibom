@@ -15,6 +15,7 @@ from harness_aibom.security import (
     compute_risk_observations,
     compute_security_summary,
     compute_supply_chain,
+    diff_risk_observations,
     index_mcp_servers,
 )
 
@@ -538,3 +539,70 @@ def test_blast_radius_of_a_leaf_component_reaches_the_harness_root():
 def test_blast_radius_of_an_unknown_ref_is_empty_not_an_error():
     bom = to_cyclonedx(_doc())
     assert compute_blast_radius(bom, "no-such-ref") == {"direct_dependents": [], "reachable": []}
+
+
+# ---- diff_risk_observations (v0.8.2) -----------------------------------
+
+
+def _secret_doc(name: str) -> dict:
+    doc = _doc()
+    secret = Component(component_class="secrets_surface", name=name)
+    secret.set("worldReadable", True)
+    doc.add(secret, "accesses")
+    return to_cyclonedx(doc)
+
+
+def test_diff_risk_observations_identifies_a_genuinely_new_finding():
+    baseline = _secret_doc(".env")
+    current = _secret_doc(".env")
+    # add a second, genuinely new finding to `current` only
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    old = Component(component_class="secrets_surface", name=".env")
+    old.set("worldReadable", True)
+    doc.add(old, "accesses")
+    new = Component(component_class="secrets_surface", name="newly-exposed.env")
+    new.set("worldReadable", True)
+    doc.add(new, "accesses")
+    current = to_cyclonedx(doc)
+
+    result = diff_risk_observations(baseline, current)
+    new_refs = [ref for o in result["new"] for ref in o["components"]]
+    persisting_refs = [ref for o in result["persisting"] for ref in o["components"]]
+    assert any("newly-exposed.env" in ref for ref in new_refs)
+    assert not any("newly-exposed.env" in ref for ref in persisting_refs)
+    assert any(".env" in ref and "newly-exposed" not in ref for ref in persisting_refs)
+    assert result["resolved"] == []
+
+
+def test_diff_risk_observations_identifies_a_resolved_finding():
+    baseline = _secret_doc(".env")
+    current = to_cyclonedx(_doc())  # the finding is gone in current
+
+    result = diff_risk_observations(baseline, current)
+    resolved_refs = [ref for o in result["resolved"] for ref in o["components"]]
+    assert any(".env" in ref for ref in resolved_refs)
+    assert result["new"] == []
+    assert result["persisting"] == []
+
+
+def test_diff_risk_observations_of_identical_documents_has_only_persisting():
+    bom = _secret_doc(".env")
+    result = diff_risk_observations(bom, bom)
+    assert result["new"] == []
+    assert result["resolved"] == []
+    assert len(result["persisting"]) == 1
+
+
+def test_diff_risk_observations_agrees_with_policys_own_baseline_definition():
+    # Same fixture used by test_cli.py's policy --baseline tests -- the
+    # whole point of pulling this out of cli.py is that the two can never
+    # disagree about what "new since baseline" means.
+    baseline = _secret_doc(".env")
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    same = Component(component_class="secrets_surface", name=".env")
+    same.set("worldReadable", True)
+    doc.add(same, "accesses")
+    current = to_cyclonedx(doc)  # identical finding, not new
+
+    result = diff_risk_observations(baseline, current)
+    assert result["new"] == []

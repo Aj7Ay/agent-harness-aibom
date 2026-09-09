@@ -501,7 +501,7 @@ dependency graph. That's a real remaining gap, not claimed otherwise.
 | `runtime` | `application` | `version`, `installDir`, `installMethod`, `upstreamHash`, `pythonVersion`, `sdkVersion` | `hermes --version` / `openclaw --version` |
 | `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest`, `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx` | Ollama `GET /api/tags`, cross-referenced against the configured default model |
 | `configuration` | `file` | `path`, `relPath` (path relative to `--home`; see §4), `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
-| `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description`; `referencedServers`/`urls`/`shellIndicators`/`envVarReferences` (v0.6.0, opportunistic -- only set when `analyze_skill_content()` actually finds something; a *text mention* in the skill's own `SKILL.md` prose, never confirmation the skill invokes it at runtime -- see §13) | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
+| `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description` (`descriptionSource`: `"frontmatter"` when a real `description:` field won, `"heading"` when it fell back to the first markdown heading -- v0.8.2); `referencedServers`/`urls`/`shellIndicators`/`envVarReferences` (v0.6.0, opportunistic -- only set when `analyze_skill_content()` actually finds something; a *text mention* in the skill's own `SKILL.md` prose, never confirmation the skill invokes it at runtime -- see §13); `frontmatterName`/`license`/`allowedTools` (v0.8.2, opportunistic -- only set when the SKILL.md's own `---`-delimited YAML frontmatter declares them; `frontmatterName` is informational only, `comp.name` itself stays directory-derived, the real bom-ref/diff identity) | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 | `prompt_surface` (v0.6.0) | `file` | `path`, `relPath`, `sha256` (fingerprinted -- an instruction file's content is meant to be read, not kept private), `symlink` (bool, v0.7.0), `pathOutsideHome` (bool, v0.7.0 -- set only when `symlink` is true and its *resolved* target lands outside `--home`, same `is_symlink_outside_home()` helper `hook` uses) | recursive filesystem scan for exact filenames `AGENTS.md`/`CLAUDE.md` under the harness's own directory -- real, cross-project conventions (agents.md; Claude Code's own), not confirmed specifically for Hermes/OpenClaw, recorded on the same "absence isn't an error, presence doesn't over-claim relevance" basis as `secrets_surface` |
@@ -1628,3 +1628,202 @@ its own migration, not a side effect of an unrelated feature),
 compositions/formulation/declarations/attestations, and signing. All
 staged as future work in `memory/aibom-explorer-roadmap.md`, organized
 into the reviewer's own P0-P4 priority tiers, not dropped.
+
+## 16. Ten more items from the same wishlist (v0.8.2)
+
+The user asked for "all features" from the same Sept 2026 reviewer's
+33-item wishlist §15 introduced. Attempting all 33 in one pass would still
+mean shipping unverified stubs for the items with no real, checkable data
+source (dataset/tokenizer provenance, vulnerability/VEX, a rushed
+compliance mapping) -- those stay deliberately deferred below, same
+reasoning as §15. What follows is everything from the remaining list that
+*was* concretely buildable and verifiable against this actual codebase,
+shipped together as v0.8.2, each with real end-to-end verification (a real
+cosign binary, the real official SARIF 2.1.0 schema, real dispatched
+browser events for the one JS change) -- never just "looks reasonable."
+
+**`author` corrected (`pyproject.toml`).** A small, unrelated fix bundled
+into this release at the user's request: the PyPI-facing `authors` field
+read "Practical DevSecOps" (the course-material publisher this project's
+early source material came from, per SPEC.md section 1's own note) rather
+than the actual author. Now "Ajay Kumar Yegireddi". Not a security or
+data-model change; noted here only because it shipped in the same release.
+
+**SKILL.md YAML frontmatter (`skills.py`, P0 item 4).** A real,
+documented, cross-project convention (Claude Code's own Agent Skills
+format: `---`-delimited YAML with `name`/`description` as the fields
+this scanner cares about, `license`/`allowed-tools` optional) -- the same
+"real, confirmed convention, not harness-specific guessing" basis
+`prompt_surface.py`'s AGENTS.md/CLAUDE.md filenames already stand on.
+A real `description:` field is preferred over the previous first-heading
+guess when present (`descriptionSource` records which one actually won);
+`comp.name` itself -- the real bom-ref/diff identity -- is never
+overwritten by the frontmatter's own declared `name:`, kept as
+`frontmatterName` instead, purely informational. Malformed or absent
+frontmatter never crashes the scan (`{}` and falls back to the heading
+guess), same "record what's there, don't crash over one bad file"
+discipline this module already applies to an unreadable SKILL.md.
+
+**`scan --verify-deterministic` (P0 item 5).** Runs each active collector
+*twice* and compares the two `--deterministic` documents structurally --
+a real reproducibility check, not an assumption resting only on
+`--deterministic` omitting `serialNumber`/`metadata.timestamp`. PASS/FAIL
+per runtime, exit 1 on any FAIL. Confirmed real against the Hermes
+fixture (PASS); the negative case is proven with a deliberately flaky
+fake collector in the test suite, not just asserted that the happy path
+prints PASS.
+
+**`diff --security` / `security.diff_risk_observations()` (P2 item 18,
+partial).** `policy --baseline`'s own ad hoc "new since baseline" set
+comparison, pulled out into a shared `security.py` function -- new/
+persisting/resolved buckets, keyed on `(rule, bom-ref)`. `policy
+--baseline` now calls this same function instead of duplicating the
+logic inline, so the two can never disagree. `diff --security` renders
+the same buckets as JSON, with `--exit-code` gating on `new` only.
+Deliberately NOT folded into `diff`'s default output -- the two questions
+("did the inventory change" vs. "did a named risk rule newly fire") have
+different consumers and different shapes.
+
+**Trust zones (`report.py`, P2 item 13).** The same `compute_attack_surface()`
+reachability data the Attack surface table already shows (§11),
+regrouped into two zones -- everything in the `network` tier vs.
+everything else -- rather than a flat per-tier count list. No new facts,
+no second classification: this is `classify_reachability()`'s own result,
+read differently.
+
+**Capability matrix (`report.py`, P2 item 12).** `classify_capabilities()`/
+`classify_reachability()` (§11), aggregated by `(componentClass,
+capability, reachability)` into one table instead of read only from each
+entry's own detail line -- the same componentClass-level aggregation the
+Architecture diagram (§9) already applies, for the same reason (a
+document with dozens of skills repeating "skill / read / filesystem"
+dozens of times adds no information). Deliberately NOT a set of
+independent read/write/execute/network/credential/model boolean flags
+per asset, the shape the reviewer's own mockup showed --
+`classify_capabilities()` assigns exactly ONE fixed capability tag per
+componentClass, never several at once; a multi-checkmark row would show
+data this scanner doesn't actually have.
+
+**Model digest drift callout (`report.py`, P3 item 21, partial).** The
+Baseline diff's Changed table already listed `harness-aibom:digest`
+among a `model` component's changed field *names*; `diff.py`'s own
+`fields[name] = {"before": ..., "after": ...}` shape already carried the
+actual before/after values, just unused until now. A distinct, status-
+critical-colored callout now surfaces them explicitly for exactly this
+case -- a model's own tag/name staying fixed while what it resolves to
+changes underneath it, the "tag same, digest different" supply-chain
+signal a reviewer specifically asked for. Model-specific, not
+generalized to every fingerprinted class: a model tag is a pointer that
+can move; a skill's sha256 changing means the skill's own content
+changed, a materially different kind of surprise.
+
+**Raw BOM search/highlight (`report.py`, P1 item 9, partial).** A search
+box above the Raw BOM's own `<pre>`, highlighting matches once it's open
+-- scoped deliberately to that one block (the one place a reader
+plausibly needs to text-search a large, multi-hundred-line document),
+not every per-entry Raw JSON reveal (already scoped to one component).
+**A real missing-`addEventListener`-wiring bug was caught here during
+development** -- `highlightRawBom()` was written and worked when called
+manually, but its `input` listener was never actually attached to the
+search box, so typing did nothing. Every Python-level static-HTML
+assertion would have passed regardless (the function text and the input
+element both exist in the markup); only real dispatched browser events
+(headless Chrome, `iframe` + `contentWindow.Event`) caught it, exactly
+the failure mode SPEC.md has warned about since v0.4.0's own postmortem
+(`memory/aibom-explorer-roadmap.md`). Fixed before shipping; the fix
+itself (one `addEventListener` call) is now covered by that same
+real-browser check.
+
+**Policy-as-code (`policy_yaml.py`, P4 item 26).** `policy --policy-file
+rules.yaml` -- user-authored rules, evaluated alongside (never instead
+of) the built-in security.py rules. Deliberately a narrow, closed-set
+condition language: an optional `componentClass` plus equality checks
+against named `harness-aibom:` properties, ANDed together -- no OR, no
+negation, no comparison operator beyond equality. A rule that needs more
+than that is exactly the kind of opaque condition this project's whole
+risk-observation design has always avoided. Each rule's own `action`
+(`fail`/`warn`) decides whether it fails the command, independent of
+`--fail-on`/`--baseline` (which apply only to the built-in rules' gate) --
+printed in its own labeled block so the two rule systems' different
+gating logic is never conflated. Malformed policy YAML (not a mapping,
+an unknown severity/action, a missing condition) raises a specific,
+actionable `PolicyFileError` at load time, never a raw traceback
+mid-evaluation. Not yet supported together with `--format sarif` (an
+explicit, checked error, not a silent gap) -- combining the two shapes
+is real future work, not attempted here.
+
+**SARIF output (`sarif.py`, P4 item 27).** `policy --format sarif
+[--output results.sarif]` -- the same `compute_risk_observations()`
+findings `policy`'s text mode and the report's own Risk observations
+section already show, rendered as a SARIF 2.1.0 log for a GitHub/GitLab/
+Azure code-scanning UI. Severity maps onto SARIF's own `level` enum
+(high->error, medium->warning, low->note). A finding on a component with
+a real `relPath`/`path` gets a genuine `physicalLocation` (what a
+scanning UI actually annotates inline); anything else (a service with no
+filesystem location, e.g. an MCP server) gets a `logicalLocation` naming
+its bom-ref instead -- never a fabricated path. **Every SARIF document
+this module can produce is validated against the real, official SARIF
+2.1.0 JSON Schema** (vendored at `tests/fixtures/sarif-schema-2.1.0.json`,
+fetched once from schemastore.org's mirror of the canonical
+oasis-tcs/sarif-spec schema), the same "validate against the real spec,
+not just what looks reasonable" discipline `test_cyclonedx_schema.py`
+already applies to this project's own canonical output -- `jsonschema`
+added as an explicit dev dependency for this, not left as an incidental
+transitive one.
+
+**AIBOM signing (`sign.py`, `cli.py`'s `sign`/`verify-signature`, plus
+`report --bundle/--key`, P4 item 30).** Key-based `cosign sign-blob`/
+`verify-blob`, fully offline (`--insecure-ignore-tlog=true` on verify, no
+transparency-log upload on sign) -- deliberate, not a shortcut: key-based
+signing has no public OIDC identity for a transparency log to attest to
+in the first place, so the trust model here is "you already trust this
+specific public key", the same as a GPG-signed release artifact.
+Thin subprocess wrapper only -- this module never re-implements signature
+verification itself (a hand-rolled verifier would be a real cryptographic
+mistake to get subtly wrong); cosign's own exit code and stdout/stderr
+are relayed verbatim, at both the standalone command level and inside the
+report's new Artifact integrity section (`report --bundle x.bundle --key
+cosign.pub` runs a real `verify-blob` against the exact input file at
+render time, embedding the SHA-256 of that file, cosign's own verified/
+not-verified verdict, and its raw output -- never a bare, ambiguous
+checkmark this scanner can't back up).
+
+**Confirmed against a real, locally installed `cosign v3.1.3`**, not
+assumed: `sign-blob`/`verify-blob` both require `--bundle <path>` on
+this version -- the older `--output-signature`/`--signature` flags are
+deprecated, and combining them with this version's bundle-format default
+raises "must specify --bundle with --new-bundle-format" outright,
+confirmed by actually running it before settling on the shape this
+module uses. Only this exact command shape was verified locally; an
+older cosign install may use a different flag shape, and this module
+doesn't try to detect or paper over that. `test_sign.py`/the `sign`/
+`verify-signature`/`report --bundle` tests in `test_cli.py` are real,
+non-mocked subprocess calls against the actual binary -- skipped
+entirely (never faked) when `cosign` isn't on PATH, which is why CI now
+installs it explicitly (`sigstore/cosign-installer`, `.github/workflows/ci.yml`)
+so this suite runs for real there too, not just locally.
+
+**Deliberately not attempted in v0.8.2** (the remaining items from the
+same 33-item wishlist, still staged in `memory/aibom-explorer-roadmap.md`):
+confidence/observation levels (OBSERVED/DERIVED/INFERRED/UNKNOWN) as a
+real per-relationship data-model field -- too invasive to retrofit safely
+across every collector call site in one pass, unlike the narrow, already-
+justified "text mention" framing `skills.py`'s own `referencedServers`
+already carries; evidence chains and attack-path analysis (both need
+that same deferred confidence tagging to mean anything); a full
+interactive per-instance dependency graph explorer (the per-entry
+"Depends on"/"Blast radius" lists already show this data; a real
+pan/zoom instance-level graph for a document with hundreds of components
+is its own design-and-scalability pass, not a tacked-on addition to an
+already large release); tokenizer/prompt-template metadata and dataset/
+model provenance depth (no live Ollama instance available in this
+environment to confirm `/api/show`'s actual field shapes against --
+verified-against-a-live-box is this project's own standing bar, not
+skipped lightly); vulnerability/VEX (still no real data source); CycloneDX
+declarations/attestations proper (needs a real assessor-identity model,
+its own design pass, same reasoning v0.5.0 deferred a `SecurityEvidence`
+object for); compliance mapping (NIST AI RMF/ISO 42001/OWASP Agentic AI/
+MITRE ATLAS/SLSA -- authoring a real, defensible control-to-evidence
+mapping needs careful, dedicated domain work this project's "never
+overclaim" discipline shouldn't rush); CycloneDX 1.7 (still a deliberate,
+separate migration decision, not a side effect of this release, per §15).

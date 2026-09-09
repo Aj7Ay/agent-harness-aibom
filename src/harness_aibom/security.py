@@ -276,6 +276,45 @@ def compute_risk_observations(bom: dict) -> list[dict]:
     return observations
 
 
+def diff_risk_observations(baseline: dict, current: dict) -> dict:
+    """Which named risk-rule findings are new, resolved, or still
+    persisting since a `baseline` scan -- keyed on `(rule, component
+    bom-ref)`, the same identity `policy --baseline` (cli.py, v0.7.0)
+    originally computed ad hoc, inline, once for its own use only.
+    Pulled out here (v0.8.2) so `policy --baseline` and the new `diff
+    --security` (cli.py) share one implementation and can never disagree
+    about what counts as "new since baseline" -- the same "one function,
+    multiple consumers" discipline `report --baseline` already applies
+    to `diff.diff_documents()` itself (v0.7.0).
+
+    Each returned list (`new`, `resolved`, `persisting`) is shaped like
+    `compute_risk_observations()`'s own output (same keys), except
+    `components` is narrowed to only the bom-refs relevant to that
+    bucket -- an observation with some new and some persisting matches
+    appears, correctly, in both `new` and `persisting`, each with only
+    its own subset. Order is inherited from `compute_risk_observations()`
+    (severity first), never re-sorted here.
+    """
+    baseline_obs = compute_risk_observations(baseline)
+    current_obs = compute_risk_observations(current)
+    baseline_keys = {(o["rule"], ref) for o in baseline_obs for ref in o["components"]}
+    current_keys = {(o["rule"], ref) for o in current_obs for ref in o["components"]}
+
+    def _narrowed(obs_list: list[dict], keep) -> list[dict]:
+        out = []
+        for o in obs_list:
+            refs = [ref for ref in o["components"] if keep((o["rule"], ref))]
+            if refs:
+                out.append({**o, "components": refs})
+        return out
+
+    return {
+        "new": _narrowed(current_obs, lambda k: k not in baseline_keys),
+        "persisting": _narrowed(current_obs, lambda k: k in baseline_keys),
+        "resolved": _narrowed(baseline_obs, lambda k: k not in current_keys),
+    }
+
+
 # ---- 4. Secrets-surface confidence tiers --------------------------------
 
 #: Partition of secrets.py's SECRET_NAME_PATTERNS into two confidence

@@ -633,3 +633,128 @@ def test_inspect_button_survives_a_bom_ref_containing_a_quote():
     # rest of the string can never be interpreted as a second attribute or
     # break out into markup, regardless of what text it contains.
     assert "data-inspect='c1&#x27;); alert(document.domain); //'" in html_text
+
+
+# ---- v0.8.2: model digest drift callout in the baseline diff ----------
+
+
+def test_model_digest_drift_is_called_out_distinctly():
+    from harness_aibom.diff import diff_documents
+
+    before_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    before_model = Component(component_class="model", name="qwen3:8b")
+    before_model.set("digest", "sha256:aaa")
+    before_doc.add(before_model, "uses")
+    before = to_cyclonedx(before_doc)
+
+    after_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    after_model = Component(component_class="model", name="qwen3:8b")  # same tag/name
+    after_model.set("digest", "sha256:bbb")  # different content
+    after_doc.add(after_model, "uses")
+    after = to_cyclonedx(after_doc)
+
+    diff_result = diff_documents(before, after)
+    html_text = render_html(after, diff_result=diff_result)
+    section = html_text.split('id="baseline-diff"')[1].split('id="raw-bom"')[0]
+    assert "model-drift-callout" in section
+    assert "Model content changed" in section
+    assert "sha256:aaa" in section
+    assert "sha256:bbb" in section
+
+
+def test_trust_zones_section_present_and_splits_local_from_network():
+    html_text = render_html(_doc_with_everything())
+    section = html_text.split('id="trust-zones"')[1].split('id="capability-matrix"')[0]
+    assert "TRUST ZONE: LOCAL HOST" in section
+    assert "TRUST ZONE: NETWORK" in section
+    # the mcp_server's real remote endpoint (mcp.corp.lab) crosses the
+    # network boundary; the loopback model_endpoint does not.
+    assert "mcp_server:local-fs" in section
+
+
+def test_trust_zones_clean_state_when_nothing_crosses_the_network():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    doc.add(Component(component_class="skill", name="local-only"), "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    section = html_text.split('id="trust-zones"')[1].split('id="capability-matrix"')[0]
+    assert "No components cross a network trust boundary" in section
+    assert "TRUST ZONE: NETWORK" not in section
+
+
+def test_raw_bom_search_box_and_highlight_wiring_present():
+    # Real interactive behavior (open -> highlight matches -> clear ->
+    # matches removed, including a query containing regex-special
+    # characters) verified with real dispatched browser events (headless
+    # Chrome, iframe + contentWindow.Event) before shipping, the same
+    # discipline every JS-touching release follows -- this caught a real
+    # missing addEventListener wiring bug (highlightRawBom() was defined
+    # but never attached to the search box's 'input' event) during
+    # development, the same class of bug the v0.4.0 postmortem warns
+    # about. These assertions only cover what a static-HTML test can:
+    # the markup and function/wiring text are actually present.
+    html_text = render_html(_doc_with_everything())
+    assert "id='raw-bom-search'" in html_text
+    assert "function highlightRawBom(" in html_text
+    assert "function escapeRegExp(" in html_text
+    assert "rawBomSearch.addEventListener('input', highlightRawBom)" in html_text
+    assert "pre.dataset.rawText" in html_text
+
+
+def test_capability_matrix_aggregates_by_class_capability_reachability():
+    html_text = render_html(_doc_with_everything())
+    section = html_text.split('id="capability-matrix"')[1].split('id="mcp"')[0]
+    assert "model" in section
+    assert "model-provider" in section  # model's own reachability tag
+    assert "network" in section  # mcp_server's https endpoint
+
+
+def test_non_model_digest_style_changes_do_not_trigger_the_drift_callout():
+    from harness_aibom.diff import diff_documents
+
+    before_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    before_skill = Component(component_class="skill", name="research")
+    before_skill.set("sha256", "a" * 64)
+    before_doc.add(before_skill, "loads")
+    before = to_cyclonedx(before_doc)
+
+    after_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    after_skill = Component(component_class="skill", name="research")
+    after_skill.set("sha256", "b" * 64)
+    after_doc.add(after_skill, "loads")
+    after = to_cyclonedx(after_doc)
+
+    diff_result = diff_documents(before, after)
+    html_text = render_html(after, diff_result=diff_result)
+    section = html_text.split('id="baseline-diff"')[1].split('id="raw-bom"')[0]
+    assert "model-drift-callout" not in section
+
+
+# ---- v0.8.2: Artifact integrity section ---------------------------------
+
+
+def test_artifact_integrity_absent_by_default():
+    html_text = render_html(_doc_with_everything())
+    section = html_text.split('id="artifact-integrity"')[1].split('id="raw-bom"')[0]
+    assert "No signature bundle supplied" in section
+
+
+def test_artifact_integrity_shows_verified_state():
+    html_text = render_html(_doc_with_everything(), signature_info={
+        "sha256": "a" * 64, "bundle": "aibom.json.bundle", "key": "cosign.pub",
+        "verified": True, "output": "Verified OK\n",
+    })
+    section = html_text.split('id="artifact-integrity"')[1].split('id="raw-bom"')[0]
+    assert "Signature verified" in section
+    assert "a" * 64 in section
+    assert "NOT VERIFIED" not in section
+
+
+def test_artifact_integrity_shows_not_verified_state_honestly():
+    html_text = render_html(_doc_with_everything(), signature_info={
+        "sha256": "b" * 64, "bundle": "aibom.json.bundle", "key": "cosign.pub",
+        "verified": False, "output": "Error: failed to verify signature\n",
+    })
+    section = html_text.split('id="artifact-integrity"')[1].split('id="raw-bom"')[0]
+    assert "NOT VERIFIED" in section
+    assert "failed to verify signature" in section
+    assert "Signature verified" not in section

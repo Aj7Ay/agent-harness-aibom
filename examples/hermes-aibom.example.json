@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:5f3bb7e0-0d6e-4b2e-84a0-7636b78bc33a",
+  "serialNumber": "urn:uuid:4034edc2-626e-4194-9117-bd296e1029e2",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.8.0"
+          "version": "0.8.2"
         }
       ]
     },
@@ -60,7 +60,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-09T13:17:36+00:00"
+    "timestamp": "2026-09-09T13:55:18+00:00"
   },
   "components": [
     {
@@ -289,6 +289,10 @@
           "value": "Incident Response"
         },
         {
+          "name": "harness-aibom:descriptionSource",
+          "value": "heading"
+        },
+        {
           "name": "harness-aibom:referencedServers",
           "value": "corp-docs"
         },
@@ -340,6 +344,10 @@
         {
           "name": "harness-aibom:description",
           "value": "Dogfood"
+        },
+        {
+          "name": "harness-aibom:descriptionSource",
+          "value": "heading"
         }
       ]
     },

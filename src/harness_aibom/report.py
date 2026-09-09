@@ -197,6 +197,21 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .diff-list li { padding: 0.1rem 0; }
 .diff-added { color: #0ca30c; }
 .diff-removed { color: #d03b3b; }
+/* v0.8.2: model digest drift -- the "tag same, digest different" signal,
+   status-critical color reused per the fixed palette, an icon + label
+   never color alone. */
+.model-drift-callout {
+  background: rgba(208,59,59,0.08); border-left: 4px solid #d03b3b; border-radius: 6px;
+  padding: 0.7rem 1rem; margin: 0.5rem 0 1rem;
+}
+.model-drift-callout ul { margin: 0.4rem 0 0; }
+/* v0.8.2: trust zones */
+.trust-zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 0.75rem 0 1.25rem; }
+.trust-zone { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem; }
+.trust-zone h3 { margin: 0 0 0.4rem; font-size: 0.95rem; letter-spacing: 0.02em; }
+.trust-zone.zone-network h3 { color: #d03b3b; }
+.trust-zone.zone-local h3 { color: var(--secondary); }
+.trust-zone ul { max-height: 220px; overflow-y: auto; }
 .explorer-nav {
   position: sticky; top: 0; z-index: 10; background: var(--bg);
   border-bottom: 1px solid var(--border); margin: 0 -1.25rem 1rem; padding: 0.6rem 1.25rem;
@@ -220,6 +235,8 @@ pre.raw-json {
   background: var(--code-bg); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.78rem;
   overflow-x: auto; white-space: pre; margin: 0.4rem 0 0;
 }
+/* v0.8.2: Raw BOM search matches */
+pre.raw-json mark { background: #fab219; color: #1a1a19; border-radius: 2px; }
 /* v0.8.0: Component Inspector -- a focused modal reusing an already-
    rendered .entry's own markup (see _JS's openInspector()), never a
    second copy of the entry-rendering logic. */
@@ -418,6 +435,8 @@ document.addEventListener('DOMContentLoaded', function () {
   var classFilter = document.getElementById('class-filter');
   if (searchBox) searchBox.addEventListener('input', applyFilters);
   if (classFilter) classFilter.addEventListener('change', applyFilters);
+  var rawBomSearch = document.getElementById('raw-bom-search');
+  if (rawBomSearch) rawBomSearch.addEventListener('input', highlightRawBom);
   document.addEventListener('click', function (event) {
     var goto = event.target.closest && event.target.closest('[data-goto]');
     if (goto) { goToClass(goto.getAttribute('data-goto')); return; }
@@ -479,10 +498,45 @@ document.addEventListener('toggle', function (event) {
   var data = findByRef(details.getAttribute('data-bom-ref'));
   var pre = details.querySelector('pre.raw-json');
   if (pre && data) {
-    pre.textContent = JSON.stringify(data, null, 2);
+    var text = JSON.stringify(data, null, 2);
+    pre.textContent = text;
+    // dataset.rawText: the plain, unhighlighted text -- kept separately
+    // from pre.textContent/innerHTML so highlightRawBom() below always
+    // re-highlights from a clean copy instead of matching against its
+    // own previously inserted <mark> tags.
+    pre.dataset.rawText = text;
     details.dataset.rendered = '1';
+    if (details.getAttribute('data-bom-ref') === '__bom__') highlightRawBom();
   }
 }, true); // capture: 'toggle' does not bubble
+
+// v0.8.2: Raw BOM search -- highlights matches inside the Raw BOM's own
+// <pre> once it's open. Scoped to that one block deliberately (see
+// _render_raw_bom()'s own comment) -- never touches the per-entry Raw
+// JSON reveals, which don't have a search box of their own.
+function escapeHtmlText(s) {
+  var div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+}
+
+function highlightRawBom() {
+  var input = document.getElementById('raw-bom-search');
+  var pre = document.querySelector('#raw-bom pre.raw-json');
+  if (!input || !pre || pre.dataset.rawText === undefined) return;
+  var escapedText = escapeHtmlText(pre.dataset.rawText);
+  var q = input.value;
+  if (!q) {
+    pre.innerHTML = escapedText;
+    return;
+  }
+  var re = new RegExp(escapeRegExp(escapeHtmlText(q)), 'gi');
+  pre.innerHTML = escapedText.replace(re, function (m) { return '<mark>' + m + '</mark>'; });
+}
 """
 
 
@@ -1039,6 +1093,8 @@ _EXPLORER_NAV_LINKS = (
     ("#security-summary", "Security"),
     ("#risk", "Risk"),
     ("#attack-surface", "Attack surface"),
+    ("#trust-zones", "Trust zones"),
+    ("#capability-matrix", "Capabilities"),
     ("#mcp", "MCP"),
     ("#components", "Components"),
     ("#services", "Services"),
@@ -1047,6 +1103,7 @@ _EXPLORER_NAV_LINKS = (
     ("#vulnerabilities", "Vulnerabilities"),
     ("#compositions", "Compositions"),
     ("#baseline-diff", "Baseline diff"),
+    ("#artifact-integrity", "Integrity"),
     ("#raw-bom", "Raw BOM"),
 )
 
@@ -1173,7 +1230,17 @@ def _render_raw_bom(compact_size: int) -> str:
     # here -- `compact_size` is the one real copy's own byte count
     # (compact, not pretty-printed, since that's what's actually shipped
     # in the file), shown so the summary line stays honest about size.
+    #
+    # v0.8.2: a dedicated search box highlights matches inside this one
+    # `<pre>` once it's open (_JS's `highlightRawBom()`) -- scoped to the
+    # Raw BOM's own pretty-printed blob specifically, not every per-entry
+    # Raw JSON reveal, since this is the one place a reader plausibly
+    # needs to text-search a large, multi-hundred-line document; the
+    # per-entry ones are already scoped to one component.
     return (
+        "<div class='filter-bar'>"
+        "<input type='search' id='raw-bom-search' placeholder='Search the raw JSON... (open it below first)'>"
+        "</div>"
         f"<details data-bom-ref='__bom__'><summary>Raw CycloneDX AIBOM ({compact_size} bytes, compact)</summary>"
         "<pre class='raw-json'></pre></details>"
     )
@@ -1209,6 +1276,115 @@ def _render_attack_surface(bom: dict) -> str:
     return f"{table}{boundary_note}"
 
 
+def _render_trust_zones(bom: dict) -> str:
+    """v0.8.2: the same reachability data `compute_attack_surface()`
+    (§11) already computes, regrouped into two trust zones instead of a
+    flat per-tier count table -- "what's local to this box" vs "what
+    actually crosses a network boundary", the LOCAL HOST / remote-service
+    framing a reviewer specifically asked for. No new facts: every ref
+    shown here already appears in the Attack surface table above; this is
+    a coarser grouping of the exact same `classify_reachability()`
+    result, never a second classification.
+    """
+    surface = security.compute_attack_surface(bom)
+    by_tier = surface["by_tier"]
+    if not by_tier:
+        return "<p class='muted'><em>nothing to show</em></p>"
+
+    network_refs = sorted(by_tier.get("network", []))
+    local_refs = sorted(ref for tier, refs in by_tier.items() if tier != "network" for ref in refs)
+
+    def _zone(label: str, refs: list[str], css_class: str) -> str:
+        items = "".join(f"<li>{_esc(ref)}</li>" for ref in refs)
+        return (
+            f"<div class='trust-zone {css_class}'>"
+            f"<h3>TRUST ZONE: {_esc(label)} <span class='count'>({len(refs)})</span></h3>"
+            f"<ul class='diff-list'>{items}</ul></div>"
+        )
+
+    html = _zone("LOCAL HOST", local_refs, "zone-local")
+    html += (
+        _zone("NETWORK", network_refs, "zone-network")
+        if network_refs
+        else "<p class='risk-clean'>✓ No components cross a network trust boundary.</p>"
+    )
+    return f"<div class='trust-zones'>{html}</div>"
+
+
+def _render_capability_matrix(bom: dict) -> str:
+    """v0.8.2: `classify_capabilities()`/`classify_reachability()` (§11),
+    aggregated into one table instead of read only from each entry's own
+    detail line. Deliberately grouped by (componentClass, capability,
+    reachability) rather than one row per instance -- a document with
+    dozens of skills would otherwise repeat "skill / read / filesystem"
+    dozens of times for no new information, the same reasoning the
+    componentClass-level Architecture diagram (§9) already applied.
+
+    Deliberately NOT a set of independent read/write/execute/network/
+    credential/model boolean flags per asset, the shape a reviewer's own
+    mockup showed: `classify_capabilities()` assigns exactly ONE fixed
+    capability tag per componentClass (SPEC.md section 11), never
+    several at once -- rendering several simultaneous checkmarks per row
+    would show data this scanner doesn't actually have.
+    """
+    mcp_servers = security.index_mcp_servers(bom)
+    rows: dict[tuple[str, str, str], int] = {}
+    for entry in bom.get("components", []) + bom.get("services", []):
+        cls = _component_class(entry)
+        key = (cls, security.classify_capabilities(entry), security.classify_reachability(entry, mcp_servers))
+        rows[key] = rows.get(key, 0) + 1
+
+    if not rows:
+        return "<p class='muted'><em>nothing to show</em></p>"
+
+    table_rows = "".join(
+        f"<tr><td>{_class_dot(cls)}{_esc(cls)}</td><td>{_esc(capability)}</td>"
+        f"<td>{_esc(reachability)}</td><td>{count}</td></tr>"
+        for (cls, capability, reachability), count in sorted(rows.items())
+    )
+    return (
+        "<table class='summary'><tr><th>componentClass</th><th>capability</th>"
+        f"<th>reachability</th><th>count</th></tr>{table_rows}</table>"
+    )
+
+
+def _render_model_digest_drift(changed: list[dict]) -> str:
+    """A distinct, highlighted callout for a `model` component whose
+    content digest changed since the baseline -- v0.8.2, the "tag same,
+    digest different" supply-chain signal a reviewer specifically asked
+    for. The generic Changed table below already shows
+    `harness-aibom:digest` as one of a component's changed *field names*,
+    but not the actual before/after values -- those are already present
+    in `diff_result` (`diff.py`'s own `fields[name] = {"before": ...,
+    "after": ...}` shape, unused by the table below, which only ever
+    joined the field *names*), just not surfaced distinctly until now.
+    Model-specific and not generalized to every fingerprinted class: a
+    model's own display name/tag (e.g. `qwen3:8b`) staying fixed while
+    what it actually resolves to changes underneath it is a materially
+    different kind of surprise than a skill's sha256 changing (the skill
+    *is* its own content; a model tag is a pointer that can move).
+    """
+    drifted = [
+        c for c in changed
+        if c["component"].startswith("model:") and "harness-aibom:digest" in c["fields"]
+    ]
+    if not drifted:
+        return ""
+    items = "".join(
+        "<li class='diff-removed'>⚠ "
+        f"<strong>{_esc(c['component'])}</strong>: digest changed "
+        f"<code>{_esc(c['fields']['harness-aibom:digest'].get('before'))}</code> &rarr; "
+        f"<code>{_esc(c['fields']['harness-aibom:digest'].get('after'))}</code>"
+        "</li>"
+        for c in drifted
+    )
+    return (
+        "<div class='model-drift-callout'><strong>⚠ Model content changed</strong> -- the model's own "
+        "name/tag stayed the same, but what it actually resolves to did not:"
+        f"<ul class='diff-list'>{items}</ul></div>"
+    )
+
+
 def _render_baseline_diff(diff_result: dict | None) -> str:
     """`diff`'s own output (diff.py's diff_documents()), rendered --
     v0.7.0. Reuses that function's exact result rather than a second
@@ -1227,7 +1403,7 @@ def _render_baseline_diff(diff_result: dict | None) -> str:
     if not added and not removed and not changed:
         return "<p class='risk-clean'>✓ No changes since the baseline.</p>"
 
-    sections = []
+    sections = [_render_model_digest_drift(changed)]
     if added:
         items = "".join(f"<li class='diff-added'>+ {_esc(ref)}</li>" for ref in added)
         sections.append(f"<h3>Added ({len(added)})</h3><ul class='diff-list'>{items}</ul>")
@@ -1251,7 +1427,43 @@ def _render_baseline_diff(diff_result: dict | None) -> str:
     return "".join(sections)
 
 
-def render_html(bom: dict, diff_result: dict | None = None) -> str:
+def _render_artifact_integrity(signature_info: dict | None) -> str:
+    """`cosign verify-blob`'s own result (sign.py), run once at render
+    time against the exact file `report` was given -- v0.8.2. Never a
+    second verifier: `cli.py`'s `_run_report` shells out through the same
+    `sign.verify_blob()` wrapper the standalone `verify-signature`
+    command uses, so the two can never disagree about whether a
+    signature is valid. Absent entirely (no `--bundle`/`--key` given to
+    `report`) is shown honestly as "not verified", never a bare,
+    ambiguous checkmark that could be mistaken for a real verification
+    result -- the same "absence isn't a clean bill of health" discipline
+    every other section on this page already follows.
+    """
+    if signature_info is None:
+        return (
+            "<p class='muted'><em>No signature bundle supplied &mdash; render with "
+            "<code>report ... --bundle aibom.json.bundle --key cosign.pub</code> "
+            "to verify and show it here.</em></p>"
+        )
+    rows = (
+        f"<tr><td>SHA-256 (this exact file)</td><td><code>{_esc(signature_info['sha256'])}</code></td></tr>"
+        f"<tr><td>Bundle</td><td>{_esc(signature_info['bundle'])}</td></tr>"
+        f"<tr><td>Public key</td><td>{_esc(signature_info['key'])}</td></tr>"
+    )
+    status = (
+        "<p class='risk-clean'>✓ Signature verified against the supplied public key.</p>"
+        if signature_info["verified"]
+        else "<p><span class='risk-badge sev-critical'>✗ NOT VERIFIED</span> "
+        "see cosign's own output below for why.</p>"
+    )
+    # cosign's own stdout/stderr, relayed verbatim -- never reinterpreted
+    # or summarized, same "cosign decides, this only relays" discipline
+    # sign.py's own docstring establishes for the CLI commands.
+    detail = f"<pre class='raw-json'>{_esc(signature_info['output'])}</pre>" if signature_info.get("output") else ""
+    return f"<table class='summary'>{rows}</table>{status}{detail}"
+
+
+def render_html(bom: dict, diff_result: dict | None = None, signature_info: dict | None = None) -> str:
     """Build the full HTML document for a harness-aibom CycloneDX dict.
 
     `diff_result` (v0.7.0) -- the output of `diff.diff_documents()`
@@ -1259,6 +1471,11 @@ def render_html(bom: dict, diff_result: dict | None = None) -> str:
     cli.py's `report --baseline`). `None` (the default) renders exactly
     as before: a single-scan report with an honest "not available"
     baseline-comparison line, same as every release before v0.7.0.
+
+    `signature_info` (v0.8.2) -- `{"sha256", "bundle", "key", "verified",
+    "output"}` from a real `cosign verify-blob` run against the input
+    file (see cli.py's `report --bundle/--key`), or `None` (default) to
+    render the Artifact integrity section's honest "not supplied" state.
     """
     metadata = bom.get("metadata", {})
     root = metadata.get("component", {})
@@ -1398,6 +1615,22 @@ def render_html(bom: dict, diff_result: dict | None = None) -> str:
   {_render_attack_surface(bom)}
 </section>
 
+<section id="trust-zones">
+  <h2>Trust zones</h2>
+  <p class="muted">The same reachability data above, regrouped into two zones &mdash; what stays on
+    this host vs. what actually crosses a network boundary.</p>
+  {_render_trust_zones(bom)}
+</section>
+
+<section id="capability-matrix">
+  <h2>Capabilities</h2>
+  <p class="muted">Every componentClass's own fixed capability + reachability tag (see SPEC.md
+    section 11), aggregated by (class, capability, reachability) rather than one row per instance.
+    One capability tag per class, never several at once &mdash; this scanner doesn't have
+    per-asset read/write/execute/network flags to show simultaneously.</p>
+  {_render_capability_matrix(bom)}
+</section>
+
 <section id="mcp">
   <h2>MCP security</h2>
   {_render_mcp_security(services)}
@@ -1455,6 +1688,14 @@ def render_html(bom: dict, diff_result: dict | None = None) -> str:
   <p class="muted">diff's own output (<code>harness-aibom diff</code>), rendered -- pass
     <code>--baseline before.json</code> to <code>report</code> to see it here.</p>
   {_render_baseline_diff(diff_result)}
+</section>
+
+<section id="artifact-integrity">
+  <h2>Artifact integrity</h2>
+  <p class="muted">A real <code>cosign verify-blob</code> result against this exact file &mdash; see
+    <code>harness-aibom sign</code>/<code>verify-signature</code>. Never a claim this scanner can't back
+    up: absent unless a bundle and public key were actually supplied and actually verified.</p>
+  {_render_artifact_integrity(signature_info)}
 </section>
 
 <section id="raw-bom">
