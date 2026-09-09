@@ -13,7 +13,7 @@ Point it at a running [Hermes](https://github.com/Aj7Ay) or
 question a general-purpose SBOM scanner can't: *what exactly does this
 agent have access to?* Its runtime binary, the model(s) it talks to, the
 skills and MCP servers and hooks it can reach, the secrets surface
-around all of that — recorded as a standard, tool-agnostic
+around all of that - recorded as a standard, tool-agnostic
 [CycloneDX 1.6](https://cyclonedx.org/) document, then analyzed for risk,
 attack surface, and blast radius without ever leaving that standard.
 
@@ -23,16 +23,16 @@ harness-aibom scan --runtime auto -o aibom.json
 harness-aibom report aibom.json -o report.html
 ```
 
-![AIBOM Explorer report — architecture diagram and scan warnings](docs/screenshot-report.png)
+![AIBOM Explorer report - architecture diagram and scan warnings](docs/screenshot-report.png)
 
 ## Why CycloneDX, not a custom format
 
-Every fact this tool collects is real, on-disk state — nothing inferred,
+Every fact this tool collects is real, on-disk state - nothing inferred,
 nothing scored by an opaque model. It stays inside the official
 CycloneDX 1.6 schema everywhere a native field exists (`purl`, `hashes`,
 `licenses`, `supplier`, `externalReferences`, the dependency graph), and
 adds harness-specific facts as a `harness-aibom:` property namespace
-alongside them — so a generic CycloneDX/SBOM tool that ignores unknown
+alongside them - so a generic CycloneDX/SBOM tool that ignores unknown
 properties still gets a valid, useful BOM, and this project's own
 `validate`/`diff`/`report`/`policy` commands get everything they need on
 top of it. See [`SPEC.md`](SPEC.md) for the full data model and the
@@ -42,51 +42,51 @@ reasoning behind every field.
 
 | Class | What it is |
 |---|---|
-| `runtime` | The harness binary itself — version, install method, upstream hash |
-| `model` | Every model behind the configured endpoint, via Ollama's own API — digest, family, parameter size, quantization, context length |
-| `model_endpoint` / `mcp_server` | Native CycloneDX *services* — transport, TLS, auth posture, endpoint URLs |
+| `runtime` | The harness binary itself - version, install method, upstream hash |
+| `model` | Every model behind the configured endpoint, via Ollama's own API - digest, family, parameter size, quantization, context length |
+| `model_endpoint` / `mcp_server` | Native CycloneDX *services* - transport, TLS, auth posture, endpoint URLs |
 | `tool` | One per MCP tool a server declares, with a name-based `read`/`write`/`exec`/`network` risk class |
 | `skill` | Every `SKILL.md` at any depth, directory-hashed, with deterministic content analysis (referenced servers, URLs, shell commands, env vars) and real YAML frontmatter (`name`/`description`/`license`/`allowed-tools`) |
 | `hook` | Shell hooks, their approval state, and whether their content has changed since approval |
 | `configuration` | The harness's own config file, fingerprinted |
 | `dependency` | The harness's Python packages and MCP launcher packages, with native `purl`, licenses, and supplier |
-| `secrets_surface` | `.env` files, credential-shaped filenames, key/PEM files — location and permissions only, contents never read |
+| `secrets_surface` | `.env` files, credential-shaped filenames, key/PEM files - location and permissions only, contents never read |
 | `prompt_surface` | `AGENTS.md`/`CLAUDE.md` instruction files, fingerprinted |
-| `memory_store` | Chroma/FAISS persistence files — location and permissions only, contents never read |
+| `memory_store` | Chroma/FAISS persistence files - location and permissions only, contents never read |
 
 Twelve classes, all cross-referenced into one real dependency graph
-(`harness → mcp_server → tool`, `harness → model_endpoint → model`, …) —
+(`harness → mcp_server → tool`, `harness → model_endpoint → model`, …) -
 not a flat list of everything the harness happens to touch.
 
 ## Security analysis, built on top of the same document
 
-Nothing here is a second, independent scan — every result below is a
+Nothing here is a second, independent scan - every result below is a
 pure function over the CycloneDX document `scan` already produced,
 re-derivable by anyone from the same JSON:
 
-- **Risk observations** — a fixed, named set of explainable rules
+- **Risk observations** - a fixed, named set of explainable rules
   (world-readable secrets at two confidence tiers, plaintext/
   unauthenticated MCP transport, unpinned launcher packages, models with
   no content digest, world-readable memory stores), never a single
   opaque score.
-- **Attack surface & trust zones** — every component classified by where
+- **Attack surface & trust zones** - every component classified by where
   it actually sits (filesystem, local process, loopback, network, a
   credential store, a model provider), then split into what stays on the
   box versus what crosses a real network boundary.
-- **Capability matrix** — componentClass × capability × reachability,
-  aggregated — never a fabricated per-asset checklist of capabilities
+- **Capability matrix** - componentClass × capability × reachability,
+  aggregated - never a fabricated per-asset checklist of capabilities
   this scanner didn't actually observe.
-- **Supply chain & blast radius** — for any component, an exact BFS over
+- **Supply chain & blast radius** - for any component, an exact BFS over
   the real dependency graph in both directions: what it depends on, and
   what would be affected if it were compromised.
-- **Baseline diff & digest drift** — diff two scans and see exactly
+- **Baseline diff & digest drift** - diff two scans and see exactly
   what was added, removed, or changed, with a distinct callout when a
   model's own tag stays the same while its content digest doesn't.
 
 ## The AIBOM Explorer
 
 `harness-aibom report` renders the whole document as a single, offline,
-static HTML file — no server, no CDN, no external dependency. Live
+static HTML file - no server, no CDN, no external dependency. Live
 search and class filtering, a click-through Component Inspector for
 every entry, a baseline-diff view, and an Artifact Integrity panel when
 the document is signed. See
@@ -153,7 +153,7 @@ subcommand.
 
 `scan` runs entirely against the local filesystem and local subprocesses/
 HTTP calls (`hermes`/`openclaw` CLIs, Ollama's `/api/tags`). To scan a
-remote box, install the package there (or SSH in and run it) — there's
+remote box, install the package there (or SSH in and run it) - there's
 no built-in remote transport.
 
 Missing pieces are never fatal: if `hermes` isn't on `PATH`, or Ollama
@@ -206,7 +206,7 @@ src/harness_aibom/
   non-mocked cosign sign/verify tests) and a CLI smoke test on every
   push and pull request, on Python 3.10, 3.11, and 3.12.
 - `.github/workflows/publish.yml` builds and publishes the package to
-  PyPI when a GitHub Release is published, via PyPI Trusted Publishing —
+  PyPI when a GitHub Release is published, via PyPI Trusted Publishing -
   no password stored in this repo.
 
 To ship a new version: bump `version` in `pyproject.toml` and
@@ -221,7 +221,7 @@ uv run pytest -q
 ```
 
 Collector tests run entirely against fixtures under `tests/fixtures/`
-(`hermes_home/`, `openclaw_home/`) — no real `hermes`/`openclaw`/`ollama`
+(`hermes_home/`, `openclaw_home/`) - no real `hermes`/`openclaw`/`ollama`
 needed. `test_cyclonedx_schema.py` validates real output against the
 official CycloneDX 1.6 JSON Schema; `test_sarif.py` does the same for
 SARIF 2.1.0; `test_sign.py` and the `sign`/`verify-signature` tests in
@@ -231,16 +231,16 @@ skip themselves (never mock it) when one isn't on `PATH`.
 ## What's not here yet
 
 This project only ever ships a feature once it's been verified against
-real behavior, not because it looks reasonable — that discipline is
+real behavior, not because it looks reasonable - that discipline is
 documented in full, including every deliberate deferral and the
 reasoning behind it, in [`SPEC.md`](SPEC.md). Currently open: a
 per-relationship confidence/provenance model, an interactive
 per-instance dependency graph, tokenizer/dataset provenance, vulnerability/
 VEX data, CycloneDX declarations and attestations, and a compliance
 control mapping (NIST AI RMF, ISO 42001, OWASP Agentic AI, MITRE ATLAS,
-SLSA) — each waiting on either a real data source or its own design pass,
+SLSA) - each waiting on either a real data source or its own design pass,
 not attempted half-way.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT - see [`LICENSE`](LICENSE).

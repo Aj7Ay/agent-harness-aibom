@@ -23,8 +23,27 @@ jobs:
       # test_cli.py) skip themselves entirely when cosign isn't on PATH --
       # installed here specifically so those real, non-mocked subprocess
       # tests actually run in CI too, not just locally.
+      #
+      # Both the action version and the cosign-release are pinned exactly,
+      # not left floating -- confirmed real breakage from floating @v3:
+      # it resolved to an old cosign-installer release whose bootstrap
+      # verification script only knows the legacy `<file>.sig` detached-
+      # signature naming. cosign v3.1.3's own release assets dropped that
+      # in favor of `<file>.sigstore.json` bundles, so @v3 failed outright
+      # trying to download a `.sig` file that release no longer publishes
+      # (curl exit 22, i.e. 404). v4.1.2's install script checks for the
+      # `.sigstore.json` bundle first (confirmed by reading its actual
+      # script source, not guessed) and only falls back to `.sig` for an
+      # older cosign release that doesn't have one -- pinned here instead.
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v4.1.2
+        with:
+          # Pinned to the exact cosign version sign.py's own docstring/
+          # SPEC.md claim was verified against -- an unpinned/older
+          # default has no --signing-config flag at all ("unknown flag"),
+          # which broke every sign/verify test in CI despite passing
+          # locally against v3.1.3.
+          cosign-release: 'v3.1.3'
 
       - name: Install the package and dev dependencies
         run: uv sync --extra dev
