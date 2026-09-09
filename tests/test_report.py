@@ -1009,3 +1009,20 @@ def test_dependency_graph_functions_are_wired_into_js():
         assert f"function {fn}(" in html_text
     assert "data-view-graph" in html_text
     assert "inspector-view-graph" in html_text
+
+
+# ---- Raw BOM -> Component Inspector cross-navigation (v0.9.0) -----------
+
+
+def test_raw_bom_intro_mentions_clickable_bom_refs():
+    html_text = render_html(_doc_with_everything())
+    assert "clickable link back to" in html_text
+
+
+def test_linkify_bom_refs_function_is_wired_into_js():
+    html_text = render_html(_doc_with_everything())
+    assert "function linkifyBomRefs(" in html_text
+    assert "raw-bom-ref-link" in html_text
+    # Called unconditionally from highlightRawBom(), not only when a
+    # search query happens to be active.
+    assert "pre.innerHTML = linkifyBomRefs(html);" in html_text

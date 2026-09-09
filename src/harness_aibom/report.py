@@ -249,6 +249,9 @@ pre.raw-json {
 }
 /* v0.8.2: Raw BOM search matches */
 pre.raw-json mark { background: #fab219; color: #1a1a19; border-radius: 2px; }
+/* v0.9.0: Raw BOM -> Component Inspector cross-navigation */
+.raw-bom-ref-link { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; color: var(--fg); }
+.raw-bom-ref-link:hover { color: var(--secondary); }
 /* v0.8.0: Component Inspector -- a focused modal reusing an already-
    rendered .entry's own markup (see _JS's openInspector()), never a
    second copy of the entry-rendering logic. */
@@ -616,18 +619,45 @@ function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
 }
 
+// v0.9.0: Raw BOM <-> UI cross-navigation -- every "bom-ref": "value"
+// occurrence in the Raw BOM becomes a clickable link that opens that
+// ref's own Component Inspector, reusing openInspector() verbatim (the
+// same function every per-entry "Inspect" button already calls -- no
+// second lookup path). Runs on every render of this block (with or
+// without an active search), not only when a search match happens to
+// land on a bom-ref line -- a real, if narrower, form of the
+// highlight-to-navigate idea SPEC.md describes, scoped to the one
+// unambiguous anchor every component/service entry actually has.
+function linkifyBomRefs(html) {
+  // Deliberately requires the captured value to contain neither '"' nor
+  // '<' -- a value that already got a `<mark>` tag spliced into it by
+  // this same function's caller (a search match landing inside a
+  // bom-ref's own text) is left as plain highlighted text instead of a
+  // clickable link for that one occurrence, rather than risk splicing a
+  // stray tag into the data-inspect attribute itself. A real, narrow,
+  // honestly-scoped trade-off (SPEC.md) -- not every possible position
+  // is clickable, but nothing here is ever mis-wired to the wrong ref.
+  // Clicking a bom-ref with no matching rendered entry (e.g. a
+  // `declarations` claim/evidence bom-ref, which has no Components/
+  // Services list entry of its own) is a safe no-op -- openInspector()
+  // already guards on `findEntryByRef()` returning null.
+  return html.replace(/"bom-ref":(\\s*)"([^"<]*)"/g, function (m, ws, ref) {
+    return '"bom-ref":' + ws + '"<span class="raw-bom-ref-link" data-inspect="' + ref + '">' + ref + '</span>"';
+  });
+}
+
 function highlightRawBom() {
   var input = document.getElementById('raw-bom-search');
   var pre = document.querySelector('#raw-bom pre.raw-json');
   if (!input || !pre || pre.dataset.rawText === undefined) return;
   var escapedText = escapeHtmlText(pre.dataset.rawText);
   var q = input.value;
-  if (!q) {
-    pre.innerHTML = escapedText;
-    return;
+  var html = escapedText;
+  if (q) {
+    var re = new RegExp(escapeRegExp(escapeHtmlText(q)), 'gi');
+    html = html.replace(re, function (m) { return '<mark>' + m + '</mark>'; });
   }
-  var re = new RegExp(escapeRegExp(escapeHtmlText(q)), 'gi');
-  pre.innerHTML = escapedText.replace(re, function (m) { return '<mark>' + m + '</mark>'; });
+  pre.innerHTML = linkifyBomRefs(html);
 }
 """
 
@@ -1727,10 +1757,18 @@ def _render_raw_bom(compact_size: int) -> str:
     # Raw JSON reveal, since this is the one place a reader plausibly
     # needs to text-search a large, multi-hundred-line document; the
     # per-entry ones are already scoped to one component.
+    #
+    # v0.9.0: every "bom-ref": "value" line is also a clickable link back
+    # to that ref's own Component Inspector (_JS's `linkifyBomRefs()`) --
+    # a real, if narrower, form of raw-JSON-to-UI cross-navigation, scoped
+    # to the one unambiguous anchor every entry actually has (see SPEC.md
+    # for what this does and doesn't cover).
     return (
         "<div class='filter-bar'>"
         "<input type='search' id='raw-bom-search' placeholder='Search the raw JSON... (open it below first)'>"
         "</div>"
+        "<p class='muted small'>Every <code>\"bom-ref\"</code> line below is also a clickable link back to "
+        "that entry's own Component Inspector.</p>"
         f"<details data-bom-ref='__bom__'><summary>Raw CycloneDX AIBOM ({compact_size} bytes, compact)</summary>"
         "<pre class='raw-json'></pre></details>"
     )

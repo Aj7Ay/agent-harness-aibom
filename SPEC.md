@@ -2267,3 +2267,59 @@ shows the right node; a genuinely unmatched search shows "no match
 found"; and a real, hand-crafted orphan component shows the distinct
 "this component has no recorded dependency-graph edges" message instead
 of either of those two -- five real states, not just the happy path.
+
+## 25. Raw BOM -> Component Inspector cross-navigation (v0.9.0)
+
+A practical, honestly-scoped slice of "jump from a match inside the Raw
+BOM's pretty-printed JSON back to that component's own rendered entry" --
+scoped to the one unambiguous anchor every real component/service entry
+actually has: its own `"bom-ref": "value"` line. `_JS`'s new
+`linkifyBomRefs()` wraps every such occurrence in a clickable
+`<span class="raw-bom-ref-link" data-inspect="...">` -- reusing
+`openInspector()` verbatim (the exact function every per-entry "Inspect"
+button already calls), so this needed **zero new click-handling code**:
+the existing delegated `document` click listener already dispatches on
+`[data-inspect]` for the unrelated Inspect-button case, and picks these
+new spans up automatically. Runs on every render of the Raw BOM block
+(`highlightRawBom()`), with or without an active search -- not only
+when a search match happens to land on a bom-ref line, a real, if
+narrower, superset of the "match falls within a JSON object with a
+bom-ref key" idea this item started from.
+
+**A deliberate, narrow trade-off, not a defect**: `linkifyBomRefs()`'s
+own regex requires the bom-ref *value* to contain neither `"` nor `<`.
+Since it runs *after* `highlightRawBom()`'s own `<mark>`-wrapping, a
+search query that happens to match text *inside* a bom-ref's own value
+(e.g. searching "qwen3" when a model's own bom-ref is
+`model:qwen3-8b`) leaves a literal `<mark>` tag spliced into that one
+occurrence's text -- excluded by the `<`-exclusion, so that one
+occurrence simply isn't linkified (still shown, still highlighted,
+just not clickable) rather than risk splicing a stray tag into the
+`data-inspect` attribute itself and silently mis-wiring the link.
+Confirmed both sides of this trade-off directly, not just asserted:
+searching for a term that overlaps no bom-ref's own text still yields a
+fully clickable link after highlighting; searching for a term that
+does overlap one (`"qwen3"` inside `"model:qwen3-8b"`) correctly drops
+just that one link while every other one stays live. Clicking a bom-ref
+with no matching rendered entry at all (a `declarations` claim/
+evidence/assessor bom-ref, §18 -- none of which get their own
+Components/Services list entry) is a safe no-op, the same
+`findEntryByRef()`-returns-null guard `openInspector()` already had.
+
+**Not attempted**: true bidirectional navigation from an arbitrary
+*non*-bom-ref position inside the raw JSON (e.g. a specific property
+value with no bom-ref of its own nearby) back to a specific rendered
+field -- doing that correctly for every possible JSON location would
+need a real position-aware JSON-to-DOM mapping, a much larger and
+riskier feature than the scope named here. This ships the one part
+that's unambiguous and fully verifiable: bom-ref lines, which every
+real component/service entry has exactly one of.
+
+**Confirmed with real dispatched browser events** (headless Chrome over
+the DevTools Protocol, same discipline as §21/§24): opening the Raw BOM
+block with a real click on its `<summary>` populates and linkifies it;
+a real dispatched click on a bom-ref link inside it opens the correct
+Component Inspector (confirmed by bom-ref identity, not just "a modal
+opened"); and, after a real dispatched `input` event runs a search,
+both halves of the documented trade-off above were confirmed directly
+against the live DOM, not just asserted in a comment.
