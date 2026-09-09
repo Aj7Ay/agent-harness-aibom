@@ -51,6 +51,16 @@ def _component_dict(component: Component) -> dict:
         # to know the `harness-aibom:` namespace exists; it does know
         # `hashes[]`.
         out["hashes"] = [{"alg": "SHA-256", "content": sha256}]
+    purl = component.properties.get("purl")
+    if purl:
+        # Confirmed against the real CycloneDX 1.6 schema before writing
+        # this: `purl` IS a native top-level field on a *component* (not
+        # on a *service* -- services have no purl slot at all, which is
+        # exactly why an MCP server's underlying package is its own
+        # `dependency` component in the first place, not just a property
+        # on the server). Additive alongside the harness-aibom:purl
+        # property, same reasoning as hashes[] above.
+        out["purl"] = purl
     out["properties"] = _shared_properties(component)
     return out
 

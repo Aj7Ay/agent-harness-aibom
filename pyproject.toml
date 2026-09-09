@@ -1,6 +1,6 @@
 [project]
 name = "agent-harness-aibom"
-version = "0.2.0"
+version = "0.2.1"
 description = "AIBOM generator for AI agent harnesses (Hermes, OpenClaw) and their model/skill/MCP/hook surface"
 readme = "README.md"
 requires-python = ">=3.10"

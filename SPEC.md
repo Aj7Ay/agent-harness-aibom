@@ -269,6 +269,67 @@ discipline this whole spec has followed from v0.1.1 onward:
 - `policy`, severity-in-`diff`, `report --diff`, and `merge`/`gap`
   commands are new subcommands, not fixes to this release's scope.
 
+**v0.2.1 update:** the same reviewer re-tested v0.2.0 end-to-end (purl
+derivation, tool components, the new dependency graph, hashes, warnings,
+the five report fixes — all confirmed clean, no regressions) and then
+measured the release against the two things it had just added: `purl` and
+tool components. Two real gaps, plus three smaller ones from the same
+pass:
+
+- **`purl` is now a native CycloneDX field on real `component` entries,
+  not just a `harness-aibom:` property.** Checked directly against the
+  real schema (`cyclonedx.schema._res.bom-1.6.SNAPSHOT.schema.json`):
+  `purl` is a first-class field on `component`, absent on `service`. A
+  stdio `mcp_server`'s launcher package now also exists as its own
+  standalone `dependency` component (§2) — a real `application ->
+  library` edge a generic SBOM/vuln tool can actually resolve, alongside
+  the server's own `harness-aibom:purl` property (kept, additive, since
+  `diff.py` keys on the property by exact name).
+- **A Python dependency inventory for the scanned harness's own install**
+  — deferred in v0.2.0 for lack of a confirmed real venv layout — is
+  implemented via `collectors/deps.py`, walking `<installDir>/**/
+  site-packages/*.dist-info/METADATA`. This isn't harness-specific
+  guessing: PEP 376/427's `.dist-info/METADATA` layout is a universal
+  Python packaging convention, true for a venv, a pipx install, or a
+  system Python alike, unlike the still-unconfirmed hook-script-location
+  guessing in `hermes.py`. Wired into Hermes (which captures `installDir`
+  from `hermes --version`); wired into OpenClaw too but a no-op there
+  until `openclaw --version`'s output format is confirmed and captures
+  its own `installDir` (§5).
+- **`tool`'s `riskClass` keyword list expanded** (§2) after a reviewer
+  probe found common git-style tool names (`git_commit`, `git_push`,
+  `git_status`) reading as `unknown`. Added `commit`/`push`/`apply`/
+  `patch`/`install`/`set` (write) and `status` (read). Still a name-only
+  heuristic (§5) — this closes a real coverage gap in that heuristic, not
+  the heuristic's inherent limit.
+- **Two `tool` components can collide under the same base identity** the
+  same way two same-named `mcp_server` entries already could (§4): a
+  tool's name is `<server_name>/<tool_name>`, so two servers sharing a
+  config `name` produce tools that also share a name. Confirmed this
+  already falls back correctly to `diff.py`'s existing positional
+  fallback (no new code needed) — pinned with a dedicated case in
+  `tests/test_diff_identity_matrix.py` rather than left as an
+  accidentally-correct, untested path.
+- **The HTML report's class ordering** (§8) now places `tool` and
+  `dependency` in their natural reading position (`dependency` right
+  after `runtime`, `tool` right after `skill`) instead of falling through
+  to the alphabetical catch-all for classes the renderer doesn't
+  specifically know about. Both still render in the shared neutral gray,
+  not a new hue — the dataviz skill's 8-slot categorical palette is
+  already exactly full (§8).
+
+**Confirmed correct as-is, not changed:** the reviewer also asked whether
+`tool` should get a schema-derived fingerprint (e.g. hashing its input
+schema) the same way a `hook` or `skill` gets a `sha256`. It still
+shouldn't, for the same reason as v0.2.0: this scanner reads static config
+files, never performs a live MCP protocol handshake, so it has no schema
+to hash, only a bare name (§2, §5). The only way to close that gap for
+real is a future `--probe` mode that actually connects to each configured
+MCP server and asks it to describe its own tools — live network I/O this
+scanner doesn't do today, and a large enough change (new failure modes,
+new consent/safety questions about connecting to a possibly-untrusted
+server) to belong to its own release rather than being folded in here.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -331,6 +392,7 @@ claimed otherwise.
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 | `tool` | `application` | `server` (parent server's name), `riskClass` (`read`/`write`/`exec`/`network`/`unknown`, a heuristic over the tool's own *name* — see below) | one per name in a `mcp_server` entry's `tools` list |
+| `dependency` | `library` | `version`, native `purl` (see below) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
 
@@ -363,7 +425,13 @@ PyPI respectively); anything else gets no `purl` rather than a guess. A
 missing version (`npx -y @scope/pkg` with nothing pinned) sets
 `versionPinned: false` — the launcher fetches whatever it resolves as
 "latest" at every invocation, which is itself worth flagging, not just an
-absent field.
+absent field. As of v0.2.1, the same parse also produces a standalone
+`dependency` component (above) carrying a native CycloneDX `purl` field —
+`component` has one natively (confirmed against the real schema),
+`service` does not, so `mcp_server` itself keeps `purl` as a
+`harness-aibom:` property only, and the `dependency` child is what a
+generic SBOM/vuln-scanning tool (one that only reads native fields) can
+actually resolve.
 
 ## 3. Fingerprinting rules
 
@@ -549,7 +617,11 @@ need `numbat hook install` run on it first.
   actually fetches and runs) more often than useful.
 - **`openclaw --version` isn't parsed into a semantic version** — its exact
   output format wasn't in the source material, so the collector records the
-  first line verbatim. Not yet checked against a live OpenClaw box.
+  first line verbatim. Not yet checked against a live OpenClaw box. As a
+  direct consequence, OpenClaw's `_collect_dependencies` (v0.2.1, §2) is
+  wired up but a permanent no-op today: it has no `installDir` property to
+  look under until this is fixed, since that's the same value it's
+  missing here.
 - **No remote/SSH scanning.** `harness-aibom scan` reads the filesystem and
   runs subprocesses on whatever machine it's invoked on. Scanning a remote
   lab VM means installing the package there (or SSHing in) — there's no

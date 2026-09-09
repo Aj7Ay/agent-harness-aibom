@@ -36,6 +36,7 @@ import yaml
 from ..fingerprint import sha256_file
 from ..model import Component, HarnessDocument
 from ..paths import relative_to_or_none
+from . import deps as deps_mod
 from . import mcp as mcp_mod
 from . import ollama as ollama_mod
 from . import secrets as secrets_mod
@@ -79,7 +80,9 @@ class HermesCollector(Collector):
         return self.hermes_dir.is_dir() or self.config_path.is_file()
 
     def collect(self, doc: HarnessDocument) -> None:
-        self._collect_runtime(doc)
+        runtime_comp = self._collect_runtime(doc)
+        if runtime_comp is not None:
+            self._collect_dependencies(doc, runtime_comp)
         config, config_comp = self._collect_config(doc)
         if config_comp is not None:
             self._collect_model(doc, config, config_comp)
@@ -96,29 +99,46 @@ class HermesCollector(Collector):
         # used to be a root edge, making the graph a flat star with no
         # structure ("harness-root depends on all 15") a generic SBOM tool
         # could actually use for impact analysis.
-        for server, tools in mcp_mod.extract_mcp_servers(config):
+        for server, tools, package in mcp_mod.extract_mcp_servers(config):
             doc.add_child(server, config_comp, "uses")
             for tool in tools:
                 doc.add_child(tool, server, "uses")
+            if package is not None:
+                doc.add_child(package, server, "uses")
 
-    def _collect_runtime(self, doc: HarnessDocument) -> None:
+    def _collect_dependencies(self, doc: HarnessDocument, runtime_comp: Component) -> None:
+        install_dir = runtime_comp.properties.get("installDir")
+        if not install_dir:
+            return
+        deps = deps_mod.discover_python_dependencies(Path(install_dir))
+        if not deps and not Path(install_dir).is_dir():
+            # Not reachable from wherever this scan is running (a
+            # different machine, a container) -- worth saying so rather
+            # than silently reporting zero dependencies the same way a
+            # harness with genuinely no Python packages would.
+            doc.warn(f"runtime installDir {install_dir!r} not reachable from this scan; dependency inventory skipped")
+            return
+        for dep in deps:
+            doc.add_child(dep, runtime_comp, "uses")
+
+    def _collect_runtime(self, doc: HarnessDocument) -> Component | None:
         try:
             output = self.run(["hermes", "--version"])
         except FileNotFoundError:
             doc.warn("hermes binary not found on PATH; runtime component skipped")
-            return
+            return None
         except subprocess.TimeoutExpired:
             doc.warn(
                 "`hermes --version` did not finish within the timeout; runtime component skipped "
                 "(the binary IS on PATH -- this is a hang or a slow response, not a missing install)"
             )
-            return
+            return None
         except (OSError, subprocess.SubprocessError) as exc:
             doc.warn(f"`hermes --version` failed ({exc.__class__.__name__}: {exc}); runtime component skipped")
-            return
+            return None
         if not output.strip():
             doc.warn("`hermes --version` produced no output; runtime component skipped")
-            return
+            return None
 
         comp = Component(component_class="runtime", name="hermes")
         first_line = output.splitlines()[0]
@@ -138,7 +158,7 @@ class HermesCollector(Collector):
             if (prop := field_map.get(key.strip().lower())) is not None:
                 comp.set(prop, value.strip())
 
-        doc.add(comp, "uses")
+        return doc.add(comp, "uses")
 
     def _collect_config(self, doc: HarnessDocument) -> tuple[dict, Component | None]:
         if not self.config_path.is_file():

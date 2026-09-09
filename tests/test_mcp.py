@@ -2,9 +2,9 @@ from harness_aibom.collectors.mcp import extract_mcp_servers
 
 
 def only_server(config):
-    """extract_mcp_servers now returns [(server, tools)] pairs -- most
-    tests here only care about the server itself."""
-    [(server, _tools)] = extract_mcp_servers(config)
+    """extract_mcp_servers now returns [(server, tools, package)] triples
+    -- most tests here only care about the server itself."""
+    [(server, _tools, _package)] = extract_mcp_servers(config)
     return server
 
 
@@ -186,7 +186,7 @@ def test_one_tool_component_per_declared_tool_name():
             {"name": "local-fs", "command": "npx", "args": ["-y", "pkg"], "tools": ["read_file", "write_file", "move_file"]}
         ]
     }
-    [(server, tools)] = extract_mcp_servers(config)
+    [(server, tools, _package)] = extract_mcp_servers(config)
     assert len(tools) == 3
     names = {t.name for t in tools}
     assert names == {"local-fs/read_file", "local-fs/write_file", "local-fs/move_file"}
@@ -204,7 +204,7 @@ def test_tool_risk_classification():
             }
         ]
     }
-    [(_server, tools)] = extract_mcp_servers(config)
+    [(_server, tools, _package)] = extract_mcp_servers(config)
     by_name = {t.name.split("/", 1)[1]: t for t in tools}
     assert by_name["read_file"].properties["riskClass"] == "read"
     assert by_name["write_file"].properties["riskClass"] == "write"
@@ -215,5 +215,50 @@ def test_tool_risk_classification():
 
 def test_no_tools_declared_gives_no_tool_components():
     config = {"mcp_servers": [{"name": "srv", "url": "https://x.example"}]}
-    [(_server, tools)] = extract_mcp_servers(config)
+    [(_server, tools, _package)] = extract_mcp_servers(config)
     assert tools == []
+
+
+# --- the standalone `dependency` component (issue: purl was invisible to a
+# generic SBOM tool as long as it lived only in a harness-aibom: property) ---
+
+
+def test_recognized_launcher_also_returns_a_standalone_package_component():
+    config = {
+        "mcp_servers": [
+            {"name": "fs", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem@2.1.0"]}
+        ]
+    }
+    [(_server, _tools, package)] = extract_mcp_servers(config)
+    assert package is not None
+    assert package.component_class == "dependency"
+    assert package.name == "@modelcontextprotocol/server-filesystem"
+    assert package.version == "2.1.0"
+    assert package.properties["purl"] == "pkg:npm/%40modelcontextprotocol/server-filesystem@2.1.0"
+
+
+def test_unpinned_package_component_has_no_version():
+    config = {"mcp_servers": [{"name": "fs", "command": "npx", "args": ["-y", "some-package"]}]}
+    [(_server, _tools, package)] = extract_mcp_servers(config)
+    assert package is not None
+    assert package.version is None
+    assert package.properties["purl"] == "pkg:npm/some-package"
+
+
+def test_url_based_server_has_no_package_component():
+    config = {"mcp_servers": [{"name": "srv", "url": "https://x.example"}]}
+    [(_server, _tools, package)] = extract_mcp_servers(config)
+    assert package is None
+
+
+# --- expanded risk keywords (a real reviewer probe found git_commit/
+# git_status both misclassified as "unknown") ---------------------------
+
+
+def test_expanded_risk_keywords_cover_common_git_style_tool_names():
+    config = {"mcp_servers": [{"name": "git", "tools": ["git_status", "git_commit", "git_push"]}]}
+    [(_server, tools, _package)] = extract_mcp_servers(config)
+    by_name = {t.name.split("/", 1)[1]: t for t in tools}
+    assert by_name["git_status"].properties["riskClass"] == "read"
+    assert by_name["git_commit"].properties["riskClass"] == "write"
+    assert by_name["git_push"].properties["riskClass"] == "write"

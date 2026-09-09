@@ -27,6 +27,7 @@ from typing import Callable
 from ..fingerprint import sha256_file
 from ..model import Component, HarnessDocument
 from ..paths import relative_to_or_none
+from . import deps as deps_mod
 from . import mcp as mcp_mod
 from . import ollama as ollama_mod
 from . import secrets as secrets_mod
@@ -76,7 +77,9 @@ class OpenClawCollector(Collector):
         return self.openclaw_dir.is_dir() or self.config_path.is_file()
 
     def collect(self, doc: HarnessDocument) -> None:
-        self._collect_runtime(doc)
+        runtime_comp = self._collect_runtime(doc)
+        if runtime_comp is not None:
+            self._collect_dependencies(doc, runtime_comp)
         config, config_comp = self._collect_config(doc)
         if config_comp is not None:
             self._collect_model(doc, config, config_comp)
@@ -87,33 +90,48 @@ class OpenClawCollector(Collector):
     def _collect_mcp_servers(self, doc: HarnessDocument, config: dict, config_comp: Component) -> None:
         # Real dependency-graph edges, not root edges -- see hermes.py's
         # identical method for why.
-        for server, tools in mcp_mod.extract_mcp_servers(config):
+        for server, tools, package in mcp_mod.extract_mcp_servers(config):
             doc.add_child(server, config_comp, "uses")
             for tool in tools:
                 doc.add_child(tool, server, "uses")
+            if package is not None:
+                doc.add_child(package, server, "uses")
 
-    def _collect_runtime(self, doc: HarnessDocument) -> None:
+    def _collect_dependencies(self, doc: HarnessDocument, runtime_comp: Component) -> None:
+        # No-op today: unlike Hermes's structured `--version` output,
+        # OpenClaw's isn't confirmed from source material (see module
+        # docstring), so `_collect_runtime` below never sets an
+        # `installDir` property to look under. Wired up anyway so this
+        # starts working the moment that output format is confirmed and
+        # `installDir` gets captured, with no further change needed here.
+        install_dir = runtime_comp.properties.get("installDir")
+        if not install_dir:
+            return
+        for dep in deps_mod.discover_python_dependencies(Path(install_dir)):
+            doc.add_child(dep, runtime_comp, "uses")
+
+    def _collect_runtime(self, doc: HarnessDocument) -> Component | None:
         try:
             output = self.run(["openclaw", "--version"])
         except FileNotFoundError:
             doc.warn("openclaw binary not found on PATH; runtime component skipped")
-            return
+            return None
         except subprocess.TimeoutExpired:
             doc.warn(
                 "`openclaw --version` did not finish within the timeout; runtime component skipped "
                 "(the binary IS on PATH -- this is a hang or a slow response, not a missing install)"
             )
-            return
+            return None
         except (OSError, subprocess.SubprocessError) as exc:
             doc.warn(f"`openclaw --version` failed ({exc.__class__.__name__}: {exc}); runtime component skipped")
-            return
+            return None
         if not output.strip():
             doc.warn("`openclaw --version` produced no output; runtime component skipped")
-            return
+            return None
 
         comp = Component(component_class="runtime", name="openclaw")
         comp.version = output.splitlines()[0].strip()
-        doc.add(comp, "uses")
+        return doc.add(comp, "uses")
 
     def _collect_config(self, doc: HarnessDocument) -> tuple[dict, Component | None]:
         if not self.config_path.is_file():

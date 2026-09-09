@@ -31,18 +31,26 @@ Two more defects an independent reviewer found and confirmed:
     (which merely contains "sse" inside "assets") misread as an SSE
     transport. Now checks the URL's actual path.
 
-Two more additions, from the same review round:
-  - `purl`: a best-effort Package URL for a stdio server's underlying
-    package, parsed from `command`/`args` (`npx -y @scope/pkg@1.2.3` ->
-    `pkg:npm/%40scope/pkg@1.2.3`). Only `npx` (npm) and `uvx` (PyPI) are
-    recognized; anything else gets no purl rather than a guess. Also sets
-    `versionPinned` -- an MCP server invoked with no version pinned will
-    fetch whatever the launcher resolves as "latest" at each run, which is
-    itself worth flagging.
-  - `tool` components: one per declared tool name, not just a bare
-    `toolCount`. See model.py's CDX_TYPE_FOR_CLASS entry for `tool` for
-    what this class does and does NOT capture (no schema hash -- this
-    scanner never performs a live MCP handshake).
+`tool` components: one per declared tool name, not just a bare
+`toolCount`. See model.py's CDX_TYPE_FOR_CLASS entry for `tool` for what
+this class does and does NOT capture (no schema hash -- this scanner
+never performs a live MCP handshake).
+
+`purl` + a native `dependency` component: a best-effort Package URL for a
+stdio server's underlying package, parsed from `command`/`args` (`npx -y
+@scope/pkg@1.2.3` -> `pkg:npm/%40scope/pkg@1.2.3`). Only `npx` (npm) and
+`uvx` (PyPI) are recognized; anything else gets no purl rather than a
+guess. Confirmed real gap: `purl` used to live *only* as a
+`harness-aibom:*` property on the server component -- readable by this
+package's own tooling, invisible to any generic SBOM tool, license
+checker, or OSV lookup, which is the entire reason to extract a purl in
+the first place. Now *also* emitted as its own `dependency` component
+(CDX `type: library`) that the server depends on (`mcp_server ->
+dependency` in the graph), a real, walkable node a generic tool can
+actually find -- even though `purl` itself still has no first-class
+CycloneDX field on that component either (it's still a
+`harness-aibom:purl` property; CycloneDX's own component schema has no
+top-level `purl` slot to move it into).
 """
 
 from __future__ import annotations
@@ -62,12 +70,35 @@ _CREDENTIAL_ENV_PATTERN = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUT
 #: assume, more dangerous label. Heuristic, not authoritative: derived from
 #: the tool's *name* alone, since that's all a static config ever gives us
 #: -- no live schema to classify parameters against. A tool matching none
-#: of these gets riskClass "unknown", not a guessed default.
+#: of these gets riskClass "unknown", not a guessed default. Expanded once
+#: already after an independent reviewer found real MCP tool names
+#: (`git_commit`, `git_status`) that the original list missed entirely.
 _RISK_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("exec", ("exec", "execute", "run", "spawn", "shell", "eval", "command")),
     ("network", ("fetch", "http", "request", "curl", "download", "upload", "browse", "url")),
-    ("write", ("write", "create", "delete", "remove", "update", "move", "rename", "modify", "send", "put", "post")),
-    ("read", ("read", "get", "list", "search", "query", "view", "show", "fetch")),
+    (
+        "write",
+        (
+            "write",
+            "create",
+            "delete",
+            "remove",
+            "update",
+            "move",
+            "rename",
+            "modify",
+            "send",
+            "put",
+            "post",
+            "commit",
+            "push",
+            "apply",
+            "patch",
+            "install",
+            "set",
+        ),
+    ),
+    ("read", ("read", "get", "list", "search", "query", "view", "show", "fetch", "status")),
 )
 
 
@@ -104,10 +135,11 @@ def _split_npm_spec(spec: str) -> tuple[str, str | None]:
 def _purl_for_npm(name: str, version: str | None) -> str:
     # purl-spec encodes a scoped package's leading "@" as "%40" in the
     # namespace segment: pkg:npm/%40scope/name, not pkg:npm/@scope/name.
+    encoded = name
     if name.startswith("@"):
         scope, _, pkg = name[1:].partition("/")
-        name = f"%40{scope}/{pkg}"
-    purl = f"pkg:npm/{name}"
+        encoded = f"%40{scope}/{pkg}"
+    purl = f"pkg:npm/{encoded}"
     return f"{purl}@{version}" if version else purl
 
 
@@ -118,30 +150,34 @@ def _normalize_pypi_name(name: str) -> str:
     return name.lower().replace("_", "-")
 
 
-def _derive_purl(command: str | None, args: list) -> tuple[str | None, bool]:
-    """(purl, version_pinned) parsed from a stdio server's `command`/
-    `args`, or (None, False) if the launcher isn't one of the two
-    recognized ones. Never guesses at a purl for an unrecognized command
-    -- better no identity than a wrong one.
+def _parse_launcher_spec(command: str | None, args: list) -> tuple[str, str | None, str] | None:
+    """(display name, version|None, purl) parsed from a stdio server's
+    `command`/`args` for a recognized launcher, or None otherwise. Never
+    guesses at a purl for an unrecognized command -- better no identity
+    than a wrong one. Shared by the server's own `purl` property and the
+    standalone `dependency` component below, so both come from the exact
+    same parse instead of two implementations that could disagree.
     """
     if not command or not args:
-        return None, False
+        return None
     non_flag_args = [str(a) for a in args if not str(a).startswith("-")]
     if not non_flag_args:
-        return None, False
+        return None
     spec = non_flag_args[0]
 
     if command == "npx":
         name, version = _split_npm_spec(spec)
-        return _purl_for_npm(name, version), bool(version)
+        return name, version, _purl_for_npm(name, version)
     if command == "uvx":
         for sep in ("==", "@"):
             if sep in spec:
-                name, _, version = spec.partition(sep)
-                return f"pkg:pypi/{_normalize_pypi_name(name)}@{version}", True
-        return f"pkg:pypi/{_normalize_pypi_name(spec)}", False
+                raw_name, _, version = spec.partition(sep)
+                name = _normalize_pypi_name(raw_name)
+                return name, version, f"pkg:pypi/{name}@{version}"
+        name = _normalize_pypi_name(spec)
+        return name, None, f"pkg:pypi/{name}"
 
-    return None, False
+    return None
 
 
 def _servers_list(config: dict) -> list[dict]:
@@ -158,13 +194,14 @@ def _looks_like_sse(endpoint: str) -> bool:
     return urlsplit(endpoint).path.rstrip("/").endswith("/sse")
 
 
-def extract_mcp_servers(config: dict) -> list[tuple[Component, list[Component]]]:
-    """One (server, its tool components) pair per configured MCP server.
-    The caller is expected to add the server (as a child of whatever
-    parent it belongs to) and then each tool as a child of that server --
-    see collectors/hermes.py / collectors/openclaw.py.
+def extract_mcp_servers(config: dict) -> list[tuple[Component, list[Component], Component | None]]:
+    """One (server, its tool components, its underlying package
+    component or None) triple per configured MCP server. The caller adds
+    the server as a child of whatever parent it belongs to, each tool as
+    a child of that server, and the package (when present) also as a
+    child of that server -- see collectors/hermes.py / collectors/openclaw.py.
     """
-    out: list[tuple[Component, list[Component]]] = []
+    out: list[tuple[Component, list[Component], Component | None]] = []
     for entry in _servers_list(config):
         name = entry.get("name") or entry.get("id") or "unknown-mcp-server"
         endpoint = entry.get("url") or entry.get("endpoint") or ""
@@ -189,10 +226,22 @@ def extract_mcp_servers(config: dict) -> list[tuple[Component, list[Component]]]
         if args:
             comp.set("args", " ".join(str(a) for a in args))
 
-            purl, version_pinned = _derive_purl(command, args)
-            if purl:
-                comp.set("purl", purl)
-                comp.set("versionPinned", version_pinned)
+        package: Component | None = None
+        parsed = _parse_launcher_spec(command, args)
+        if parsed:
+            pkg_name, pkg_version, purl = parsed
+            # Kept on the server itself too (quick glance, no graph walk
+            # needed) as well as on the standalone component below --
+            # confirmed real gap: living *only* here made the identity
+            # invisible to any generic SBOM tool, license checker, or OSV
+            # lookup, since none of them know the harness-aibom: namespace.
+            comp.set("purl", purl)
+            comp.set("versionPinned", bool(pkg_version))
+
+            package = Component(component_class="dependency", name=pkg_name)
+            if pkg_version:
+                package.version = pkg_version
+            package.set("purl", purl)
 
         env = entry.get("env") or {}
         auth_env_keys = sorted(k for k in env if _CREDENTIAL_ENV_PATTERN.search(k))
@@ -214,5 +263,5 @@ def extract_mcp_servers(config: dict) -> list[tuple[Component, list[Component]]]
             tool.set("riskClass", _risk_class(tool_name))
             tools.append(tool)
 
-        out.append((comp, tools))
+        out.append((comp, tools, package))
     return out

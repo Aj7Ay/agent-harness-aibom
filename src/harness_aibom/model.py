@@ -46,6 +46,16 @@ CDX_TYPE_FOR_CLASS = {
     # under a name like "definitionSha256" would be a false sense of
     # security).
     "tool": "application",
+    # An external package this harness depends on: an MCP server's
+    # underlying npm/PyPI package (collectors/mcp.py), or one of the
+    # scanned harness's own Python packages (collectors/deps.py). `type:
+    # library` is CycloneDX's own category for "a reusable unit of
+    # software", which is exactly what both of those are -- and unlike
+    # `mcp_server`/`model_endpoint` (services, no `purl` slot at all in
+    # the CycloneDX schema), a `dependency` component gets a real native
+    # `purl` (see cyclonedx.py), which is the whole point of having it as
+    # its own component instead of just a property on whatever names it.
+    "dependency": "library",
 }
 
 #: every componentClass this package knows how to emit, service or not.

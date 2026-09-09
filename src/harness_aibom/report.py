@@ -30,7 +30,16 @@ from datetime import datetime, timezone
 #: componentClasses shown in this order when present; anything else
 #: (a future class this file doesn't know about yet) is appended after,
 #: sorted alphabetically -- so a new class never silently goes missing.
-_COMPONENT_CLASS_ORDER = ("runtime", "configuration", "model", "skill", "hook", "secrets_surface")
+#: "dependency" and "tool" (added for the standalone MCP package and
+#: per-tool components -- see collectors/mcp.py, collectors/deps.py)
+#: intentionally do NOT get a 9th/10th categorical hue (dataviz skill's
+#: fixed 8-slot rule); they render in the shared gray "unknown" color via
+#: _UNKNOWN_CLASS_COLOR below, but are placed here in their natural
+#: reading position rather than falling through to the alphabetical
+#: catch-all: "dependency" right after "runtime" (it's that runtime's own
+#: package inventory), "tool" right after "skill" (both are units of
+#: capability a harness exposes, just declared by different sources).
+_COMPONENT_CLASS_ORDER = ("runtime", "dependency", "configuration", "model", "skill", "tool", "hook", "secrets_surface")
 _SERVICE_CLASS_ORDER = ("model_endpoint", "mcp_server")
 
 #: Fixed categorical color per componentClass -- (light, dark), palette.md's

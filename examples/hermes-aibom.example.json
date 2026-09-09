@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:013df1f0-a655-49fa-aa5f-1f4b68ad864f",
+  "serialNumber": "urn:uuid:3cc44311-3172-41c4-af52-675a0f05a33c",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.2.0"
+          "version": "0.2.1"
         }
       ]
     },
@@ -52,7 +52,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-09T02:21:40+00:00"
+    "timestamp": "2026-09-09T05:56:11+00:00"
   },
   "components": [
     {
@@ -216,6 +216,22 @@
         {
           "name": "harness-aibom:riskClass",
           "value": "write"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "dependency:modelcontextprotocol-server-filesystem",
+      "name": "@modelcontextprotocol/server-filesystem",
+      "purl": "pkg:npm/%40modelcontextprotocol/server-filesystem",
+      "properties": [
+        {
+          "name": "harness-aibom:componentClass",
+          "value": "dependency"
+        },
+        {
+          "name": "harness-aibom:purl",
+          "value": "pkg:npm/%40modelcontextprotocol/server-filesystem"
         }
       ]
     },
@@ -445,6 +461,10 @@
         {
           "name": "harness-aibom:relationship",
           "value": "uses:tool:local-fs-move_file"
+        },
+        {
+          "name": "harness-aibom:relationship",
+          "value": "uses:dependency:modelcontextprotocol-server-filesystem"
         }
       ]
     }
@@ -485,7 +505,8 @@
       "dependsOn": [
         "tool:local-fs-read_file",
         "tool:local-fs-write_file",
-        "tool:local-fs-move_file"
+        "tool:local-fs-move_file",
+        "dependency:modelcontextprotocol-server-filesystem"
       ]
     }
   ]

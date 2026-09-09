@@ -279,3 +279,36 @@ def test_positional_fallback_inherent_limit_when_a_third_indistinguishable_entry
     [change] = result["changed"]
     assert change["component"] == "mcp_server:bare#1"
     assert change["fields"]["harness-aibom:note"] == {"before": "second", "after": "inserted"}
+
+
+def test_tools_from_two_same_named_servers_collide_by_the_same_positional_fallback():
+    # An independent reviewer flagged this: a `tool` component's name is
+    # `<server_name>/<tool_name>` (see collectors/mcp.py), so two MCP
+    # servers sharing a config `name` produce tool components that also
+    # share a name -- e.g. both a "srv" stdio server and a "srv" http
+    # server exposing "read_file" yield two "srv/read_file" tools. A
+    # tool has neither relPath/path (not a file) nor endpoint/command
+    # (that's the *server*'s identity, not the tool's), so this collapses
+    # to the same last-resort positional fallback already covered above
+    # for mcp_server -- confirmed correct as-is, not a new bug, just an
+    # inherent limitation this pins down for the `tool` class too.
+    def build(second_risk: str) -> dict:
+        doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+        server = Component(component_class="mcp_server", name="srv")
+        doc.add(server, "uses")
+        first = Component(component_class="tool", name="srv/read_file")
+        first.set("server", "srv")
+        first.set("riskClass", "read")
+        doc.add(first, "uses")
+        second = Component(component_class="tool", name="srv/read_file")
+        second.set("server", "srv")
+        second.set("riskClass", second_risk)
+        doc.add(second, "uses")
+        return to_cyclonedx(doc)
+
+    result = diff_documents(build("read"), build("unknown"))
+    assert result["added"] == []
+    assert result["removed"] == []
+    [change] = result["changed"]
+    assert change["component"] == "tool:srv/read_file#1"
+    assert change["fields"]["harness-aibom:riskClass"] == {"before": "read", "after": "unknown"}
