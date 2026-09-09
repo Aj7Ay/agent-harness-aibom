@@ -463,6 +463,58 @@ def test_policy_baseline_passes_when_nothing_new_since_baseline(tmp_path):
     assert main(["policy", str(current), "--baseline", str(baseline)]) == 0
 
 
+def test_policy_baseline_shows_accepted_marker_for_persisting_findings(tmp_path, capsys):
+    """v0.8.3: a reviewer found that a pre-existing, still-present
+    finding (every one of its matches already in the baseline, so
+    --baseline correctly never fails on it) printed with the exact same
+    "." marker as a rule that never fired at all -- indistinguishable,
+    with zero visibility that it's an accepted, still-present risk. Same
+    document as baseline == current above, but this time asserting the
+    actual `~ [accepted]` marker text -- and that PASS/exit-code behavior
+    is unchanged."""
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    secret = Component(component_class="secrets_surface", name=".env")
+    secret.set("worldReadable", True)
+    doc.add(secret, "accesses")
+    bom_text = json.dumps(to_cyclonedx(doc))
+
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    baseline.write_text(bom_text)
+    current.write_text(bom_text)  # identical -- persisting, not new
+
+    exit_code = main(["policy", str(current), "--baseline", str(baseline)])
+    out = capsys.readouterr().out
+    assert exit_code == 0  # never changes baseline-mode PASS/FAIL
+    assert "~ [high] world_readable_secret_high_confidence" in out
+    assert "[accepted]" in out
+    assert "accepted: secrets_surface:.env" in out
+    assert "policy: passed" in out
+
+
+def test_policy_no_baseline_never_shows_accepted_marker(tmp_path, capsys):
+    """The `~ [accepted]` marker is a --baseline-only concept -- without
+    one, there's no "already existed" to distinguish, so the same
+    document must still print the plain `x`/`.` markers it always has."""
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    secret = Component(component_class="secrets_surface", name=".env")
+    secret.set("worldReadable", True)
+    doc.add(secret, "accesses")
+    out_path = tmp_path / "current.json"
+    out_path.write_text(json.dumps(to_cyclonedx(doc)))
+
+    main(["policy", str(out_path)])
+    out = capsys.readouterr().out
+    assert "[accepted]" not in out
+    assert "x [high] world_readable_secret_high_confidence" in out
+
+
 def test_policy_rejects_non_dict_json(tmp_path, capsys):
     bad = tmp_path / "not-a-document.json"
     bad.write_text("[]")
@@ -624,6 +676,42 @@ def test_sign_missing_input_file_is_a_clean_error(capsys):
     exit_code = main(["sign", "/no/such/aibom.json", "--key", "/no/such/key"])
     assert exit_code == 1
     assert "no such file" in capsys.readouterr().err
+
+
+# ---- v0.8.3: sign's own default signing-config, and the CLI override ---
+
+
+@pytest.mark.skipif(shutil.which("cosign") is None, reason="cosign not installed")
+def test_sign_uses_the_vendored_signing_config_by_default(tmp_path, monkeypatch):
+    """`sign` with no `--signing-config` flag must still succeed with an
+    isolated `$HOME` (no pre-existing TUF cache) -- this is the actual CLI
+    entry point for the offline-signing fix verified directly against
+    sign.py in test_sign.py; here it's confirmed to actually reach through
+    `main()`, not just `sign_blob()` in isolation."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    key_path, pub_path = _cosign_keypair(tmp_path, monkeypatch)
+    doc = tmp_path / "aibom.json"
+    doc.write_text('{"bomFormat": "CycloneDX"}')
+
+    assert main(["sign", str(doc), "--key", str(key_path)]) == 0
+    bundle_path = doc.with_suffix(".json.bundle")
+    assert bundle_path.is_file()
+    assert main(["verify-signature", str(doc), "--key", str(pub_path)]) == 0
+
+
+@pytest.mark.skipif(shutil.which("cosign") is None, reason="cosign not installed")
+def test_sign_signing_config_flag_override_is_passed_through(tmp_path, monkeypatch, capsys):
+    """A user-supplied `--signing-config` file must actually be handed to
+    cosign, not silently ignored -- a nonexistent path is rejected by
+    cosign itself, proving the CLI flag reaches `sign_blob()`."""
+    key_path, _pub_path = _cosign_keypair(tmp_path, monkeypatch)
+    doc = tmp_path / "aibom.json"
+    doc.write_text('{"bomFormat": "CycloneDX"}')
+
+    exit_code = main(["sign", str(doc), "--key", str(key_path), "--signing-config", "/no/such/signing-config.json"])
+    assert exit_code != 0
 
 
 # ---- v0.8.2: policy --format sarif --------------------------------------

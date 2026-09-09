@@ -1,6 +1,6 @@
 [project]
 name = "agent-harness-aibom"
-version = "0.8.2"
+version = "0.8.3"
 description = "AIBOM generator for AI agent harnesses (Hermes, OpenClaw) and their model/skill/MCP/hook surface"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,3 +45,15 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# v0.8.3: signing_config_offline.json (sign.py's vendored, offline-safe
+# cosign signing config -- see its own docstring) is a non-.py file.
+# setuptools does NOT include non-Python files in a package by default --
+# confirmed real gap: without this, the file exists in the source
+# checkout and every test passes locally, but a real `uv build` produced
+# a wheel/sdist missing it entirely, which would have made `sign_blob()`'s
+# own default path a silent 404 for anyone installing from PyPI. Verified
+# against a real build (`uv build`, then `tar tzf`/`zipfile` on the actual
+# output), not just this declaration -- see test_packaging.py.
+[tool.setuptools.package-data]
+harness_aibom = ["signing_config_offline.json"]

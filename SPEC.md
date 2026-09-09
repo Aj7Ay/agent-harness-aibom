@@ -1827,3 +1827,108 @@ MITRE ATLAS/SLSA -- authoring a real, defensible control-to-evidence
 mapping needs careful, dedicated domain work this project's "never
 overclaim" discipline shouldn't rush); CycloneDX 1.7 (still a deliberate,
 separate migration decision, not a side effect of this release, per §15).
+
+## 17. An independent reviewer's three real findings in v0.8.2 (v0.8.3)
+
+A reviewer went through v0.8.2 looking specifically for gaps between what
+this project's own docstrings/README claimed and what actually happens.
+Two more findings (`--policy-file` + `--format sarif` mutual exclusion,
+and `path`'s differing semantics between a hook and `prompt_surface`/
+`memory_store` for a symlink) were scoped by the reviewer themselves as
+polish/acceptable as-is and are intentionally untouched here. The three
+below were verified for real, reproduced, and fixed.
+
+**cosign `sign-blob` was NOT actually "fully offline" (Medium).** §16's
+own v0.8.2 account above claims signing is "fully offline, no OIDC/
+network dependency required", "confirmed against a real, locally
+installed cosign v3.1.3". That confirmation was real but incomplete: it
+never tried a machine with no pre-existing `~/.sigstore` TUF cache. On
+one, `cosign sign-blob --key ... --bundle ... --yes ...` -- still pure
+key-based, no OIDC/Fulcio/Rekor involved -- fails outright, because
+cosign v3's `sign-blob` consults Sigstore's TUF-hosted signing config by
+default regardless of signing mode. Reproduced here with an isolated
+`$HOME` (no cache) and network to `tuf-repo-cdn.sigstore.dev` blocked via
+a deliberately unroutable `HTTPS_PROXY` (this sandbox's own real network
+happens to reach that host fine, so the reviewer's literal 403 wasn't
+reproducible verbatim, but an unroutable proxy makes the same class of
+failure deterministic in any environment):
+
+```
+Error: error getting signing config from TUF: error getting signing config from TUF: failed to load metadata: tuf refresh failed: Get "https://tuf-repo-cdn.sigstore.dev/15.root.json": proxyconnect tcp: dial tcp 127.0.0.1:1: connect: connection refused
+```
+
+`verify-blob` has no `--signing-config` flag at all (confirmed via
+`cosign verify-blob --help`) and was separately confirmed, under the
+exact same blocked-network conditions, to already succeed on a good
+signature and correctly reject a tampered file, a wrong key, and a
+missing bundle -- so the "fully offline" claim was true for verification,
+just not for signing.
+
+**Fix: a vendored, offline-safe signing config, used by default.**
+`src/harness_aibom/signing_config_offline.json` is the public
+`https://raw.githubusercontent.com/sigstore/root-signing/refs/heads/main/targets/signing_config.v0.2.json`,
+fetched once and stripped of `rekorTlogUrls`/`tsaUrls` only -- the two
+remote services pure key-based signing never needs (`caUrls`/`oidcUrls`
+stay, unused but harmless in key-based mode). `sign.py`'s `sign_blob()`
+now always passes `--signing-config <this file>` unless a caller
+supplies a different `signing_config` path; the `sign` CLI command grew
+a matching `--signing-config` override flag (`verify-signature` did not
+-- there is no such cosign flag to pass it to). Verified end to end,
+under the same blocked-network conditions that broke the old default:
+`sign_blob()` with no override now succeeds, the resulting bundle still
+verifies, and a tampered file / wrong key are still correctly rejected
+(`tests/test_sign.py`, `tests/test_cli.py`). `DEFAULT_SIGNING_CONFIG`
+existing, being valid JSON, and having neither `rekorTlogUrls` nor
+`tsaUrls` is its own always-run (no-cosign-required) regression test.
+
+**Packaging: a non-.py file needs an explicit declaration, verified
+against a real build.** setuptools does not ship a non-`.py` file inside
+a package by default -- `signing_config_offline.json` would otherwise
+exist in the checkout, pass every test locally, and simply be missing
+from anyone's actual `pip install`. `pyproject.toml` gained
+`[tool.setuptools.package-data]` naming it explicitly. Confirmed against
+a real `uv build`, not just the declaration: `tar tzf`/`zipfile` on the
+actual built sdist and wheel both show `signing_config_offline.json`
+present (and byte-identical to the source copy), and the sdist's own
+`tests/` exclusion (`MANIFEST.in`, a fix from an earlier reviewer round)
+still holds. `tests/test_packaging.py` runs this same real build and
+these same checks on every `pytest -q`, not just at release time.
+
+**`validate` missed a malformed `supplier.contact[].email` (Low).**
+`collectors/deps.py`'s own `_EMAIL_RE` comment already documents the
+exact failure this project shipped once: an obviously-not-an-email
+string (e.g. a deliberately obfuscated address, or simply "not-an-email")
+flowing into CycloneDX's native `contact.email` field, which the real
+schema validates against the `idn-email` format -- `deps.py` fixed this
+for its own collection path, but `validate_document()` never checked the
+same field in a document it didn't produce itself. Confirmed: a
+hand-crafted `dependency` component with `supplier.contact[{"email":
+"not-an-email"}]` passed `validate_document()` with zero errors. Fixed
+with `_supplier_email_errors()` in `validate.py`, mirroring (not
+importing -- see its own comment for why) `deps.py`'s `_EMAIL_RE`,
+applied to both `components[]` and `services[]`. A missing `supplier`,
+missing `contact`, or a contact with no `email` key are all still fine --
+only a *present* malformed email is an error. Five new regression tests
+in `test_validate.py` cover the malformed/valid/missing/absent-supplier
+cases on both a component and a service.
+
+**`policy --baseline` hid persisting, accepted findings entirely (Low).**
+Confirmed: running `policy --baseline` where the baseline document is
+identical to the current one (every finding "persisting", none "new")
+printed the exact same `.` marker for a rule that fired but was
+suppressed as for a rule that never fired at all -- an accepted,
+still-present risk was indistinguishable from a clean one, even though
+`security.diff_risk_observations()` already knows the difference (that's
+what its own `persisting` bucket is for). Fixed in `cli.py`'s
+`_run_policy`: alongside the existing `new_by_rule` lookup, a
+`persisting_by_rule` lookup (same `diff_risk_observations()` call, its
+`persisting` bucket instead of `new`) drives a distinct `~ [accepted]`
+marker -- shown only for a rule that fired with ALL of its matches
+already in the baseline (a rule with any genuinely new matches still
+gets the existing `x` marker instead), with its own `    accepted: ...`
+line naming the specific components, mirroring the existing `    new:
+...` line's own treatment. Deliberately visibility-only: this marker
+never changes PASS/FAIL or the exit code in baseline mode, exactly as
+before. Two new regression tests in `test_cli.py` cover the marker
+appearing (baseline == current) and NOT appearing at all outside
+`--baseline` mode.

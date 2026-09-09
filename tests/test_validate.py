@@ -135,3 +135,65 @@ def test_orphan_check_does_not_mutate_its_input():
     before = copy.deepcopy(bom)
     find_orphan_components(bom)
     assert bom == before
+
+
+# ---- v0.8.3: supplier.contact[].email shape check -----------------------
+
+
+def _document_with_dependency_email(email: str) -> dict:
+    """A dependency component with an explicit `supplier.contact[].email`
+    -- hand-crafted rather than run through deps.py's own real collection
+    path, since validate_document() must catch a malformed email in ANY
+    document handed to it, not just this project's own scan output (which
+    deps.py already checks before it ever reaches here)."""
+    return {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "components": [
+            {
+                "type": "library",
+                "name": "some-package",
+                "properties": [{"name": "harness-aibom:componentClass", "value": "dependency"}],
+                "supplier": {"name": "Some Author", "contact": [{"email": email}]},
+            }
+        ],
+    }
+
+
+def test_malformed_supplier_email_is_flagged():
+    errors = validate_document(_document_with_dependency_email("not-an-email"))
+    assert any("supplier.contact[0].email" in e and "not-an-email" in e for e in errors)
+
+
+def test_valid_supplier_email_is_not_flagged():
+    errors = validate_document(_document_with_dependency_email("jane@example.com"))
+    assert not any("supplier.contact" in e for e in errors)
+
+
+def test_missing_supplier_email_is_not_flagged():
+    bom = _document_with_dependency_email("jane@example.com")
+    del bom["components"][0]["supplier"]["contact"][0]["email"]
+    assert validate_document(bom) == []
+
+
+def test_no_supplier_at_all_is_not_flagged():
+    bom = _document_with_dependency_email("jane@example.com")
+    del bom["components"][0]["supplier"]
+    assert validate_document(bom) == []
+
+
+def test_malformed_supplier_email_on_a_service_is_also_flagged():
+    bom = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "components": [],
+        "services": [
+            {
+                "name": "some-mcp-server",
+                "properties": [{"name": "harness-aibom:componentClass", "value": "mcp_server"}],
+                "supplier": {"name": "Some Author", "contact": [{"email": "also not an email"}]},
+            }
+        ],
+    }
+    errors = validate_document(bom)
+    assert any("supplier.contact[0].email" in e for e in errors)

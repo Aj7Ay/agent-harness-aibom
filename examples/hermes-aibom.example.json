@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:4034edc2-626e-4194-9117-bd296e1029e2",
+  "serialNumber": "urn:uuid:ff2a00ee-1eea-461f-867f-fff8e1761bc6",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.8.2"
+          "version": "0.8.3"
         }
       ]
     },
@@ -60,7 +60,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-09T13:55:18+00:00"
+    "timestamp": "2026-09-09T22:35:21+00:00"
   },
   "components": [
     {
@@ -80,7 +80,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/config.yaml"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a3b79b8822d056259/tests/fixtures/hermes_home/.hermes/config.yaml"
         },
         {
           "name": "harness-aibom:relPath",
@@ -274,7 +274,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/incident-response"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a3b79b8822d056259/tests/fixtures/hermes_home/.hermes/skills/incident-response"
         },
         {
           "name": "harness-aibom:relPath",
@@ -327,7 +327,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a3b79b8822d056259/tests/fixtures/hermes_home/.hermes/skills/software-development/dogfood"
         },
         {
           "name": "harness-aibom:relPath",
@@ -368,7 +368,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/AGENTS.md"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a3b79b8822d056259/tests/fixtures/hermes_home/.hermes/AGENTS.md"
         },
         {
           "name": "harness-aibom:relPath",
@@ -395,7 +395,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/hermes_home/.hermes/chroma.sqlite3"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a3b79b8822d056259/tests/fixtures/hermes_home/.hermes/chroma.sqlite3"
         },
         {
           "name": "harness-aibom:relPath",

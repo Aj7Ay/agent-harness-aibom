@@ -18,6 +18,14 @@ dependency graph never reaches from the root is still a *structurally
 valid* document (schema-valid AND passes every check in
 `validate_document()`), just possibly a scanner bug or a hand-edit gone
 wrong -- see its own docstring for why that's a warning, not an error.
+
+As of v0.8.3, one native-CycloneDX-field *format* check is included too,
+despite the "not a schema validator" framing above: `supplier.
+contact[].email`, when present, must look like an email (see
+`_supplier_email_errors()`'s own docstring for why this one field earns
+an exception -- briefly, a real bug this project shipped once already,
+in `collectors/deps.py`, before that module started checking its own
+supplier emails the same way).
 """
 
 from __future__ import annotations
@@ -27,6 +35,23 @@ import re
 from .model import CDX_TYPE_FOR_CLASS, SERVICE_CLASSES
 
 REQUIRED_TOP_LEVEL = ("bomFormat", "specVersion", "components")
+
+#: Mirrors collectors/deps.py's own `_EMAIL_RE` (same reasoning: "reject
+#: something that obviously isn't an email before/after it reaches
+#: CycloneDX's own `contact.email` field, which the real schema validates
+#: against the `idn-email` format"), duplicated here rather than imported
+#: -- deps.py's copy only ever sees emails ITS OWN collector already
+#: produced; this module validates ANY hand-crafted or foreign CycloneDX
+#: document handed to `validate_document()`, which never went through
+#: deps.py at all. Confirmed real gap this closes (v0.8.3): a `supplier.
+#: contact[].email` of e.g. "not-an-email" passed `validate_document()`
+#: silently -- this module checked envelope/componentClass shape only,
+#: never a native CycloneDX field's own format, the same class of gap
+#: `deps.py`'s own `_EMAIL_RE` comment already names for a different
+#: field. Loosely permissive on character set (idn-email allows
+#: non-ASCII), strict only on shape: exactly one "@", a non-empty local
+#: part, a domain with at least one ".".
+_EMAIL_RE = re.compile(r"^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$")
 
 #: cyclonedx.py's own ROOT_BOM_REF literal, duplicated here rather than
 #: imported -- this module also validates hand-crafted documents that
@@ -41,6 +66,34 @@ def _properties_of(entry: dict) -> dict[str, str]:
     return {p.get("name"): p.get("value") for p in entry.get("properties", [])}
 
 
+def _supplier_email_errors(entry: dict, label: str) -> list[str]:
+    """`supplier.contact[].email`, when present, must at least look like
+    an email -- see `_EMAIL_RE`'s own comment for why this is checked
+    here and not just left to a generic CycloneDX schema validator (an
+    `idn-email`-format check isn't a *structural* JSON Schema concern
+    every validator necessarily enforces strictly, and this project's own
+    `validate` command is meant to catch exactly this class of thing
+    before a document reaches one). A missing/non-dict `supplier`, a
+    missing `contact` list, or a contact entry with no `email` key at all
+    are all silently fine -- `supplier`/`contact`/`email` are all optional
+    fields; only a *present* email that doesn't look like one is an error.
+    """
+    errors: list[str] = []
+    supplier = entry.get("supplier")
+    if not isinstance(supplier, dict):
+        return errors
+    contacts = supplier.get("contact")
+    if not isinstance(contacts, list):
+        return errors
+    for i, contact in enumerate(contacts):
+        if not isinstance(contact, dict):
+            continue
+        email = contact.get("email")
+        if email and not _EMAIL_RE.match(email):
+            errors.append(f"{label} supplier.contact[{i}].email {email!r} does not look like a valid email address")
+    return errors
+
+
 def validate_document(data: dict) -> list[str]:
     errors: list[str] = []
 
@@ -53,6 +106,7 @@ def validate_document(data: dict) -> list[str]:
 
     for i, comp in enumerate(data.get("components", [])):
         label = f"components[{i}] ({comp.get('name')!r})"
+        errors += _supplier_email_errors(comp, label)
         cls = _properties_of(comp).get("harness-aibom:componentClass")
 
         if cls is None:
@@ -71,6 +125,7 @@ def validate_document(data: dict) -> list[str]:
 
     for i, svc in enumerate(data.get("services", [])):
         label = f"services[{i}] ({svc.get('name')!r})"
+        errors += _supplier_email_errors(svc, label)
         cls = _properties_of(svc).get("harness-aibom:componentClass")
 
         if cls is None:

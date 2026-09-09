@@ -288,6 +288,11 @@ def _run_policy(args: argparse.Namespace) -> int:
     present in `file` but not in `baseline`) -- a pre-existing, already-
     accepted risk shouldn't fail CI forever just for existing; the real
     CI-gating question is usually "did THIS change make things worse."
+    v0.8.3: a rule that fired but was suppressed for exactly that reason
+    (every one of its matches already in the baseline) prints with a
+    distinct `~ [accepted]` marker instead of the plain `.` a rule that
+    never fired at all gets -- visibility only, never a change to
+    PASS/FAIL or the exit code in baseline mode.
 
     --format sarif (v0.8.2) renders the SAME findings as a SARIF 2.1.0
     log (sarif.py) instead of the human-readable checklist below, for a
@@ -338,7 +343,20 @@ def _run_policy(args: argparse.Namespace) -> int:
     # diff_risk_observations() (security.py) is the same "new since
     # baseline" identity `diff --security` below now shares -- this used
     # to be an ad hoc set comparison duplicated inline here.
+    #
+    # v0.8.3: `persisting_by_rule` alongside it -- same shape, but the
+    # OLD (already-in-baseline) refs a rule matched. A reviewer found that
+    # in --baseline mode, a rule that fired only against pre-existing
+    # matches (every ref already in the baseline, so `new_by_rule` has
+    # nothing for it) printed with the exact same "." marker as a rule
+    # that never fired at all -- an accepted, still-present finding was
+    # indistinguishable from a clean one, even though `diff_risk_
+    # observations()` already knew the difference (that's what its own
+    # "persisting" bucket is for). This never changes PASS/FAIL or the
+    # exit code -- baseline mode's whole point is that a pre-existing
+    # finding shouldn't gate CI -- it only adds visibility.
     new_by_rule: dict[str, list[str]] = {}
+    persisting_by_rule: dict[str, list[str]] = {}
     if args.baseline:
         baseline_data = _load_json_file(args.baseline)
         if baseline_data is None:
@@ -346,7 +364,9 @@ def _run_policy(args: argparse.Namespace) -> int:
         if not isinstance(baseline_data, dict):
             print(f"error: {args.baseline}: not a CycloneDX document (expected a JSON object)", file=sys.stderr)
             return 1
-        new_by_rule = {o["rule"]: o["components"] for o in diff_risk_observations(baseline_data, data)["new"]}
+        diffed = diff_risk_observations(baseline_data, data)
+        new_by_rule = {o["rule"]: o["components"] for o in diffed["new"]}
+        persisting_by_rule = {o["rule"]: o["components"] for o in diffed["persisting"]}
 
     threshold = _POLICY_SEVERITY_RANK[args.fail_on]
     violations = []
@@ -361,15 +381,21 @@ def _run_policy(args: argparse.Namespace) -> int:
     violating_refs = {id(o): refs for o, refs in violations}
     for o in observations:
         refs = violating_refs.get(id(o))
-        marker = "x" if refs is not None else "."
-        print(f"{marker} [{o['severity']}] {o['rule']}: {o['summary']}")
+        accepted_refs = persisting_by_rule.get(o["rule"], []) if args.baseline and refs is None else []
+        marker = "x" if refs is not None else ("~" if accepted_refs else ".")
+        suffix = " [accepted]" if marker == "~" else ""
+        print(f"{marker} [{o['severity']}] {o['rule']}: {o['summary']}{suffix}")
         # In --baseline mode `o['summary']`'s own count still covers
         # every match (old and new alike) -- print exactly which ones
         # are the new ones a CI reader actually needs to act on,
         # otherwise "1 finding new since baseline" names a rule but
-        # never the specific component that changed.
+        # never the specific component that changed. `~ [accepted]`'s own
+        # refs get the same treatment, so a reader can see exactly which
+        # pre-existing components are still being let through.
         if args.baseline and refs:
             print(f"    new: {', '.join(refs)}")
+        elif accepted_refs:
+            print(f"    accepted: {', '.join(accepted_refs)}")
 
     # v0.8.2: user-authored policy-as-code rules (policy_yaml.py), run
     # ALONGSIDE the built-in security.py rules above, never instead of
@@ -410,14 +436,20 @@ def _run_sign(args: argparse.Namespace) -> int:
     wrapper -- sign.py does the real work; this just turns a missing
     `cosign` binary or a non-zero exit into a clean CLI result instead of
     a raw traceback, and relays cosign's own stdout/stderr verbatim.
+
+    `--signing-config` (v0.8.3) is optional -- `sign_blob()` already
+    defaults to the vendored, offline-safe signing config (see sign.py's
+    own docstring for why that default exists at all), so this flag only
+    matters to a caller who wants a different one.
     """
     file_path = Path(args.file)
     if not file_path.is_file():
         print(f"error: {args.file}: no such file", file=sys.stderr)
         return 1
     bundle_path = Path(args.bundle) if args.bundle else file_path.with_suffix(file_path.suffix + ".bundle")
+    signing_config = Path(args.signing_config) if args.signing_config else None
     try:
-        result = sign_blob(file_path, Path(args.key), bundle_path)
+        result = sign_blob(file_path, Path(args.key), bundle_path, signing_config=signing_config)
     except CosignNotFound as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -537,7 +569,8 @@ def build_parser() -> argparse.ArgumentParser:
     policy.add_argument(
         "--baseline",
         help="only fail on a finding that's genuinely new since this baseline document -- a pre-existing, "
-        "already-accepted risk doesn't fail CI forever just for still existing",
+        "already-accepted risk doesn't fail CI forever just for still existing (shown with a '~ [accepted]' "
+        "marker instead of '.', for visibility only -- never changes PASS/FAIL)",
     )
     policy.add_argument(
         "--format",
@@ -560,6 +593,11 @@ def build_parser() -> argparse.ArgumentParser:
     sign.add_argument("file")
     sign.add_argument("--key", required=True, help="cosign private key file (cosign.key)")
     sign.add_argument("--bundle", help="output bundle path (default: <file>.bundle)")
+    sign.add_argument(
+        "--signing-config",
+        help="a cosign signing-config JSON file to pass as --signing-config (default: this package's own "
+        "vendored, offline-safe config -- override only if you need a different one; see SPEC.md)",
+    )
     sign.set_defaults(func=_run_sign)
 
     verify_signature = sub.add_parser(
