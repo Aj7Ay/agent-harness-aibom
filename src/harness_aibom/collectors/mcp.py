@@ -47,10 +47,12 @@ checker, or OSV lookup, which is the entire reason to extract a purl in
 the first place. Now *also* emitted as its own `dependency` component
 (CDX `type: library`) that the server depends on (`mcp_server ->
 dependency` in the graph), a real, walkable node a generic tool can
-actually find -- even though `purl` itself still has no first-class
-CycloneDX field on that component either (it's still a
-`harness-aibom:purl` property; CycloneDX's own component schema has no
-top-level `purl` slot to move it into).
+actually find -- and unlike the server itself (a *service*, with no
+`purl` slot at all -- see model.py's SERVICE_CLASSES), this `dependency`
+component IS a real `component`, so `purl` reaches it as CycloneDX's own
+native top-level `purl` field (confirmed present on `component` in the
+real 1.6 schema), not just a `harness-aibom:purl` property -- see
+cyclonedx.py's `_component_dict`.
 """
 
 from __future__ import annotations

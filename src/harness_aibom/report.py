@@ -31,14 +31,12 @@ from datetime import datetime, timezone
 #: (a future class this file doesn't know about yet) is appended after,
 #: sorted alphabetically -- so a new class never silently goes missing.
 #: "dependency" and "tool" (added for the standalone MCP package and
-#: per-tool components -- see collectors/mcp.py, collectors/deps.py)
-#: intentionally do NOT get a 9th/10th categorical hue (dataviz skill's
-#: fixed 8-slot rule); they render in the shared gray "unknown" color via
-#: _UNKNOWN_CLASS_COLOR below, but are placed here in their natural
-#: reading position rather than falling through to the alphabetical
-#: catch-all: "dependency" right after "runtime" (it's that runtime's own
-#: package inventory), "tool" right after "skill" (both are units of
-#: capability a harness exposes, just declared by different sources).
+#: per-tool components -- see collectors/mcp.py, collectors/deps.py) are
+#: placed here in their natural reading position rather than falling
+#: through to the alphabetical catch-all: "dependency" right after
+#: "runtime" (it's that runtime's own package inventory), "tool" right
+#: after "skill" (both are units of capability a harness exposes, just
+#: declared by different sources).
 _COMPONENT_CLASS_ORDER = ("runtime", "dependency", "configuration", "model", "skill", "tool", "hook", "secrets_surface")
 _SERVICE_CLASS_ORDER = ("model_endpoint", "mcp_server")
 
@@ -56,6 +54,26 @@ _CLASS_COLORS: dict[str, tuple[str, str]] = {
 }
 _UNKNOWN_CLASS_COLOR = ("#898781", "#898781")  # muted gray -- never a generated 9th hue
 
+#: "dependency" and "tool" are known classes this renderer fully
+#: understands, but the categorical palette's 8 slots (above) are already
+#: exactly full -- the dataviz skill's fixed rule is that a 9th series
+#: never gets a *generated* hue, it folds into "Other" or gets a
+#: secondary encoding instead. These get the secondary encoding: two
+#: distinct near-neutral, low-chroma shades (not full categorical hues
+#: competing with the validated 8, so the palette stays exactly what it
+#: was validated as), still visibly different from both each other and
+#: from _UNKNOWN_CLASS_COLOR. An independent reviewer found that without
+#: this, a known class this renderer explicitly emits (tool, dependency)
+#: rendered pixel-identical to a genuinely unrecognized future class --
+#: on a 425-component document, 424 of 425 entries were the same flat
+#: gray, and tools, dependencies, and true-unknowns were indistinguishable
+#: from one another in the chart/dot legend (text labels next to each
+#: still disambiguate them in every other context on the page).
+_KNOWN_UNPALETTED_CLASS_COLORS: dict[str, tuple[str, str]] = {
+    "dependency": ("#6b7680", "#8b96a0"),  # cool slate
+    "tool": ("#8a7a6b", "#a8988a"),  # warm taupe
+}
+
 _NOT_RECORDED = "not recorded (deterministic scan)"
 
 _CSS = """
@@ -64,7 +82,7 @@ _CSS = """
   --muted: #898781; --border: #e1e0d9; --baseline: #c3c2b7; --code-bg: #f3f4f6;
 """
 
-for _cls, (_light, _dark) in _CLASS_COLORS.items():
+for _cls, (_light, _dark) in {**_CLASS_COLORS, **_KNOWN_UNPALETTED_CLASS_COLORS}.items():
     _CSS += f"  --class-{_cls}: {_light};\n"
 _CSS += "  --class-unknown: #898781;\n}\n"
 
@@ -74,7 +92,7 @@ _CSS += """
     --bg: #0d0d0d; --surface: #1a1a19; --fg: #ffffff; --secondary: #c3c2b7;
     --muted: #898781; --border: #2c2c2a; --baseline: #383835; --code-bg: #1a1d24;
 """
-for _cls, (_light, _dark) in _CLASS_COLORS.items():
+for _cls, (_light, _dark) in {**_CLASS_COLORS, **_KNOWN_UNPALETTED_CLASS_COLORS}.items():
     _CSS += f"    --class-{_cls}: {_dark};\n"
 _CSS += "    --class-unknown: #898781;\n  }\n}\n"
 
@@ -173,8 +191,21 @@ def _component_class(entry: dict) -> str:
     return "unknown"
 
 
+def _class_color_var(cls: str) -> str:
+    """CSS var name for `cls`'s dot/bar color -- one of the 8 validated
+    categorical hues, one of the two known-but-unpaletted near-neutral
+    shades (dependency/tool), or the shared "genuinely unrecognized"
+    gray, in that priority order. The one place this 3-tier fallback is
+    decided, reused by every renderer below so the three tiers can't
+    drift out of sync with each other.
+    """
+    if cls in _CLASS_COLORS or cls in _KNOWN_UNPALETTED_CLASS_COLORS:
+        return f"--class-{cls}"
+    return "--class-unknown"
+
+
 def _class_dot(cls: str) -> str:
-    var_name = f"--class-{cls}" if cls in _CLASS_COLORS else "--class-unknown"
+    var_name = _class_color_var(cls)
     return f"<span class='class-dot' style='background:var({var_name})' aria-hidden='true'></span>"
 
 
@@ -287,7 +318,7 @@ def _render_bar_chart(class_counts: dict[str, int]) -> str:
         count = class_counts[cls]
         y = i * row_h
         bar_len = max(4, round((count / max_count) * plot_w, 1))
-        color_var = f"var(--class-{cls})" if cls in _CLASS_COLORS else "var(--class-unknown)"
+        color_var = f"var({_class_color_var(cls)})"
         rows.append(
             "<g>"
             f"<title>{_esc(cls)}: {count}</title>"

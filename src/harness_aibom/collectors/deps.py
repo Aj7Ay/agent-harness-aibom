@@ -26,6 +26,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..model import Component
+from ..paths import relative_to_or_none
 
 
 def _parse_metadata(text: str) -> tuple[str | None, str | None]:
@@ -53,7 +54,24 @@ def discover_python_dependencies(install_dir: Path) -> list[Component]:
         return []
 
     found: list[Component] = []
-    seen: set[str] = set()
+    # Deliberately NOT deduplicated by name across different site-packages
+    # directories. Confirmed real bug from an earlier version of this
+    # function that did: a pipx venv sitting beside a vendored tree (or
+    # pip's own _vendor, or a nested venv) commonly produces a *second*
+    # site-packages under the same installDir, and "first sorted directory
+    # wins, skip the rest" picked an arbitrary copy -- silently, with no
+    # signal that a second, disagreeing copy existed at all. Worse: since
+    # the loser was never re-examined on a later scan either, a real
+    # version bump to the *actually-running* copy could be invisible to
+    # `diff` if the discarded copy happened to sort first and never
+    # changed -- exactly the kind of drift a dependency inventory exists
+    # to catch. Now: one component per (site_packages, name) pair, each
+    # carrying `path`/`relPath` to the exact dist-info directory it came
+    # from, so two disagreeing copies both show up, distinguishably, and
+    # `diff` (which falls back to relPath/path once more than one entry
+    # shares a name, same as it already does for mcp_server -- see
+    # diff.py) never has to silently pick a winner either.
+    #
     # rglob is safe here specifically because install_dir is a scoped,
     # single-package install directory (confirmed from `--version`
     # output), not an arbitrary/huge directory tree -- unlike a
@@ -66,11 +84,12 @@ def discover_python_dependencies(install_dir: Path) -> list[Component]:
             except OSError:
                 continue
             name, version = _parse_metadata(text)
-            if not name or name in seen:
+            if not name:
                 continue
-            seen.add(name)
 
             comp = Component(component_class="dependency", name=name)
+            comp.set("path", str(dist_info))
+            comp.set("relPath", relative_to_or_none(dist_info, install_dir))
             if version:
                 comp.version = version
                 comp.set("purl", f"pkg:pypi/{name.lower().replace('_', '-')}@{version}")

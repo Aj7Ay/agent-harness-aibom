@@ -330,6 +330,58 @@ scanner doesn't do today, and a large enough change (new failure modes,
 new consent/safety questions about connecting to a possibly-untrusted
 server) to belong to its own release rather than being folded in here.
 
+**v0.2.2 update:** the same reviewer measured v0.2.1's two headline
+features (native purl, the Python dependency inventory) against a 425-
+component document and found one real bug in the dependency inventory
+itself, plus three smaller gaps:
+
+- **`deps.py` silently masked a real version change.** It deduplicated by
+  package name across *every* `site-packages` directory found under
+  `installDir`, keeping whichever sorted first and discarding the rest --
+  not a contrived case: a pipx venv beside a vendored tree, pip's own
+  `_vendor`, or a nested venv all produce a second `site-packages`.
+  Reproduced exactly as reported: a stale `openai-0.1.0` in one directory
+  masked the real, actually-running copy entirely; bumping the real copy
+  from 1.99.1 to 2.0.0 and diffing produced no `dependency:openai` entry
+  at all, in either scan. Fixed by no longer deduplicating across
+  directories: one component per `(site_packages, name)` pair, each
+  carrying `path`/`relPath` to its own dist-info directory (§2), so two
+  disagreeing copies both show up, distinguishably, and nothing is ever
+  silently dropped. Since a dist-info directory's name embeds the version
+  (pip deletes the old one and creates a new one on upgrade, rather than
+  mutating it in place), a version bump on the real copy now reads as one
+  entry removed and a new one added -- still fully visible, which is what
+  matters, the same accepted trade-off as a hook replaced by a symlink
+  (§4).
+- **A component's top-level `version` field wasn't itself compared by
+  `diff`.** `diff.py` only ever compares `properties[]`; a version change
+  was only visible if it happened to also change some other compared
+  property (e.g. a `purl` that embeds the version) -- a `dependency` that
+  gained a version where it previously had none read as a `purl`
+  *addition*, not a version change, and the reverse read as a removal.
+  Fixed root-cause, not just for `dependency`: `component.version` (when
+  set) is now always additionally mirrored as a `harness-aibom:version`
+  property (alongside the native top-level field, same reasoning as
+  `hashes[]`/`purl`), so `diff` compares it directly for every class that
+  carries a version (`model`, `runtime`, `dependency`).
+- **`tool`/`dependency` were pixel-identical to a genuinely unrecognized
+  future class in the report** (§8), both falling through to the same
+  flat gray as classes this renderer doesn't know about at all -- on the
+  425-component document, 424 of 425 entries rendered as one
+  indistinguishable gray. The categorical palette's 8 slots (dataviz
+  skill) are exactly full, so this isn't a 9th/10th generated hue: two
+  new near-neutral, low-chroma shades (`_KNOWN_UNPALETTED_CLASS_COLORS`)
+  give `tool` and `dependency` their own distinct-but-muted look, visibly
+  different from each other and from `_UNKNOWN_CLASS_COLOR`'s true
+  "renderer doesn't recognize this" gray.
+- **A docstring in `mcp.py` contradicted the code it described**, still
+  claiming CycloneDX's component schema "has no top-level `purl` slot" --
+  true for a *service*, false for a *component*, and the very reason the
+  standalone `dependency` component exists in the first place (§2). Left
+  uncorrected, the next person to read it would conclude the native field
+  was impossible and leave it alone. Fixed to state plainly that the
+  `dependency` component gets the real native field.
+
 ## 1. Format: CycloneDX 1.6, extended
 
 The root `bom.metadata.component` describes the harness itself
@@ -392,7 +444,7 @@ claimed otherwise.
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 | `tool` | `application` | `server` (parent server's name), `riskClass` (`read`/`write`/`exec`/`network`/`unknown`, a heuristic over the tool's own *name* — see below) | one per name in a `mcp_server` entry's `tools` list |
-| `dependency` | `library` | `version`, native `purl` (see below) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
+| `dependency` | `library` | `version`, native `purl` (see below), `path`/`relPath` (the dist-info directory, Python packages only -- one component per `(site_packages, name)` pair, never deduplicated across different `site_packages` directories, so two disagreeing copies both show up rather than one silently masking the other) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
 
@@ -720,6 +772,20 @@ Two correctness details worth noting for anyone touching this file:
   through `html.escape()` before reaching the page — confirmed with a
   test that plants HTML-special characters in a component name and
   asserts they never appear unescaped.
+
+**Color for a class outside the 8-slot categorical palette (v0.2.2).**
+`tool` and `dependency` are classes this renderer fully understands, but
+the validated 8-hue palette (`_CLASS_COLORS`) is already exactly full —
+the dataviz skill's rule is that a 9th series never gets a *generated*
+hue. Rather than folding both into the same flat gray used for a class
+this renderer genuinely doesn't recognize at all (confirmed real: on a
+425-component document, 424 of 425 entries rendered pixel-identical),
+they get `_KNOWN_UNPALETTED_CLASS_COLORS` — two near-neutral, low-chroma
+shades distinct from each other and from `_UNKNOWN_CLASS_COLOR`, without
+adding a real categorical hue to the validated set. `_class_color_var()`
+is the one place all three tiers (validated hue / known-unpaletted /
+true-unknown) are decided, reused by the dot, bar chart, and summary
+table so they can't drift out of sync with each other.
 
 Diff-mode HTML reports (color-coded added/removed/changed, from `diff`'s
 own output) are deliberately out of scope for this first version — noted

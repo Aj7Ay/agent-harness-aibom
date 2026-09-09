@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:3cc44311-3172-41c4-af52-675a0f05a33c",
+  "serialNumber": "urn:uuid:ab548ec2-b6d0-4849-87cf-3ec98180a86a",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.2.1"
+          "version": "0.2.2"
         }
       ]
     },
@@ -52,7 +52,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-09T05:56:11+00:00"
+    "timestamp": "2026-09-09T08:00:20+00:00"
   },
   "components": [
     {
@@ -109,6 +109,10 @@
         {
           "name": "harness-aibom:componentClass",
           "value": "model"
+        },
+        {
+          "name": "harness-aibom:version",
+          "value": "qwen3:8b"
         },
         {
           "name": "harness-aibom:contextLength",

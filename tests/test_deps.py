@@ -38,13 +38,60 @@ def test_install_dir_with_no_site_packages_returns_empty(tmp_path):
     assert discover_python_dependencies(install_dir) == []
 
 
-def test_duplicate_package_across_two_site_packages_dirs_counted_once(tmp_path):
+def test_duplicate_package_across_two_site_packages_dirs_is_not_silently_collapsed(tmp_path):
+    # Regression test: an independent reviewer found the previous version
+    # of this function deduplicated by name alone across *different*
+    # site-packages directories, "first sorted directory wins" -- a
+    # second, disagreeing copy (a pipx venv beside a vendored tree, a
+    # nested venv, etc.) was silently dropped rather than shown. Both
+    # copies must now be visible, distinguishable by their relPath.
     install_dir = tmp_path / "install"
     _make_dist_info(install_dir / "venv-a" / "site-packages", "requests", "2.31.0")
     _make_dist_info(install_dir / "venv-b" / "site-packages", "requests", "2.31.0")
 
     found = discover_python_dependencies(install_dir)
-    assert len([c for c in found if c.name == "requests"]) == 1
+    matches = [c for c in found if c.name == "requests"]
+    assert len(matches) == 2
+    rel_paths = {c.properties["relPath"] for c in matches}
+    assert rel_paths == {
+        "venv-a/site-packages/requests-2.31.0.dist-info",
+        "venv-b/site-packages/requests-2.31.0.dist-info",
+    }
+
+
+def test_a_version_bump_masked_by_a_second_site_packages_copy_is_now_visible(tmp_path):
+    # The concrete failure an independent reviewer reproduced: a stale
+    # copy in one site-packages dir (sorts first) used to hide a real
+    # version change in the *other* -- discover_python_dependencies()
+    # reported only the stale 0.1.0, and a later bump of the real copy
+    # to 2.0.0 produced no visible change at all, since the stale copy
+    # never changed and was the only one ever looked at.
+    install_dir = tmp_path / "install"
+    _make_dist_info(install_dir / "other" / "lib" / "site-packages", "openai", "0.1.0")
+    _make_dist_info(install_dir / "venv" / "lib" / "python3.12" / "site-packages", "openai", "1.99.1")
+
+    before = {(c.properties.get("relPath"), c.version) for c in discover_python_dependencies(install_dir) if c.name == "openai"}
+    assert before == {
+        ("other/lib/site-packages/openai-0.1.0.dist-info", "0.1.0"),
+        ("venv/lib/python3.12/site-packages/openai-1.99.1.dist-info", "1.99.1"),
+    }
+
+    # Bump only the real copy -- pip deletes the old dist-info and
+    # creates a new one, so the directory name itself changes.
+    import shutil
+
+    shutil.rmtree(install_dir / "venv" / "lib" / "python3.12" / "site-packages" / "openai-1.99.1.dist-info")
+    _make_dist_info(install_dir / "venv" / "lib" / "python3.12" / "site-packages", "openai", "2.0.0")
+
+    after = {(c.properties.get("relPath"), c.version) for c in discover_python_dependencies(install_dir) if c.name == "openai"}
+    assert after == {
+        ("other/lib/site-packages/openai-0.1.0.dist-info", "0.1.0"),
+        ("venv/lib/python3.12/site-packages/openai-2.0.0.dist-info", "2.0.0"),
+    }
+    # The stale copy is unaffected and the real bump is fully visible --
+    # neither masked the other.
+    assert before - after == {("venv/lib/python3.12/site-packages/openai-1.99.1.dist-info", "1.99.1")}
+    assert after - before == {("venv/lib/python3.12/site-packages/openai-2.0.0.dist-info", "2.0.0")}
 
 
 def test_dist_info_without_a_readable_metadata_file_is_skipped(tmp_path):

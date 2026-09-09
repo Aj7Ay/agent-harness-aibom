@@ -312,3 +312,42 @@ def test_tools_from_two_same_named_servers_collide_by_the_same_positional_fallba
     [change] = result["changed"]
     assert change["component"] == "tool:srv/read_file#1"
     assert change["fields"]["harness-aibom:riskClass"] == {"before": "read", "after": "unknown"}
+
+
+def test_a_dependency_version_bump_is_visible_in_diff_even_with_a_second_stale_copy_present():
+    # Regression test: an independent reviewer found the pre-fix
+    # discover_python_dependencies() deduplicated by name across
+    # different site-packages directories, silently keeping whichever
+    # sorted first. With a stale copy in one directory and the real,
+    # actually-running copy in another, the stale copy always "won" the
+    # dedup -- a real version bump to the real copy produced *no diff
+    # entry at all*, since the only component ever recorded was the
+    # unchanging stale one. Fixed in deps.py by emitting one component
+    # per (site_packages, name) with a real relPath -- confirmed here at
+    # the diff level (not just the collector level) that the bump is now
+    # fully visible: the real copy's dist-info directory name changes on
+    # upgrade (pip deletes the old one, creates a new one), so this reads
+    # as one entry removed and a new one added, not "changed" -- still
+    # visible, which is what matters; see SPEC.md §4 for the same
+    # trade-off already accepted for a hook replaced by a symlink.
+    def build(real_version: str) -> dict:
+        doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+        stale = Component(component_class="dependency", name="openai")
+        stale.version = "0.1.0"
+        stale.set("path", "/install/other/lib/site-packages/openai-0.1.0.dist-info")
+        stale.set("relPath", "other/lib/site-packages/openai-0.1.0.dist-info")
+        stale.set("purl", "pkg:pypi/openai@0.1.0")
+        doc.add(stale, "uses")
+
+        real = Component(component_class="dependency", name="openai")
+        real.version = real_version
+        real.set("path", f"/install/venv/lib/site-packages/openai-{real_version}.dist-info")
+        real.set("relPath", f"venv/lib/site-packages/openai-{real_version}.dist-info")
+        real.set("purl", f"pkg:pypi/openai@{real_version}")
+        doc.add(real, "uses")
+        return to_cyclonedx(doc)
+
+    result = diff_documents(build("1.99.1"), build("2.0.0"))
+    assert result["added"] == ["dependency:venv/lib/site-packages/openai-2.0.0.dist-info"]
+    assert result["removed"] == ["dependency:venv/lib/site-packages/openai-1.99.1.dist-info"]
+    assert result["changed"] == []

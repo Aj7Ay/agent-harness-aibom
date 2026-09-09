@@ -28,6 +28,19 @@ def _relationship_properties(relationships: list[tuple[str, str]]) -> list[dict]
 
 def _shared_properties(component: Component) -> list[dict]:
     properties = [{"name": "harness-aibom:componentClass", "value": component.component_class}]
+    if component.version:
+        # Mirrors the native top-level `version` field (set in
+        # _component_dict below) as a property too. Confirmed real gap:
+        # `diff.py` only ever compares `properties[]` entries, never a
+        # native top-level field directly -- so a version-only change on
+        # a component whose version isn't otherwise embedded in some
+        # other compared property (a `dependency` with no `purl` because
+        # it has no version yet, `model`/`runtime`, ...) was invisible to
+        # `diff` even though the field genuinely changed. Additive, same
+        # reasoning as hashes[]/purl above: the native field stays the
+        # single source of truth for a generic CycloneDX tool, this
+        # property is only for harness-aibom's own diff/report.
+        properties.append({"name": "harness-aibom:version", "value": component.version})
     properties += [{"name": f"harness-aibom:{k}", "value": v} for k, v in component.properties.items()]
     properties += _relationship_properties(component.relationships)
     return properties
