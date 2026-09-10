@@ -176,6 +176,142 @@ def _service_dict(component: Component) -> dict:
     return out
 
 
+#: One entry per self-assessed claim this scanner can actually back with
+#: data it already collected -- see `_build_declarations()`. Each tuple is
+#: (slug, predicate template, counter function). Deliberately narrow (4
+#: entries, matching SPEC.md's own "3-5 real ones, not an exhaustive
+#: fabricated list" scope) -- every ratio here is a real `len()` over
+#: entries already in the document, the same "nothing invented, nothing
+#: scored by an opaque model" discipline security.py's own functions
+#: already follow. A claim about a category with zero entries in this
+#: document is skipped entirely (see `_build_declarations`) rather than
+#: emitted as a vacuous, misleading "0 of 0 (100%)".
+def _skill_fingerprint_counts(components: list[dict], services: list[dict]) -> tuple[int, int]:
+    skills = [c for c in components if _cdx_component_class(c) == "skill"]
+    return sum(1 for c in skills if c.get("hashes")), len(skills)
+
+
+def _mcp_auth_recorded_counts(components: list[dict], services: list[dict]) -> tuple[int, int]:
+    servers = [s for s in services if _cdx_component_class(s) == "mcp_server"]
+    recorded = sum(
+        1
+        for s in servers
+        if any(p["name"] == "harness-aibom:authConfigured" for p in s.get("properties", []))
+    )
+    return recorded, len(servers)
+
+
+def _model_digest_counts(components: list[dict], services: list[dict]) -> tuple[int, int]:
+    models = [c for c in components if _cdx_component_class(c) == "model"]
+    recorded = sum(
+        1 for c in models if any(p["name"] == "harness-aibom:digest" for p in c.get("properties", []))
+    )
+    return recorded, len(models)
+
+
+def _dependency_purl_counts(components: list[dict], services: list[dict]) -> tuple[int, int]:
+    deps = [c for c in components if _cdx_component_class(c) == "dependency"]
+    return sum(1 for c in deps if c.get("purl")), len(deps)
+
+
+def _cdx_component_class(entry: dict) -> str:
+    for prop in entry.get("properties", []):
+        if prop["name"] == "harness-aibom:componentClass":
+            return prop["value"]
+    return "unknown"
+
+
+_DECLARATION_CLAIMS = (
+    (
+        "skill-fingerprint-coverage",
+        "{found} of {total} discovered skill component(s) carry a native content hash (hashes[]).",
+        "Computed by counting `skill` components in this document's own components[] array whose "
+        "native `hashes[]` field is present -- sha256_directory() (fingerprint.py) is called for "
+        "every skill this scanner's collectors discover, so a skill missing a hash here means the "
+        "whole skill directory was unreadable (a permission error), never that hashing was skipped.",
+        _skill_fingerprint_counts,
+    ),
+    (
+        "mcp-auth-posture-recorded",
+        "{found} of {total} discovered MCP server(s) have harness-aibom:authConfigured explicitly recorded.",
+        "collectors/mcp.py sets authConfigured (true or false) for every mcp_server entry it extracts "
+        "from a harness's own config file -- a missing value here would mean this scanner's own "
+        "extraction code didn't run for that entry, not that auth posture is merely unknown.",
+        _mcp_auth_recorded_counts,
+    ),
+    (
+        "model-digest-provenance",
+        "{found} of {total} discovered model(s) carry a real content digest (harness-aibom:digest) "
+        "from Ollama's own manifest, not just a tag/name.",
+        "digest is taken verbatim from Ollama's GET /api/tags response for every model this scanner "
+        "finds -- never recomputed or guessed (SPEC.md section 3). A model missing one means Ollama's "
+        "own API response didn't include a digest for that entry, not that this scanner failed to look.",
+        _model_digest_counts,
+    ),
+    (
+        "dependency-purl-coverage",
+        "{found} of {total} discovered dependency component(s) carry a native purl for a generic "
+        "SBOM/vulnerability tool to resolve.",
+        "purl is set for every Python package deps.py finds a well-formed METADATA `Name`/`Version` "
+        "pair for, and for every MCP launcher package mcp.py recognizes (npx/uvx only) -- see SPEC.md "
+        "section 2 for the exact derivation.",
+        _dependency_purl_counts,
+    ),
+)
+
+
+def _build_declarations(result: dict) -> dict | None:
+    """A small, narrowly-scoped CycloneDX 1.6 `declarations` block: this
+    scanner's own self-assessed claims about facts it can actually verify
+    from data already in this exact document -- never a claim about
+    anything this scanner doesn't check (no "compliant", no "passed an
+    audit"). See SPEC.md's declarations section for the full reasoning
+    and the real vendored-schema fields this follows
+    (`cyclonedx.schema._res.bom-1.6.SNAPSHOT.schema.json`).
+
+    Returns None (declarations omitted entirely) when this document has
+    zero entries in every one of the four categories above -- an empty
+    harness scan has nothing honest to self-assess a coverage ratio
+    about, and "0 of 0" would look like a clean 100% rather than "not
+    applicable".
+    """
+    components = result.get("components", [])
+    services = result.get("services", [])
+
+    claims = []
+    evidence = []
+    for slug, predicate_template, reasoning, counter in _DECLARATION_CLAIMS:
+        found, total = counter(components, services)
+        if total == 0:
+            continue
+        evidence_ref = f"declaration-evidence:{slug}"
+        evidence.append({
+            "bom-ref": evidence_ref,
+            "propertyName": "harness-aibom:coverageEvidence",
+            "description": reasoning,
+        })
+        claims.append({
+            "bom-ref": f"declaration-claim:{slug}",
+            "target": ROOT_BOM_REF,
+            "predicate": predicate_template.format(found=found, total=total),
+            "reasoning": reasoning,
+            "evidence": [evidence_ref],
+        })
+
+    if not claims:
+        return None
+
+    return {
+        "assessors": [{
+            "bom-ref": "declaration-assessor:agent-harness-aibom",
+            "thirdParty": False,
+            "organization": {"name": "agent-harness-aibom (self-assessment, not a third-party audit)"},
+        }],
+        "claims": claims,
+        "evidence": evidence,
+    }
+
+
 def current_hostname() -> str:
     try:
         return socket.gethostname()
@@ -254,4 +390,8 @@ def to_cyclonedx(doc: HarnessDocument, deterministic: bool = False) -> dict:
         if c.relationships:
             dependencies.append({"ref": c.bom_ref, "dependsOn": [target for _verb, target in c.relationships]})
     result["dependencies"] = dependencies
+
+    declarations = _build_declarations(result)
+    if declarations:
+        result["declarations"] = declarations
     return result

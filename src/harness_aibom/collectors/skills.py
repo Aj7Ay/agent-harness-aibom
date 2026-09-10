@@ -156,7 +156,18 @@ def discover_skills(skills_dir: Path, home: Path, known_server_names: frozenset[
         # and references/ sitting next to it are exactly where a poisoned
         # skill would carry its payload, and a SKILL.md-only hash would
         # miss any change to them entirely.
-        comp.set("sha256", sha256_directory(skill_dir))
+        sha256 = sha256_directory(skill_dir)
+        comp.set("sha256", sha256)
+        # v0.9.0: a real, directly *observed* fact (this scanner hashed
+        # the directory's actual bytes itself) -- set alongside the
+        # sha256 it describes so a reader can contrast it with this same
+        # component's own `contentAnalysisConfidence` below, which is
+        # genuinely *inferred* (a text mention in this skill's own prose,
+        # never confirmation of runtime behavior). `skill_dir` is always
+        # a real directory here (its own SKILL.md was just found inside
+        # it), so this is never conditional the way digestConfidence is.
+        if sha256:
+            comp.set("sha256Confidence", "observed")
 
         try:
             text = skill_md.read_text(errors="replace")
@@ -214,6 +225,20 @@ def discover_skills(skills_dir: Path, home: Path, known_server_names: frozenset[
             # (the full text is still available via --home for anyone
             # who needs that).
             comp.set("urls", ",".join(analysis["urls"][:20]))
+            # v0.9.0: formalizes the confidence distinction this module's
+            # own docstring for analyze_skill_content() already states in
+            # prose -- "a text mention... never confirmation the skill
+            # actually invokes it at runtime" -- as a real, queryable
+            # property, set only when there's actually something inferred
+            # to tag (never fabricated for a skill whose analysis found
+            # nothing at all). Deliberately scoped to exactly these four
+            # fields, not the whole component: `sha256Confidence` above
+            # covers the one other fact on this same component that has
+            # a real, documented observed/inferred distinction; `path`,
+            # `category`, etc. were never ambiguous in the first place,
+            # so they get no confidence tag at all (see SPEC.md).
+            if any(analysis.values()):
+                comp.set("contentAnalysisConfidence", "inferred")
 
         out.append(comp)
     return out

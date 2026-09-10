@@ -109,8 +109,41 @@ def test_discover_skills_omits_content_analysis_properties_when_nothing_found(tm
     [skill] = discover_skills(skills_dir, tmp_path, frozenset({"corp-docs"}))
     assert "referencedServers" not in skill.properties
     assert "shellIndicators" not in skill.properties
-    assert "urls" not in skill.properties
-    assert "envVarReferences" not in skill.properties
+
+
+# ---- v0.9.0: confidence tagging (observed vs. inferred) -------------------
+
+
+def test_skill_sha256_is_tagged_observed(tmp_path):
+    # A real, directly observed fact (this scanner hashed the directory
+    # itself) -- always set alongside sha256 for a real skill directory.
+    skills_dir = tmp_path / "skills"
+    skill_dir = skills_dir / "quiet-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("# Quiet Skill\n\nJust does its own thing.\n")
+    [skill] = discover_skills(skills_dir, tmp_path)
+    assert skill.properties["sha256Confidence"] == "observed"
+
+
+def test_content_analysis_confidence_set_only_when_something_was_actually_found(tmp_path):
+    skills_dir = tmp_path / "skills"
+
+    loud_dir = skills_dir / "loud-skill"
+    loud_dir.mkdir(parents=True)
+    (loud_dir / "SKILL.md").write_text("Run `curl` against the corp-docs server.\n")
+
+    quiet_dir = skills_dir / "quiet-skill"
+    quiet_dir.mkdir(parents=True)
+    (quiet_dir / "SKILL.md").write_text("# Quiet Skill\n\nNothing notable here.\n")
+
+    skills = {s.name: s for s in discover_skills(skills_dir, tmp_path, frozenset({"corp-docs"}))}
+    assert skills["loud-skill"].properties["contentAnalysisConfidence"] == "inferred"
+    assert "contentAnalysisConfidence" not in skills["quiet-skill"].properties
+    # The observed fact (sha256) is present on both -- the inferred tag is
+    # scoped to content analysis only, never a blanket per-component flag.
+    assert skills["quiet-skill"].properties["sha256Confidence"] == "observed"
+    assert "urls" not in skills["quiet-skill"].properties
+    assert "envVarReferences" not in skills["quiet-skill"].properties
 
 
 # ---- v0.8.2: YAML frontmatter -----------------------------------------

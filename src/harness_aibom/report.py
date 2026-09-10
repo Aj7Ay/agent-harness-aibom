@@ -43,6 +43,7 @@ import json
 from datetime import datetime, timezone
 
 from . import security
+from .compliance import FRAMEWORKS, evaluate_framework
 
 #: componentClasses shown in this order when present; anything else
 #: (a future class this file doesn't know about yet) is appended after,
@@ -179,7 +180,15 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .risk-badge.sev-critical { background: #d03b3b; color: #fff; }
 .risk-badge.sev-serious { background: #ec835a; color: #fff; }
 .risk-badge.sev-warning { background: #fab219; color: #1a1a19; }
+.risk-badge.sev-info { background: var(--border); color: var(--fg); }
 .risk-clean { color: #0ca30c; font-weight: 600; }
+.compliance-status { display: inline-block; border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; }
+.compliance-status.evidence-collected { background: #2f7a3d; color: #fff; }
+.compliance-status.partial-evidence { background: #b9852f; color: #fff; }
+.compliance-status.not-assessed { background: var(--border); color: var(--muted); }
+.confidence-badge { display: inline-block; border-radius: 4px; padding: 0.05rem 0.4rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em; }
+.confidence-badge.observed { background: #2f7a3d; color: #fff; }
+.confidence-badge.inferred { background: #b9852f; color: #fff; }
 .mcp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
 .mcp-card-header { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.4rem; }
 .status-pill { display: inline-block; border-radius: 4px; padding: 0.05rem 0.45rem; font-size: 0.72rem; font-weight: 600; }
@@ -231,12 +240,18 @@ footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.7
 .filter-status { font-size: 0.82rem; color: var(--secondary); }
 .entry[hidden], .group[hidden] { display: none !important; }
 .arch-box[data-node] { cursor: pointer; }
+.dep-graph-center { stroke-width: 3; }
+.dep-graph-controls { display: flex; gap: 0.5rem; margin: 0.6rem 0; flex-wrap: wrap; }
+.dep-graph-controls input { flex: 1; min-width: 220px; }
 pre.raw-json {
   background: var(--code-bg); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.78rem;
   overflow-x: auto; white-space: pre; margin: 0.4rem 0 0;
 }
 /* v0.8.2: Raw BOM search matches */
 pre.raw-json mark { background: #fab219; color: #1a1a19; border-radius: 2px; }
+/* v0.9.0: Raw BOM -> Component Inspector cross-navigation */
+.raw-bom-ref-link { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; color: var(--fg); }
+.raw-bom-ref-link:hover { color: var(--secondary); }
 /* v0.8.0: Component Inspector -- a focused modal reusing an already-
    rendered .entry's own markup (see _JS's openInspector()), never a
    second copy of the entry-rendering logic. */
@@ -376,6 +391,7 @@ function openInspector(ref) {
   // whenever it's actually opened -- clone timing doesn't matter to it.
   body.appendChild(source.cloneNode(true));
   if (copyBtn) copyBtn.setAttribute('data-copy', ref);
+  panel.setAttribute('data-current-ref', ref);
   panel.hidden = false;
   document.body.classList.add('inspector-open');
   inspectorLastFocus = document.activeElement;
@@ -390,6 +406,62 @@ function closeInspector() {
   document.body.classList.remove('inspector-open');
   if (inspectorLastFocus && inspectorLastFocus.focus) inspectorLastFocus.focus();
   inspectorLastFocus = null;
+}
+
+// v0.9.0: Dependency graph explorer -- every per-instance neighborhood
+// diagram is pre-rendered server-side and hidden (`.dep-graph-node`);
+// this only toggles which one is visible, never builds SVG from
+// untrusted strings client-side (that risk stays entirely server-side
+// in report.py's own `_esc()`-everywhere discipline).
+function showDependencyGraph(ref) {
+  var nodes = document.querySelectorAll('.dep-graph-node');
+  var found = null;
+  for (var i = 0; i < nodes.length; i++) {
+    var isMatch = nodes[i].getAttribute('data-ref') === ref;
+    nodes[i].hidden = !isMatch;
+    if (isMatch) found = nodes[i];
+  }
+  var empty = document.getElementById('dep-graph-empty');
+  var notFound = document.getElementById('dep-graph-not-found');
+  var noEdges = document.getElementById('dep-graph-no-edges');
+  if (empty) empty.hidden = true;
+  var input = document.getElementById('dep-graph-input');
+  if (input) input.value = ref;
+  if (found) {
+    if (notFound) notFound.hidden = true;
+    if (noEdges) noEdges.hidden = true;
+    found.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    return true;
+  }
+  // Not every real component has a dependency-graph edge at all (a
+  // secrets_surface file, most skills) -- that's a different, more
+  // specific state than "you typed something that matches nothing".
+  var entryExists = !!findEntryByRef(ref);
+  if (notFound) notFound.hidden = entryExists;
+  if (noEdges) noEdges.hidden = !entryExists;
+  return false;
+}
+
+function findEntryRefByNameOrRef(query) {
+  var trimmed = (query || '').trim();
+  if (!trimmed) return null;
+  if (findEntryByRef(trimmed)) return trimmed; // exact bom-ref match
+  var lower = trimmed.toLowerCase();
+  var entries = document.querySelectorAll('.entry[data-bom-ref]');
+  for (var i = 0; i < entries.length; i++) {
+    var header = entries[i].querySelector('.entry-header strong');
+    if (header && header.textContent.toLowerCase().indexOf(lower) !== -1) {
+      return entries[i].getAttribute('data-bom-ref');
+    }
+  }
+  return null;
+}
+
+function viewInGraph(ref) {
+  closeInspector();
+  var section = document.getElementById('dependency-graph');
+  if (section) section.scrollIntoView({behavior: 'smooth', block: 'start'});
+  showDependencyGraph(ref);
 }
 
 function fallbackCopy(text) {
@@ -437,11 +509,34 @@ document.addEventListener('DOMContentLoaded', function () {
   if (classFilter) classFilter.addEventListener('change', applyFilters);
   var rawBomSearch = document.getElementById('raw-bom-search');
   if (rawBomSearch) rawBomSearch.addEventListener('input', highlightRawBom);
+  var depGraphShow = document.getElementById('dep-graph-show');
+  var depGraphInput = document.getElementById('dep-graph-input');
+  if (depGraphShow) depGraphShow.addEventListener('click', function () {
+    var ref = findEntryRefByNameOrRef(depGraphInput ? depGraphInput.value : '');
+    if (ref) { showDependencyGraph(ref); return; }
+    var nodes = document.querySelectorAll('.dep-graph-node');
+    for (var i = 0; i < nodes.length; i++) nodes[i].hidden = true;
+    var empty = document.getElementById('dep-graph-empty');
+    var noEdges = document.getElementById('dep-graph-no-edges');
+    var notFound = document.getElementById('dep-graph-not-found');
+    if (empty) empty.hidden = true;
+    if (noEdges) noEdges.hidden = true;
+    if (notFound) notFound.hidden = false;
+  });
   document.addEventListener('click', function (event) {
     var goto = event.target.closest && event.target.closest('[data-goto]');
     if (goto) { goToClass(goto.getAttribute('data-goto')); return; }
     var inspect = event.target.closest && event.target.closest('[data-inspect]');
     if (inspect) { openInspector(inspect.getAttribute('data-inspect')); return; }
+    var viewGraphNode = event.target.closest && event.target.closest('[data-view-graph]');
+    if (viewGraphNode) { showDependencyGraph(viewGraphNode.getAttribute('data-view-graph')); return; }
+    var viewGraphBtn = event.target.closest && event.target.closest('#inspector-view-graph');
+    if (viewGraphBtn) {
+      var panel0 = document.getElementById('inspector-panel');
+      var currentRef = panel0 ? panel0.getAttribute('data-current-ref') : '';
+      if (currentRef) viewInGraph(currentRef);
+      return;
+    }
     var closeBtn = event.target.closest && event.target.closest('#inspector-close');
     if (closeBtn) { closeInspector(); return; }
     var copyBtn = event.target.closest && event.target.closest('#inspector-copy');
@@ -524,18 +619,45 @@ function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
 }
 
+// v0.9.0: Raw BOM <-> UI cross-navigation -- every "bom-ref": "value"
+// occurrence in the Raw BOM becomes a clickable link that opens that
+// ref's own Component Inspector, reusing openInspector() verbatim (the
+// same function every per-entry "Inspect" button already calls -- no
+// second lookup path). Runs on every render of this block (with or
+// without an active search), not only when a search match happens to
+// land on a bom-ref line -- a real, if narrower, form of the
+// highlight-to-navigate idea SPEC.md describes, scoped to the one
+// unambiguous anchor every component/service entry actually has.
+function linkifyBomRefs(html) {
+  // Deliberately requires the captured value to contain neither '"' nor
+  // '<' -- a value that already got a `<mark>` tag spliced into it by
+  // this same function's caller (a search match landing inside a
+  // bom-ref's own text) is left as plain highlighted text instead of a
+  // clickable link for that one occurrence, rather than risk splicing a
+  // stray tag into the data-inspect attribute itself. A real, narrow,
+  // honestly-scoped trade-off (SPEC.md) -- not every possible position
+  // is clickable, but nothing here is ever mis-wired to the wrong ref.
+  // Clicking a bom-ref with no matching rendered entry (e.g. a
+  // `declarations` claim/evidence bom-ref, which has no Components/
+  // Services list entry of its own) is a safe no-op -- openInspector()
+  // already guards on `findEntryByRef()` returning null.
+  return html.replace(/"bom-ref":(\\s*)"([^"<]*)"/g, function (m, ws, ref) {
+    return '"bom-ref":' + ws + '"<span class="raw-bom-ref-link" data-inspect="' + ref + '">' + ref + '</span>"';
+  });
+}
+
 function highlightRawBom() {
   var input = document.getElementById('raw-bom-search');
   var pre = document.querySelector('#raw-bom pre.raw-json');
   if (!input || !pre || pre.dataset.rawText === undefined) return;
   var escapedText = escapeHtmlText(pre.dataset.rawText);
   var q = input.value;
-  if (!q) {
-    pre.innerHTML = escapedText;
-    return;
+  var html = escapedText;
+  if (q) {
+    var re = new RegExp(escapeRegExp(escapeHtmlText(q)), 'gi');
+    html = html.replace(re, function (m) { return '<mark>' + m + '</mark>'; });
   }
-  var re = new RegExp(escapeRegExp(escapeHtmlText(q)), 'gi');
-  pre.innerHTML = escapedText.replace(re, function (m) { return '<mark>' + m + '</mark>'; });
+  pre.innerHTML = linkifyBomRefs(html);
 }
 """
 
@@ -659,6 +781,62 @@ def _render_reachable_list(bom_ref: str, index: dict[str, dict], key: str, label
     )
 
 
+#: (property name, the exact rule that produces it) for every skill
+#: content-analysis field that carries the v0.9.0 "inferred" confidence
+#: tag (collectors/skills.py, SPEC.md section 20) -- the ONLY fields this
+#: renderer builds an evidence chain for; see SPEC.md section 21 for why
+#: this is deliberately not a generic engine over every property.
+_INFERRED_EVIDENCE_FIELDS = (
+    ("referencedServers", "analyze_skill_content() found this MCP server name mentioned in the "
+                           "skill's own SKILL.md prose"),
+    ("urls", "analyze_skill_content() found this URL written in the skill's own SKILL.md prose"),
+    ("shellIndicators", "analyze_skill_content() found this shell/CLI tool name mentioned in the "
+                         "skill's own SKILL.md prose"),
+    ("envVarReferences", "analyze_skill_content() found this environment variable name mentioned in "
+                          "the skill's own SKILL.md prose"),
+)
+
+
+def _render_evidence_chain(single: dict) -> str:
+    """rule that fired -> the specific text/property that triggered it ->
+    confidence, for exactly the properties collectors/skills.py's v0.9.0
+    confidence tagging covers (SPEC.md section 20) -- a rendering
+    feature over data that already exists on this entry, deliberately
+    not a generic evidence-chain engine for every property (most of
+    which have no real provenance/confidence data behind them at all).
+    Returns "" for any entry with neither confidence property set, so
+    this adds nothing to the Component Inspector for every other class.
+    """
+    rows: list[tuple[str, str, str]] = []
+    if single.get("harness-aibom:contentAnalysisConfidence") == "inferred":
+        for field, rule in _INFERRED_EVIDENCE_FIELDS:
+            for item in (single.get(f"harness-aibom:{field}") or "").split(","):
+                item = item.strip()
+                if item:
+                    rows.append((rule, item, "inferred"))
+    if single.get("harness-aibom:sha256Confidence") == "observed" and single.get("harness-aibom:sha256"):
+        rows.append((
+            "fingerprint.py sha256_directory() directly hashed every file under this component directory",
+            single["harness-aibom:sha256"],
+            "observed",
+        ))
+    if not rows:
+        return ""
+    items = "".join(
+        f"<li><span class='muted small'>{_esc(rule)}</span><br>"
+        f"<code class='small'>{_esc(trigger)}</code> "
+        f"<span class='confidence-badge {_esc(confidence)}'>{_esc(confidence.upper())}</span></li>"
+        for rule, trigger, confidence in rows
+    )
+    return (
+        f"<details><summary>Evidence chain ({len(rows)})</summary>"
+        "<p class='muted small'>rule that fired &rarr; the exact text/property that triggered it "
+        "&rarr; this component &rarr; confidence (never re-derived; read back verbatim from the "
+        "properties already shown above).</p>"
+        f"<ul class='risk-list'>{items}</ul></details>"
+    )
+
+
 def _render_entry(entry: dict, cls: str, ctx: dict) -> str:
     single, relationships = _split_properties(entry)
     single.pop("harness-aibom:componentClass", None)
@@ -728,6 +906,7 @@ def _render_entry(entry: dict, cls: str, ctx: dict) -> str:
         f"{surface_line}"
         f"{endpoints_html}"
         f"{_render_props_table(single)}"
+        f"{_render_evidence_chain(single)}"
         f"{blast_radius_html}"
         f"{supply_chain_html}"
         f"{_render_relationships(relationships)}"
@@ -933,6 +1112,175 @@ def _render_architecture_graph(graph: dict) -> str:
     )
 
 
+#: Per side, per node -- keeps a single mini-graph small and comprehensible
+#: even for a node with a very large fan-out (e.g. a `configuration`
+#: component that dozens of things depend on). Anything beyond this is
+#: still fully visible -- just as a plain count, not a box -- via each
+#: component's own existing "Depends on"/"Blast radius" lists in its
+#: Component Inspector (a full BFS, unlike this immediate-neighbors-only
+#: diagram).
+_NEIGHBORHOOD_MAX_PER_SIDE = 8
+
+
+def _render_dependency_neighborhood_svg(
+    bom_ref: str, name: str, cls: str, parents: list[str], children: list[str],
+    ref_to_label: dict[str, str], ref_to_class: dict[str, str],
+) -> str:
+    """The immediate (1-hop) dependency neighborhood of one specific
+    component/service instance -- parents (what depends on it) above,
+    the node itself in the middle, children (what it depends on) below.
+    Deliberately narrower than the componentClass-level Architecture
+    diagram above (this is per-*instance*) and deliberately NOT a full
+    multi-hop traversal (that's already the existing "Depends on"/"Blast
+    radius" plain lists in the Component Inspector -- a real BFS over
+    the same edges, just not drawn) -- see SPEC.md for why a bounded,
+    scoped view is the real answer to "a document can have hundreds of
+    components", not an all-nodes-at-once canvas.
+    """
+    shown_parents = parents[:_NEIGHBORHOOD_MAX_PER_SIDE]
+    shown_children = children[:_NEIGHBORHOOD_MAX_PER_SIDE]
+    extra_parents = len(parents) - len(shown_parents)
+    extra_children = len(children) - len(shown_children)
+
+    box_w, box_h = 150, 42
+    col_gap, row_gap = 16, 56
+
+    def row_width(n: int) -> float:
+        n = max(n, 1)
+        return n * box_w + (n - 1) * col_gap
+
+    chart_w = max(row_width(len(shown_parents)), row_width(1), row_width(len(shown_children))) + 20
+
+    def positions_for(refs: list[str], y: float) -> dict[str, tuple[float, float]]:
+        start_x = (chart_w - row_width(len(refs))) / 2
+        return {ref: (start_x + i * (box_w + col_gap) + box_w / 2, y) for i, ref in enumerate(refs)}
+
+    y = 8.0
+    positions: dict[str, tuple[float, float]] = {}
+    parent_y = child_y = None
+    if shown_parents:
+        positions.update(positions_for(shown_parents, y))
+        parent_y = y
+        y += row_gap
+    center_y = y
+    positions[bom_ref] = (chart_w / 2, center_y)
+    last_y = center_y
+    if shown_children:
+        y += row_gap
+        positions.update(positions_for(shown_children, y))
+        child_y = y
+        last_y = child_y
+    chart_h = last_y + box_h + 16
+
+    cx_center = chart_w / 2
+    edges_svg = []
+    if parent_y is not None:
+        for ref in shown_parents:
+            px, _ = positions[ref]
+            edges_svg.append(f"<line x1='{px}' y1='{parent_y + box_h}' x2='{cx_center}' y2='{center_y}' class='arch-edge'/>")
+    if child_y is not None:
+        for ref in shown_children:
+            chx, _ = positions[ref]
+            edges_svg.append(f"<line x1='{cx_center}' y1='{center_y + box_h}' x2='{chx}' y2='{child_y}' class='arch-edge'/>")
+
+    boxes_svg = []
+    for ref, (cx, top) in positions.items():
+        is_center = ref == bom_ref
+        label = name if is_center else ref_to_label.get(ref, ref)
+        node_cls = cls if is_center else ref_to_class.get(ref, "unknown")
+        stroke = "var(--fg)" if is_center else f"var({_class_color_var(node_cls)})"
+        x = cx - box_w / 2
+        # Every non-center box is clickable -- re-centers this same
+        # diagram on that neighbor (`data-view-graph`, handled by the
+        # same delegated-click discipline `data-goto`/`data-inspect`
+        # already established, never a per-node inline onclick).
+        # `data-node` (not `data-goto`) reuses the architecture diagram's
+        # own "clickable box" cursor styling (.arch-box[data-node]) for
+        # free, without implying this is the same click behavior.
+        node_attr = "" if is_center else f" data-node='{_esc(ref)}'"
+        g_attr = "" if is_center else f" data-view-graph='{_esc(ref)}'"
+        title = f"{label} ({node_cls})" if is_center else f"{label} ({node_cls}) -- click to view its own neighborhood"
+        boxes_svg.append(
+            f"<g{g_attr}>"
+            f"<title>{_esc(title)}</title>"
+            f"<rect x='{x}' y='{top}' width='{box_w}' height='{box_h}' rx='7' "
+            f"class='arch-box{' dep-graph-center' if is_center else ''}'{node_attr} style='stroke:{stroke}'/>"
+            f"<text x='{cx}' y='{top + box_h / 2}' text-anchor='middle' dominant-baseline='central' "
+            f"class='arch-label'>{_esc(label[:26])}</text>"
+            "</g>"
+        )
+
+    extras = []
+    if extra_parents > 0:
+        extras.append(f"{extra_parents} more parent(s) not shown")
+    if extra_children > 0:
+        extras.append(f"{extra_children} more child(ren) not shown")
+    note = (
+        f"<p class='muted small'>{_esc('; '.join(extras))} -- see this component's own Inspector "
+        "for the full \"Depends on\"/\"Blast radius\" lists.</p>"
+        if extras else ""
+    )
+
+    svg = (
+        f"<svg viewBox='0 0 {chart_w} {chart_h}' role='img' "
+        f"aria-label='Dependency neighborhood for {_esc(name)}'>{''.join(edges_svg)}{''.join(boxes_svg)}</svg>"
+    )
+    return f"<div class='chart-card'>{svg}</div>{note}"
+
+
+def _render_dependency_graph_section(bom: dict, ctx: dict) -> str:
+    """A per-instance dependency graph explorer -- deliberately collapsed
+    by default (nothing rendered until a component is chosen), not an
+    all-nodes-at-once canvas, per SPEC.md's own scaling discussion. Every
+    component/service with at least one real dependency-graph edge gets
+    its own pre-rendered, hidden neighborhood diagram
+    (`_render_dependency_neighborhood_svg`, server-side, same "no live
+    client-side layout engine" principle as the rest of this file); the
+    search box and every Component Inspector's "View in graph" button
+    just reveal the matching one (`showDependencyGraph()` in `_JS`).
+    """
+    entries = bom.get("components", []) + bom.get("services", [])
+    ref_to_label = {e.get("bom-ref", ""): e.get("name", "") for e in entries}
+    ref_to_class = {e.get("bom-ref", ""): _component_class(e) for e in entries}
+
+    options = "".join(
+        f"<option value='{_esc(ref)}' label='{_esc(label)}'>{_esc(label)}</option>"
+        for ref, label in sorted(ref_to_label.items(), key=lambda kv: kv[1])
+    )
+
+    nodes_html = []
+    for entry in entries:
+        ref = entry.get("bom-ref", "")
+        parents = ctx["dependency_parents"].get(ref, [])
+        children = ctx["dependency_children"].get(ref, [])
+        if not parents and not children:
+            continue
+        svg = _render_dependency_neighborhood_svg(
+            ref, entry.get("name", ""), _component_class(entry), parents, children, ref_to_label, ref_to_class,
+        )
+        nodes_html.append(f"<div class='dep-graph-node' data-ref='{_esc(ref)}' hidden>{svg}</div>")
+
+    if not nodes_html:
+        return "<p class='muted'><em>No component in this document has a recorded dependency-graph edge.</em></p>"
+
+    return (
+        "<div class='dep-graph-controls'>"
+        "<input type='text' id='dep-graph-input' list='dep-graph-options' "
+        "placeholder='Search by name or bom-ref...' aria-label='Find a component for the dependency graph'>"
+        f"<datalist id='dep-graph-options'>{options}</datalist>"
+        "<button type='button' id='dep-graph-show'>Show graph</button>"
+        "</div>"
+        "<p id='dep-graph-empty' class='muted'><em>Select a component above, or use \"View in graph\" from any "
+        "Component Inspector, to see its immediate dependency neighborhood (parents above, children below).</em></p>"
+        "<p id='dep-graph-not-found' class='muted' hidden>"
+        "<em>No component matches that name/bom-ref.</em></p>"
+        "<p id='dep-graph-no-edges' class='muted' hidden>"
+        "<em>That component has no recorded dependency-graph edges (nothing it depends on, nothing depends on "
+        "it) in this document.</em></p>"
+        f"{''.join(nodes_html)}"
+    )
+
+
 def _render_baseline_comparison_line(diff_result: dict | None) -> str:
     # Honest either way (v0.3.0's original discipline, kept): a single
     # scan genuinely has nothing to compare against, so it says so
@@ -1090,6 +1438,7 @@ def _render_skill_category_breakdown(skills: list[dict]) -> str:
 
 _EXPLORER_NAV_LINKS = (
     ("#architecture", "Architecture"),
+    ("#dependency-graph", "Dependency graph"),
     ("#security-summary", "Security"),
     ("#risk", "Risk"),
     ("#attack-surface", "Attack surface"),
@@ -1101,6 +1450,8 @@ _EXPLORER_NAV_LINKS = (
     ("#metadata", "Metadata"),
     ("#external-references", "External refs"),
     ("#vulnerabilities", "Vulnerabilities"),
+    ("#declarations", "Declarations"),
+    ("#compliance", "Compliance"),
     ("#compositions", "Compositions"),
     ("#baseline-diff", "Baseline diff"),
     ("#artifact-integrity", "Integrity"),
@@ -1224,6 +1575,175 @@ def _render_external_references(bom: dict) -> str:
     return f"{table}{doc_level_html}"
 
 
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4, "none": 5, "unknown": 6}
+
+
+def _vuln_severity(vuln: dict) -> str:
+    """The most severe `ratings[].severity` on this vulnerability entry,
+    or "unknown" if it has ratings with no severity, or "" if it has no
+    ratings at all (OSV had a CVE id but no CVSS vector to derive one
+    from) -- kept distinct from "unknown" since the former is a real,
+    if unscored, finding and the latter genuinely has nothing to show.
+    """
+    severities = [r["severity"] for r in vuln.get("ratings", []) if r.get("severity")]
+    if not severities:
+        return "unknown" if vuln.get("ratings") else ""
+    return min(severities, key=lambda s: _SEVERITY_RANK.get(s, 99))
+
+
+def _vuln_check_status_by_ref(bom: dict) -> dict[str, str]:
+    """bom-ref -> "checked"/"failed", from each component's own
+    `harness-aibom:vulnCheck` property (vex.py) -- never re-derived or
+    guessed, just read back so this renderer and `scan-vulns` can never
+    disagree about which components were actually queried."""
+    out = {}
+    for entry in bom.get("components", []) + bom.get("services", []):
+        for prop in entry.get("properties", []):
+            if prop["name"] == "harness-aibom:vulnCheck":
+                out[entry.get("bom-ref", "")] = prop["value"]
+    return out
+
+
+def _render_vulnerabilities(bom: dict) -> str:
+    """Real OSV.dev-sourced `vulnerabilities[]` entries (`harness-aibom
+    scan-vulns`, vex.py) when present; otherwise an explicit statement
+    that vulnerability data was never checked at all -- never rendered
+    as if a clean "0 findings" scan had actually happened, since this
+    scanner doesn't run one on its own (`scan` stays fully offline).
+    """
+    vulns = bom.get("vulnerabilities", [])
+    ref_to_name = {
+        e.get("bom-ref"): e.get("name", "")
+        for e in bom.get("components", []) + bom.get("services", [])
+    }
+    check_status = _vuln_check_status_by_ref(bom)
+    checked_refs = [ref for ref, status in check_status.items() if status == "checked"]
+    failed_refs = [ref for ref, status in check_status.items() if status == "failed"]
+
+    status_line = (
+        f"<p class='muted'>{len(checked_refs)} component(s) checked against OSV.dev, "
+        f"{len(failed_refs)} check(s) failed.</p>"
+        if check_status
+        else (
+            "<p class='muted'><em>Vulnerability data has not been checked for this document -- "
+            "run <code>harness-aibom scan-vulns</code> against it (queries the real, public OSV.dev "
+            "API; requires network access, so this is never part of a plain `scan`).</em></p>"
+        )
+    )
+
+    if not vulns:
+        clean_note = (
+            f"<p class='muted'>Checked, none found for {len(checked_refs)} component(s).</p>"
+            if checked_refs
+            else ""
+        )
+        return status_line + clean_note
+
+    def sort_key(v: dict) -> tuple:
+        return (_SEVERITY_RANK.get(_vuln_severity(v), 99), v.get("id", ""))
+
+    severity_css = {"critical": "sev-critical", "high": "sev-critical", "medium": "sev-serious", "low": "sev-warning"}
+    rows = []
+    for v in sorted(vulns, key=sort_key):
+        severity = _vuln_severity(v) or "unrated"
+        badge_class = severity_css.get(severity, "sev-info")
+        affected = v.get("affects", [])
+        affected_html = " ".join(
+            f"<button type='button' class='inspect-btn' data-inspect='{_esc(a['ref'])}' "
+            f"aria-label='Inspect {_esc(ref_to_name.get(a['ref'], a['ref']))}'>"
+            f"{_esc(ref_to_name.get(a['ref'], a['ref']))}</button>"
+            for a in affected
+            if a.get("ref")
+        )
+        source = v.get("source", {})
+        source_html = (
+            f"<a href='{_esc(source['url'])}'>{_esc(v.get('id', ''))}</a>"
+            if source.get("url", "").startswith(("http://", "https://"))
+            else _esc(v.get("id", ""))
+        )
+        vector = next((r.get("vector") for r in v.get("ratings", []) if r.get("vector")), "")
+        rows.append(
+            f"<tr><td><span class='risk-badge {badge_class}'>{_esc(severity.upper())}</span></td>"
+            f"<td>{source_html}</td>"
+            f"<td>{_esc(v.get('description', ''))}</td>"
+            f"<td>{affected_html}</td>"
+            f"<td class='small'>{_esc(vector)}</td></tr>"
+        )
+    table = (
+        "<table class='summary'><tr><th>severity</th><th>id</th><th>description</th>"
+        f"<th>affects</th><th>CVSS vector</th></tr>{''.join(rows)}</table>"
+    )
+    return status_line + table
+
+
+def _render_declarations(bom: dict) -> str:
+    """CycloneDX 1.6's `declarations` block (cyclonedx.py's
+    `_build_declarations()`) -- this scanner's own narrow, self-assessed
+    coverage claims, each backed by a real computed ratio and its own
+    evidence entry. Deliberately labeled as self-assessment, never as a
+    passed audit or certification: `assessors[].thirdParty` is always
+    `false` here, shown plainly rather than left for a reader to notice
+    only by its absence.
+    """
+    decl = bom.get("declarations")
+    if not decl:
+        return (
+            "<p class='muted'><em>No self-assessed claims -- this document has no components in any "
+            "category this scanner currently knows how to attest coverage for.</em></p>"
+        )
+    evidence_by_ref = {e["bom-ref"]: e for e in decl.get("evidence", [])}
+    items = []
+    for claim in decl.get("claims", []):
+        reasoning = _esc(claim.get("reasoning", ""))
+        items.append(
+            "<li>"
+            f"<p><strong>{_esc(claim.get('predicate', ''))}</strong></p>"
+            f"<p class='muted small'>{reasoning}</p>"
+            "</li>"
+        )
+    assessor_note = (
+        "<p class='muted'>Self-assessment by this scanner itself -- <code>thirdParty: false</code> "
+        "for every assessor here, never a third-party audit or certification.</p>"
+    )
+    return assessor_note + f"<ul class='risk-list'>{''.join(items)}</ul>"
+
+
+def _render_compliance(bom: dict) -> str:
+    """compliance.py's real, narrow evidence mapping for all three
+    verified frameworks -- rendered unconditionally (no `--framework`
+    flag on `report`, unlike the CLI's own `compliance` command), since
+    every mapping is a cheap, pure function over data already in this
+    document. Labeled as evidence mapping throughout, never a
+    certification -- see compliance.py's own docstring and SPEC.md.
+    """
+    status_class = {
+        "evidence collected": "evidence-collected",
+        "partial evidence": "partial-evidence",
+        "not assessed": "not-assessed",
+    }
+    blocks = []
+    for framework in FRAMEWORKS:
+        result = evaluate_framework(bom, framework)
+        rows = "".join(
+            "<tr>"
+            f"<td><span class='compliance-status {status_class.get(m['status'], 'not-assessed')}'>"
+            f"{_esc(m['status'].upper())}</span></td>"
+            f"<td><code class='small'>{_esc(m['controlId'])}</code></td>"
+            f"<td>{_esc(m['controlTitle'])}</td>"
+            f"<td class='small'>{_esc(m['rationale'])}</td>"
+            f"<td>{m['evidenceCount']}</td>"
+            "</tr>"
+            for m in result["mappings"]
+        )
+        blocks.append(
+            f"<details class='group'><summary>{_esc(result['displayName'])}</summary>"
+            f"<p class='muted small'>{_esc(result['sourceNote'])}</p>"
+            "<table class='summary'><tr><th>status</th><th>control</th><th>title</th>"
+            f"<th>rationale</th><th>evidence count</th></tr>{rows}</table></details>"
+        )
+    return "".join(blocks)
+
+
 def _render_raw_bom(compact_size: int) -> str:
     # Lazily populated from the shared #bom-data blob (see _JS and
     # render_html) via the sentinel ref "__bom__", not embedded again
@@ -1237,10 +1757,18 @@ def _render_raw_bom(compact_size: int) -> str:
     # Raw JSON reveal, since this is the one place a reader plausibly
     # needs to text-search a large, multi-hundred-line document; the
     # per-entry ones are already scoped to one component.
+    #
+    # v0.9.0: every "bom-ref": "value" line is also a clickable link back
+    # to that ref's own Component Inspector (_JS's `linkifyBomRefs()`) --
+    # a real, if narrower, form of raw-JSON-to-UI cross-navigation, scoped
+    # to the one unambiguous anchor every entry actually has (see SPEC.md
+    # for what this does and doesn't cover).
     return (
         "<div class='filter-bar'>"
         "<input type='search' id='raw-bom-search' placeholder='Search the raw JSON... (open it below first)'>"
         "</div>"
+        "<p class='muted small'>Every <code>\"bom-ref\"</code> line below is also a clickable link back to "
+        "that entry's own Component Inspector.</p>"
         f"<details data-bom-ref='__bom__'><summary>Raw CycloneDX AIBOM ({compact_size} bytes, compact)</summary>"
         "<pre class='raw-json'></pre></details>"
     )
@@ -1518,6 +2046,8 @@ def render_html(bom: dict, diff_result: dict | None = None, signature_info: dict
     mcp_servers = security.index_mcp_servers(bom)
     ctx = {
         "mcp_servers": mcp_servers,
+        "dependency_children": dependency_children,
+        "dependency_parents": dependency_parents,
         "supply_chains": {
             ref: security.compute_supply_chain(bom, ref, dependency_children)
             for entry in components + services
@@ -1592,6 +2122,16 @@ def render_html(bom: dict, diff_result: dict | None = None, signature_info: dict
     category (not per component), positioned by real depth in the document's own dependency
     graph. Click a box to jump to and filter Components/Services below.</p>
   <div class="arch-card chart-card">{_render_architecture_graph(architecture_graph)}</div>
+</section>
+
+<section id="dependency-graph">
+  <h2>Dependency graph</h2>
+  <p class="muted">The real, per-<em>instance</em> dependency graph around one specific component --
+    its immediate parents (what depends on it) and children (what it depends on), from this
+    document's own <code>dependencies[]</code> edges. Collapsed by default -- a document can have
+    hundreds of components, so nothing is drawn until you choose one below, from any Component
+    Inspector's "View in graph" button, or by clicking a neighbor box to walk the graph.</p>
+  {_render_dependency_graph_section(bom, ctx)}
 </section>
 
 <section id="security-summary">
@@ -1672,7 +2212,27 @@ def render_html(bom: dict, diff_result: dict | None = None, signature_info: dict
 
 <section id="vulnerabilities">
   <h2>Vulnerabilities</h2>
-  {_render_empty_cyclonedx_section(bom, "vulnerabilities", "Vulnerability data is not collected by this scanner.")}
+  <p class="muted">Real OSV.dev records (<code>harness-aibom scan-vulns</code>), never generated by
+    <code>scan</code> itself -- that command stays fully offline. See vex.py / SPEC.md.</p>
+  {_render_vulnerabilities(bom)}
+</section>
+
+<section id="declarations">
+  <h2>Declarations</h2>
+  <p class="muted">CycloneDX 1.6's native <code>declarations</code> block -- narrow, self-assessed
+    coverage claims this scanner can actually back with data already in this document. Never a
+    compliance or certification claim; see SPEC.md.</p>
+  {_render_declarations(bom)}
+</section>
+
+<section id="compliance">
+  <h2>Compliance evidence mapping</h2>
+  <p class="muted"><strong>Evidence mapping, NOT a compliance or certification claim.</strong> Every
+    control/technique ID below is real and independently verified against each framework's own
+    published source (compliance.py / SPEC.md); every status is one of "evidence collected",
+    "partial evidence", or "not assessed" -- never "compliant" or "pass". Also available as its own
+    command: <code>harness-aibom compliance aibom.json --framework nist-ai-rmf</code>.</p>
+  {_render_compliance(bom)}
 </section>
 
 <section id="compositions">
@@ -1716,6 +2276,7 @@ def render_html(bom: dict, diff_result: dict | None = None, signature_info: dict
   <div class="inspector-panel" role="dialog" aria-modal="true" aria-label="Component inspector">
     <div class="inspector-toolbar">
       <button type="button" id="inspector-copy" class="copy-btn">Copy bom-ref</button>
+      <button type="button" id="inspector-view-graph" class="copy-btn">View in graph</button>
       <button type="button" id="inspector-close" class="inspector-close" aria-label="Close inspector">✕ Close</button>
     </div>
     <div id="inspector-body" class="inspector-body"></div>

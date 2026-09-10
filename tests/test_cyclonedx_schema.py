@@ -80,6 +80,19 @@ def test_obfuscated_author_email_never_produces_an_invalid_document():
     _assert_schema_valid(to_cyclonedx(doc))
 
 
+def test_declarations_block_is_still_valid_cyclonedx():
+    # v0.9.0: cyclonedx.py's self-assessed `declarations` block (real
+    # coverage ratios, e.g. "N of N models carry a digest") -- confirmed
+    # against the real vendored 1.6 schema, same discipline as every
+    # other native field this project emits.
+    collector = HermesCollector(home=HERMES_HOME, run=lambda argv: "", fetch=lambda url: {"models": []})
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    collector.collect(doc)
+    bom = to_cyclonedx(doc)
+    assert "declarations" in bom  # this fixture has skills, so there's something real to claim
+    _assert_schema_valid(bom)
+
+
 def test_deterministic_output_is_still_valid_cyclonedx():
     # serialNumber and metadata.timestamp are both optional in the real
     # schema -- confirmed here rather than assumed, since getting this
