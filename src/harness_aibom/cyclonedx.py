@@ -1,4 +1,7 @@
-"""Serialize a HarnessDocument (model.py) into CycloneDX 1.6 JSON.
+"""Serialize a HarnessDocument (model.py) into CycloneDX JSON (1.6 by
+default, 1.7 opt-in -- see `DEFAULT_SPEC_VERSION`/`to_cyclonedx()`'s own
+`spec_version` parameter and SPEC.md's contract/deprecation policy
+section).
 
 We stay inside the official CycloneDX schema everywhere except one place:
 per-component `properties[]` entries named `harness-aibom:<field>`, which
@@ -18,7 +21,33 @@ from datetime import datetime, timezone
 from . import __version__
 from .model import Component, HarnessDocument
 
-SPEC_VERSION = "1.6"
+#: v1.0.0: which real CycloneDX `specVersion` a document declares is now a
+#: caller-chosen flag (`scan --spec-version`), not a hardcoded constant --
+#: see SPEC.md's contract/deprecation policy section for the full
+#: reasoning. `DEFAULT_SPEC_VERSION` stays "1.6" deliberately: 1.7 is the
+#: terminal, ECMA-ratified 1.x release, but the ecosystem only just caught
+#: up (Dependency-Track rejected 1.7 uploads outright until its 5.1.0/
+#: 4.14.4 releases), and CycloneDX 2.0 is already expected within the
+#: year -- 1.6 is read unchanged by every 1.7-aware consumer, so nothing
+#: is lost by staying there until a real reason to move exists. Changing
+#: this DEFAULT later is a major version bump and a release-note
+#: headline, never a quiet dependency-style default swap (see the
+#: dotnet-cyclonedx incident this policy is deliberately written against).
+DEFAULT_SPEC_VERSION = "1.6"
+SUPPORTED_SPEC_VERSIONS = ("1.6", "1.7")
+
+#: This project's OWN document contract version -- the shape and meaning
+#: of the `harness-aibom:*` property namespace and componentClass
+#: taxonomy (SPEC.md) -- versioned entirely independently of CycloneDX's
+#: own `specVersion` above. A consumer reading both needs to know which
+#: of the two version numbers changed and why: a bump here means this
+#: project's own data model changed (a property renamed/removed, a
+#: componentClass's meaning shifted); a bump to `specVersion` means only
+#: the CycloneDX wire format changed underneath an unchanged data model.
+#: "1" as of v1.0.0 -- the point this project's own property/taxonomy
+#: contract is considered stable enough to version and hold steady.
+HARNESS_CONTRACT_VERSION = "1"
+
 ROOT_BOM_REF = "harness-root"
 
 #: Exact SPDX license identifiers common enough to appear verbatim in a
@@ -319,8 +348,8 @@ def current_hostname() -> str:
         return "unknown-host"
 
 
-def to_cyclonedx(doc: HarnessDocument, deterministic: bool = False) -> dict:
-    """Build the full CycloneDX 1.6 document dict for `doc`. Callers decide
+def to_cyclonedx(doc: HarnessDocument, deterministic: bool = False, spec_version: str = DEFAULT_SPEC_VERSION) -> dict:
+    """Build the full CycloneDX document dict for `doc`. Callers decide
     how to serialize it (json.dumps, write to a file, ...).
 
     `deterministic=True` omits `serialNumber` (a fresh random UUID on
@@ -330,11 +359,28 @@ def to_cyclonedx(doc: HarnessDocument, deterministic: bool = False) -> dict:
     itself as a stable baseline -- everything else already only reflects
     what was actually found on disk, so with both omitted, the same
     harness state always produces the same document.
+
+    `spec_version` (v1.0.0) is which real CycloneDX `specVersion` to
+    declare -- "1.6" (default) or "1.7", see `SUPPORTED_SPEC_VERSIONS`.
+    This release deliberately emits the exact same content either way
+    (no 1.7-only native field is populated yet -- see SPEC.md's
+    contract/deprecation policy section for why that's a documented
+    decision, not an oversight); a 1.6-shaped document is already valid
+    CycloneDX 1.7 (confirmed against the real schema,
+    test_cyclonedx_schema.py), so declaring "1.7" here is honest, not a
+    guess at what 1.7-only content would look like.
     """
+    if spec_version not in SUPPORTED_SPEC_VERSIONS:
+        raise ValueError(f"unsupported spec_version {spec_version!r}, expected one of {SUPPORTED_SPEC_VERSIONS}")
+
     root_properties = [
         {"name": "harness-aibom:componentClass", "value": "harness"},
         {"name": "harness-aibom:runtimeKind", "value": doc.runtime_kind},
         {"name": "harness-aibom:hostname", "value": doc.hostname},
+        # This project's own document-contract version -- NOT the
+        # CycloneDX wire-format specVersion below, see
+        # HARNESS_CONTRACT_VERSION's own docstring for the distinction.
+        {"name": "harness-aibom:specVersion", "value": HARNESS_CONTRACT_VERSION},
     ]
     # Scan warnings used to reach only stderr, never the document itself
     # -- confirmed real: a reviewer found a scan that missed Ollama and
@@ -363,7 +409,7 @@ def to_cyclonedx(doc: HarnessDocument, deterministic: bool = False) -> dict:
     if not deterministic:
         metadata["timestamp"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    result: dict = {"bomFormat": "CycloneDX", "specVersion": SPEC_VERSION}
+    result: dict = {"bomFormat": "CycloneDX", "specVersion": spec_version}
     if not deterministic:
         result["serialNumber"] = f"urn:uuid:{uuid.uuid4()}"
     result["version"] = 1

@@ -12,7 +12,7 @@ from . import __version__
 from .compliance import FRAMEWORKS, evaluate_framework
 from .collectors.hermes import HermesCollector
 from .collectors.openclaw import OpenClawCollector
-from .cyclonedx import current_hostname, to_cyclonedx
+from .cyclonedx import DEFAULT_SPEC_VERSION, SUPPORTED_SPEC_VERSIONS, current_hostname, to_cyclonedx
 from .diff import diff_documents, diff_documents_with_properties
 from .model import HarnessDocument
 from .policy_yaml import PolicyFileError, evaluate_policy_rules, load_policy_rules
@@ -75,7 +75,7 @@ def _run_scan(args: argparse.Namespace) -> int:
         return 1
 
     if args.verify_deterministic:
-        return _run_verify_deterministic(active)
+        return _run_verify_deterministic(active, args.spec_version)
 
     for collector in active:
         doc = HarnessDocument(
@@ -89,7 +89,7 @@ def _run_scan(args: argparse.Namespace) -> int:
         for w in doc.warnings:
             print(f"warning[{collector.runtime_kind}]: {w}", file=sys.stderr)
 
-        bom = to_cyclonedx(doc, deterministic=args.deterministic)
+        bom = to_cyclonedx(doc, deterministic=args.deterministic, spec_version=args.spec_version)
         text = json.dumps(bom, indent=2 if args.pretty else None)
 
         if args.output:
@@ -104,7 +104,7 @@ def _run_scan(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_verify_deterministic(active: list) -> int:
+def _run_verify_deterministic(active: list, spec_version: str = DEFAULT_SPEC_VERSION) -> int:
     """Scan each active collector *twice* and confirm the `--deterministic`
     JSON output is byte-for-byte identical both times -- v0.8.2, a real
     reproducibility check, not an assumption resting only on
@@ -135,7 +135,7 @@ def _run_verify_deterministic(active: list) -> int:
                 hostname=current_hostname(),
             )
             collector.collect(doc)
-            outputs.append(to_cyclonedx(doc, deterministic=True))
+            outputs.append(to_cyclonedx(doc, deterministic=True, spec_version=spec_version))
         if outputs[0] == outputs[1]:
             print(f"PASS [{collector.runtime_kind}]: two scans of the same state are byte-identical")
         else:
@@ -693,6 +693,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run the scan twice and confirm --deterministic output is actually byte-identical both times "
         "-- prints PASS/FAIL instead of writing output, exit 1 on FAIL",
+    )
+    scan.add_argument(
+        "--spec-version",
+        choices=list(SUPPORTED_SPEC_VERSIONS),
+        default=DEFAULT_SPEC_VERSION,
+        help="v1.0.0: CycloneDX specVersion to declare (default: 1.6 -- the terminal, ECMA-ratified 1.x "
+        "release, but the widest-supported one today; pass 1.7 to opt in). This release emits the exact "
+        "same content either way -- see SPEC.md's contract/deprecation policy section. Changing the "
+        "DEFAULT is always a major version bump, never a silent swap.",
     )
     scan.add_argument(
         "--probe-mcp",

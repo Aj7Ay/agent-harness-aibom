@@ -2909,3 +2909,109 @@ needs subprocess/process-group management this release intentionally
 keeps out of scope); legacy SSE-framed transport; sending any credential
 (see above); `tools/call` (this is read-only discovery, never invocation
 -- calling a tool has side effects this scanner has no business causing).
+
+## 32. The CycloneDX contract and deprecation policy (v1.0.0)
+
+The last of the pre-1.0 decisions this project had left open: which real
+CycloneDX `specVersion` to target, whether that choice can ever move
+silently, and what this project's OWN data contract (the
+`harness-aibom:*` property namespace and componentClass taxonomy) means
+independently of CycloneDX's own version number.
+
+**`scan --spec-version`, default 1.6, 1.7 opt-in.** Not a fixed choice --
+a flag (`cyclonedx.DEFAULT_SPEC_VERSION` / `SUPPORTED_SPEC_VERSIONS`,
+`("1.6", "1.7")`). 1.7 is the terminal, ECMA-424 2nd Edition-ratified
+release in the 1.x line (October/December 2025) -- genuinely the more
+"finished" spec. But two real facts argue for staying on 1.6 as the
+default: **the ecosystem only just caught up** (Dependency-Track, the
+most widely deployed SBOM analyzer, rejected 1.7 uploads outright with a
+plain 400 until its 5.1.0 release, backported to 4.14.4 -- a lab VM
+running anything older still can't ingest a 1.7 document at all), and
+**CycloneDX 2.0 is already expected within the year**, so committing this
+project's default to 1.7 now risks a second forced migration within
+months of the first. Meanwhile **1.6 costs nothing in forward
+compatibility**: every document this project has ever produced already
+validates cleanly against the real, current 1.7 schema too
+(`tests/test_cyclonedx_schema.py`, confirmed directly, not assumed) --
+broadest ingestion today, zero downside tomorrow. This release
+deliberately emits identical content regardless of which `specVersion` is
+declared -- no 1.7-exclusive native field is populated yet (see the
+native-slot decision below) -- so opting into 1.7 today only changes the
+one string in the document header, honestly: this scanner isn't yet
+claiming to produce anything a 1.6 reader couldn't already make full use
+of.
+
+**Changing the DEFAULT is a major version bump, never a quiet swap.**
+Named here as a deliberate policy, not just a comment on one flag: the
+dotnet-cyclonedx tool silently bumped its own default output from 1.6 to
+1.7 as what looked like an ordinary dependency update, and broke real
+SBOM pipelines with a bare 400 from Dependency-Track -- no code change on
+the pipeline's own end, just a default that moved underneath it. This
+project's own `DEFAULT_SPEC_VERSION` will only ever change alongside a
+major version bump and its own release-note headline, exactly so that
+never happens to anyone depending on this tool's default output shape.
+
+**`harness-aibom:specVersion` (root property, value `"1"` as of this
+release) is a SEPARATE axis from CycloneDX's own `specVersion`.** The
+latter (`bom.specVersion`, `"1.6"`/`"1.7"`) is the CycloneDX *wire
+format* this document is serialized as. The former
+(`cyclonedx.HARNESS_CONTRACT_VERSION`) is this project's own data
+contract -- the meaning of the `harness-aibom:*` property namespace and
+the componentClass taxonomy documented throughout this file -- versioned
+entirely independently. The two can move on completely different
+schedules: a future release could adopt CycloneDX 2.0 (bumping
+`specVersion`) while this project's own property meanings stay
+byte-identical (`harness-aibom:specVersion` unchanged), or this project
+could rename/retire a `harness-aibom:` property (bumping
+`harness-aibom:specVersion`) while still emitting plain CycloneDX 1.6. A
+consumer parsing both fields always knows exactly which promise changed.
+"1" means: as of v1.0.0, this project's own property/taxonomy contract is
+considered stable -- see the deprecation policy below for what "stable"
+actually commits to.
+
+**The native-slot question, closed for v1.0.0: the property namespace
+stays the contract.** CycloneDX 1.7 (and, in narrower form, 1.6 already)
+offers native slots this project could, in principle, move some
+`harness-aibom:*` facts into -- a `modelCard` block for `model`
+components, `evidence.occurrences`-style citations for per-fact
+provenance, richer `declarations` attestations tied to `policy`'s own
+findings. All three are real and would be a genuinely better fit for
+parts of this project's own data (citations in particular are a strictly
+better answer to the partial-scan problem than a root-level
+`harness-aibom:warning` string). None are adopted in this release. The
+reason is the same discipline this project has applied to every other
+"looks useful, not independently confirmed" feature throughout its
+history: adopting a native slot means committing to its *exact* real
+field shape and to which real downstream tools actually read it usefully
+today, and that verification is real, scoped work this release didn't do
+-- guessing at the shape to hit a deadline is exactly the kind of
+unconfirmed-detail risk this project refuses to ship. The
+`harness-aibom:` property namespace remains the single, primary data
+contract for the full 1.x line as a deliberate decision, not a gap left
+open by omission. A future release adopting one of these natively is an
+*additive* enrichment behind its own flag (the same shape `--spec-version
+1.7` itself takes) -- never a replacement for the property namespace,
+and never a silent one.
+
+**Deprecation policy, stated plainly for the first time:** an *additive*
+change (a new componentClass, a new property, a new risk rule, a new
+native CycloneDX field populated) can land in any release, same as
+always. A *breaking* change to this project's own contract --
+renaming or removing a `harness-aibom:*` property, changing what an
+existing componentClass means, changing `DEFAULT_SPEC_VERSION` -- requires
+a `harness-aibom:specVersion` bump and is called out by name in that
+release's own notes; as of v1.0.0 this also means a major version bump
+of the package itself (the pre-1.0 line never made that promise, and
+didn't claim to).
+
+**Where this leaves the pre-1.0 checklist:** all four items now have a
+real answer. `--spec-version` (this section) closes the CycloneDX-target
+question; the native-slot question is closed above; the
+`harness-aibom:specVersion` root property (this section) versions this
+project's own contract independently of CycloneDX's; this section itself
+is the contract/deprecation policy write-up. v1.0.0 ships as an RC first
+(`1.0.0rc1`, a real PEP 440 pre-release -- `pip install agent-harness-aibom`
+with no `--pre` flag ignores it entirely, so publishing it to the real,
+live PyPI index carries no risk to anyone already depending on the
+current stable release), verified end-to-end from that published
+artifact, then promoted to the plain `1.0.0` stable tag once confirmed.

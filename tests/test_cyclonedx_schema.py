@@ -23,14 +23,15 @@ HERMES_HOME = Path(__file__).parent / "fixtures" / "hermes_home"
 OPENCLAW_HOME = Path(__file__).parent / "fixtures" / "openclaw_home"
 
 _VALIDATOR = JsonStrictValidator(SchemaVersion.V1_6)
-#: v0.10.1: this project's canonical output declares specVersion "1.6"
-#: and stays there deliberately (SPEC.md section 15 -- a format bump is
-#: its own migration decision, not a side effect of a test change). But
-#: confirmed directly (not assumed): every document this project already
-#: emits also validates cleanly against the real, current CycloneDX 1.7
-#: schema as-is, with no changes needed -- so every test in this file
-#: proves that too, for free, the same "highest-yield check in the whole
-#: list" a reviewer specifically called this file out as being.
+#: v1.0.0: this project's DEFAULT output still declares specVersion "1.6"
+#: (opt-in "1.7" via `--spec-version`, see SPEC.md section 32 for the full
+#: contract/deprecation policy -- a format bump is its own migration
+#: decision, never a side effect of a test change). Confirmed directly
+#: (not assumed): every document this project emits also validates
+#: cleanly against the real, current CycloneDX 1.7 schema as-is, with no
+#: changes needed -- so every test in this file proves that too, for
+#: free, the same "highest-yield check in the whole list" a reviewer
+#: specifically called this file out as being.
 _VALIDATOR_1_7 = JsonStrictValidator(SchemaVersion.V1_7)
 
 
@@ -47,6 +48,20 @@ def test_hermes_scan_output_is_valid_cyclonedx():
     doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
     collector.collect(doc)
     _assert_schema_valid(to_cyclonedx(doc))
+
+
+def test_hermes_scan_output_with_spec_version_1_7_opted_in_is_also_valid():
+    # v1.0.0: --spec-version 1.7 -- confirmed directly against the real
+    # schema (not assumed) that explicitly declaring specVersion "1.7"
+    # still validates cleanly, since this release emits identical content
+    # either way (SPEC.md's contract/deprecation policy section).
+    collector = HermesCollector(home=HERMES_HOME, run=lambda argv: "", fetch=lambda url: {"models": []})
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    collector.collect(doc)
+    bom = to_cyclonedx(doc, spec_version="1.7")
+    assert bom["specVersion"] == "1.7"
+    error = _VALIDATOR_1_7.validate_str(json.dumps(bom))
+    assert error is None, f"not valid CycloneDX 1.7 with specVersion=1.7 declared: {error}"
 
 
 def test_openclaw_scan_output_is_valid_cyclonedx():

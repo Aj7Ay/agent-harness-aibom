@@ -1528,9 +1528,18 @@ def _render_metadata_section(bom: dict, root: dict) -> str:
     tool_rows = "".join(
         f"<tr><td>{_esc(t.get('name'))}</td><td>{_esc(t.get('version'))}</td></tr>" for t in tools
     )
+    # v1.0.0: `specVersion` (CycloneDX's own wire-format version, --spec-
+    # version) and `harness-aibom:specVersion` (this project's OWN data-
+    # contract version, independent of the former -- see SPEC.md section
+    # 32) are two different axes, shown next to each other deliberately
+    # so a reader never conflates "which CycloneDX schema" with "which
+    # harness-aibom property/taxonomy contract".
+    root_props = {p["name"]: p["value"] for p in root.get("properties", [])}
     rows = [
         ("bomFormat", bom.get("bomFormat")),
-        ("specVersion", bom.get("specVersion")),
+        ("specVersion (CycloneDX)", bom.get("specVersion")),
+        ("harness-aibom:specVersion (this project's own contract)",
+         root_props.get("harness-aibom:specVersion", _NOT_RECORDED)),
         ("version", bom.get("version")),
         ("serialNumber", bom.get("serialNumber", _NOT_RECORDED)),
         ("timestamp", bom.get("metadata", {}).get("timestamp", _NOT_RECORDED)),

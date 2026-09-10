@@ -68,6 +68,26 @@ def test_scan_verify_deterministic_fails_on_a_genuinely_flaky_collector(capsys):
     assert "FAIL [hermes]" in capsys.readouterr().err
 
 
+def test_scan_spec_version_defaults_to_1_6(tmp_path):
+    out = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out)])
+    assert json.loads(out.read_text())["specVersion"] == "1.6"
+
+
+def test_scan_spec_version_1_7_opt_in(tmp_path):
+    out = tmp_path / "aibom.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(out), "--spec-version", "1.7"])
+    assert json.loads(out.read_text())["specVersion"] == "1.7"
+
+
+def test_scan_spec_version_rejects_an_unsupported_value(capsys):
+    # argparse's own `choices=` handling -- a clean, immediate error, same
+    # convention as `compliance --framework`'s own invalid-choice test.
+    with pytest.raises(SystemExit):
+        main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--spec-version", "1.5"])
+    assert "invalid choice" in capsys.readouterr().err
+
+
 def test_scan_probe_mcp_requires_probe_timeout(capsys):
     capsys.readouterr()
     exit_code = main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--probe-mcp"])

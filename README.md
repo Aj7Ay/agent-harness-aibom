@@ -209,6 +209,8 @@ src/harness_aibom/
 
 To ship a new version: bump `version` in `pyproject.toml` and `src/harness_aibom/__init__.py`, commit, push, then publish a GitHub Release with a matching tag (e.g. `v0.9.0`). The release triggers `publish.yml`, which builds and uploads it automatically.
 
+For a major version, ship a release candidate first: bump to a PEP 440 pre-release version (e.g. `1.0.0rc1`), publish the GitHub Release with **Set as a pre-release** checked (`gh release create v1.0.0rc1 --prerelease`). This still triggers `publish.yml` and uploads to the real, live PyPI index -- safely: `pip install agent-harness-aibom` with no `--pre` flag ignores a pre-release version entirely, so it never reaches anyone doing a normal install. Verify it (`pip install --pre agent-harness-aibom==1.0.0rc1` in a clean environment, run the CLI end to end) before bumping to the plain stable version and publishing the real release.
+
 ## Testing
 
 ```bash
