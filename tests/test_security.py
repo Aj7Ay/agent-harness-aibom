@@ -15,6 +15,7 @@ from harness_aibom.security import (
     compute_risk_observations,
     compute_security_summary,
     compute_supply_chain,
+    compute_tool_pinning_coverage,
     diff_risk_observations,
     index_mcp_servers,
 )
@@ -606,3 +607,64 @@ def test_diff_risk_observations_agrees_with_policys_own_baseline_definition():
 
     result = diff_risk_observations(baseline, current)
     assert result["new"] == []
+
+
+# ---- v0.11.0: tool definition pinning (stage 1 of 3, no probing) -------
+
+
+def _tool_doc(definition_scope: str | None, has_hash: bool = True) -> dict:
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    tool = Component(component_class="tool", name="srv/search")
+    tool.set("server", "srv")
+    tool.set("riskClass", "read")
+    if has_hash:
+        tool.set("definitionSha256", "a" * 64)
+    if definition_scope is not None:
+        tool.set("definitionScope", definition_scope)
+    doc.add(tool, "invokes")
+    return to_cyclonedx(doc)
+
+
+def test_mcp_tool_not_pinned_fires_for_name_only_scope():
+    bom = _tool_doc("name-only")
+    observations = compute_risk_observations(bom)
+    [obs] = [o for o in observations if o["rule"] == "mcp_tool_not_pinned"]
+    assert obs["severity"] == "low"
+    assert any("srv-search" in ref or "search" in ref for ref in obs["components"])
+
+
+def test_mcp_tool_not_pinned_fires_for_a_tool_with_no_hash_at_all():
+    # An older document, scanned before this property existed -- the
+    # actionable fact is identical to name-only: this tool's definition
+    # isn't verified.
+    bom = _tool_doc(None, has_hash=False)
+    observations = compute_risk_observations(bom)
+    assert any(o["rule"] == "mcp_tool_not_pinned" for o in observations)
+
+
+def test_mcp_tool_not_pinned_does_not_fire_for_a_probed_tool():
+    bom = _tool_doc("probed")
+    observations = compute_risk_observations(bom)
+    assert not any(o["rule"] == "mcp_tool_not_pinned" for o in observations)
+
+
+def test_tool_pinning_coverage_counts_correctly():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    probed = Component(component_class="tool", name="srv/a")
+    probed.set("definitionSha256", "a" * 64)
+    probed.set("definitionScope", "probed")
+    doc.add(probed, "invokes")
+    name_only = Component(component_class="tool", name="srv/b")
+    name_only.set("definitionSha256", "b" * 64)
+    name_only.set("definitionScope", "name-only")
+    doc.add(name_only, "invokes")
+    unpinned = Component(component_class="tool", name="srv/c")
+    doc.add(unpinned, "invokes")
+
+    coverage = compute_tool_pinning_coverage(to_cyclonedx(doc))
+    assert coverage == {"total": 3, "probed": 1, "name_only": 1, "unpinned": 1}
+
+
+def test_tool_pinning_coverage_of_empty_document_is_all_zero():
+    bom = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t"))
+    assert compute_tool_pinning_coverage(bom) == {"total": 0, "probed": 0, "name_only": 0, "unpinned": 0}

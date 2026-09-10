@@ -4,7 +4,7 @@ import stat
 
 import pytest
 
-from harness_aibom.fingerprint import sha256_directory, sha256_file, sha256_text
+from harness_aibom.fingerprint import canonical_json_sha256, sha256_directory, sha256_file, sha256_text
 
 
 def test_sha256_text_matches_hashlib():
@@ -67,3 +67,45 @@ def test_sha256_directory_skips_an_unreadable_subdirectory_instead_of_crashing(t
         locked.chmod(mode_before)
     assert result is not None
     assert len(result) == 64
+
+
+# ---- v0.11.0: canonical_json_sha256() -- the recipe SPEC.md pins ------
+
+
+def test_canonical_json_sha256_is_independent_of_key_order():
+    # The whole point of sort_keys=True: two dicts with the same content
+    # but constructed with keys in a different order must hash identically.
+    a = canonical_json_sha256({"name": "search", "scope": "tool"})
+    b = canonical_json_sha256({"scope": "tool", "name": "search"})
+    assert a == b
+
+
+def test_canonical_json_sha256_changes_with_real_content():
+    a = canonical_json_sha256({"name": "search"})
+    b = canonical_json_sha256({"name": "fetch"})
+    assert a != b
+
+
+def test_canonical_json_sha256_matches_the_documented_recipe():
+    # Confirmed against the exact recipe SPEC.md pins -- json.dumps with
+    # sort_keys, compact separators, ensure_ascii=False -- so a reader
+    # (or another tool re-deriving this hash independently) gets the
+    # same bytes this function actually produces, not an approximation.
+    import hashlib
+    import json
+
+    obj = {"name": "search"}
+    expected = hashlib.sha256(
+        json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    assert canonical_json_sha256(obj) == expected
+
+
+def test_canonical_json_sha256_handles_non_ascii_without_escaping():
+    # ensure_ascii=False -- a real non-ASCII tool name hashes over its own
+    # UTF-8 bytes, not a \uXXXX-escaped form that no other part of this
+    # project's output would ever produce for the same string.
+    a = canonical_json_sha256({"name": "búsqueda"})
+    b = canonical_json_sha256({"name": "busqueda"})
+    assert a != b  # confirms the accented form is actually distinct, not silently normalized
+    assert len(a) == 64

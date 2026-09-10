@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:a9ea3bd4-3e18-4b4d-845e-56896e8b693b",
+  "serialNumber": "urn:uuid:af67be45-37d8-415e-a669-6380bd9cf3de",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.10.1"
+          "version": "0.11.0"
         }
       ]
     },
@@ -60,7 +60,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-10T06:46:06+00:00"
+    "timestamp": "2026-09-10T07:42:16+00:00"
   },
   "components": [
     {
@@ -152,6 +152,14 @@
         {
           "name": "harness-aibom:riskClass",
           "value": "read"
+        },
+        {
+          "name": "harness-aibom:definitionSha256",
+          "value": "6fe519851b2065a13dca543ef9024bd8f4766f7c9ab587fbe6668e587fb177a4"
+        },
+        {
+          "name": "harness-aibom:definitionScope",
+          "value": "name-only"
         }
       ]
     },
@@ -171,6 +179,14 @@
         {
           "name": "harness-aibom:riskClass",
           "value": "network"
+        },
+        {
+          "name": "harness-aibom:definitionSha256",
+          "value": "f5841f65e797d23adfdaa79a1a6cdbc0c5f5e61019fa90212dbd31dd41bfde45"
+        },
+        {
+          "name": "harness-aibom:definitionScope",
+          "value": "name-only"
         }
       ]
     },
@@ -190,6 +206,14 @@
         {
           "name": "harness-aibom:riskClass",
           "value": "read"
+        },
+        {
+          "name": "harness-aibom:definitionSha256",
+          "value": "246105683a6d3a9d863506f594e17f96029a9b098d088b03f4d0e84bacc541b5"
+        },
+        {
+          "name": "harness-aibom:definitionScope",
+          "value": "name-only"
         }
       ]
     },
@@ -209,6 +233,14 @@
         {
           "name": "harness-aibom:riskClass",
           "value": "write"
+        },
+        {
+          "name": "harness-aibom:definitionSha256",
+          "value": "d4d40fe368f53ed68b124c8820dd442b1b522d9e20423f0234b2bdb60102eacf"
+        },
+        {
+          "name": "harness-aibom:definitionScope",
+          "value": "name-only"
         }
       ]
     },
@@ -228,6 +260,14 @@
         {
           "name": "harness-aibom:riskClass",
           "value": "write"
+        },
+        {
+          "name": "harness-aibom:definitionSha256",
+          "value": "60566f26ff4fc897dd1bd301fb8fceae284745bc01bd763c68131fe618f08738"
+        },
+        {
+          "name": "harness-aibom:definitionScope",
+          "value": "name-only"
         }
       ]
     },

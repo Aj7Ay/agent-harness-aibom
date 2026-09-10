@@ -272,8 +272,59 @@ def compute_risk_observations(bom: dict) -> list[dict]:
             "components": [e.get("bom-ref") for e in world_readable_memory],
         })
 
+    # v0.11.0: tool definition pinning, stage 1 of 3. Every `tool` this
+    # scanner has ever emitted gets a `definitionSha256` now, but with no
+    # live MCP handshake yet (0.12.0/0.13.0), that hash only ever covers
+    # the tool's own bare name (`harness-aibom:definitionScope ==
+    # "name-only"`) -- a description-only rug pull is still invisible at
+    # this stage. This rule says so explicitly, on every document, low
+    # severity (a real, if narrow, gap -- not "everything about this
+    # tool is unverified", since the name itself genuinely is pinned).
+    # A tool with NO definitionSha256 at all (an older document, scanned
+    # before this property existed) is folded into the same rule rather
+    # than a second one -- the actionable fact in both cases is
+    # identical: "this tool's actual definition isn't verified."
+    tools = [e for e in entries if _component_class(e) == "tool"]
+    unpinned_tools = [
+        e for e in tools
+        if _properties(e).get("harness-aibom:definitionScope") != "probed"
+    ]
+    if unpinned_tools:
+        observations.append({
+            "rule": "mcp_tool_not_pinned",
+            "severity": "low",
+            "summary": f"{len(unpinned_tools)} tool(s) have no real definition pinning (description/input "
+                       "schema not probed) -- a server could change what a tool does without this being detected",
+            "components": [e.get("bom-ref") for e in unpinned_tools],
+        })
+
     observations.sort(key=lambda o: _SEVERITY_RANK.get(o["severity"], 99))
     return observations
+
+
+#: v0.11.0: how many of this document's own `tool` components have a
+#: real, live-probed definition hash (`definitionScope == "probed"`,
+#: 0.12.0/0.13.0) versus only the name-only hash this release computes
+#: for every tool unconditionally. A real, separate coverage axis from
+#: `compute_coverage()`'s own componentClass checklist (SPEC.md section
+#: 9) -- that checklist asks "did this scanner look for this KIND of
+#: thing at all"; this asks a narrower, sub-property question about one
+#: specific class it already found: "how deeply is what it found
+#: verified." Kept as its own function rather than folded into
+#: `compute_security_summary()` for that reason -- a different kind of
+#: question deserves a different, separately-named answer, not a stat
+#: quietly added to an unrelated dict.
+def compute_tool_pinning_coverage(bom: dict) -> dict:
+    tools = [e for e in _entries(bom) if _component_class(e) == "tool"]
+    probed = [e for e in tools if _properties(e).get("harness-aibom:definitionScope") == "probed"]
+    name_only = [e for e in tools if _properties(e).get("harness-aibom:definitionScope") == "name-only"]
+    unpinned = [e for e in tools if "harness-aibom:definitionSha256" not in _properties(e)]
+    return {
+        "total": len(tools),
+        "probed": len(probed),
+        "name_only": len(name_only),
+        "unpinned": len(unpinned),
+    }
 
 
 def diff_risk_observations(baseline: dict, current: dict) -> dict:

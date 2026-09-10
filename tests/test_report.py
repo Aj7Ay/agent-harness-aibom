@@ -243,6 +243,27 @@ def test_mcp_security_card_flags_stdio_as_not_applicable_not_bad():
     assert "status-pill bad" not in html_text
 
 
+def test_mcp_security_shows_tool_pinning_coverage_summary():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    server = doc.add(Component(component_class="mcp_server", name="srv").set("transport", "stdio"), "uses")
+    tool = Component(component_class="tool", name="srv/search")
+    tool.set("definitionSha256", "a" * 64)
+    tool.set("definitionScope", "name-only")
+    doc.add_child(tool, server, "invokes")
+    html_text = render_html(to_cyclonedx(doc))
+
+    assert "Tool definition pinning: 0 of 1 probed" in html_text
+    assert "1 name-only" in html_text
+    assert "mcp_tool_not_pinned" in html_text
+
+
+def test_mcp_security_no_pinning_summary_when_no_tools():
+    doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
+    doc.add(Component(component_class="mcp_server", name="srv").set("transport", "stdio"), "uses")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "Tool definition pinning" not in html_text
+
+
 def test_skill_category_breakdown_groups_by_real_category_property():
     doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
     for name, category in (("a", "devops"), ("b", "devops"), ("c", "research")):
@@ -1163,6 +1184,20 @@ def test_severity_model_digest_changed_is_high():
     before, after = _changed_pair("model", "qwen3:8b", lambda c: c.set("digest", "a" * 20), lambda c: c.set("digest", "b" * 20))
     html_text = render_diff_report(before, after)
     assert _severity_of(html_text, "qwen3:8b") == "HIGH"
+
+
+def test_severity_tool_definition_sha256_changed_is_high():
+    # v0.11.0: not producible by today's live collectors (name IS the
+    # diff identity for a tool, so a changed name reads as add+remove,
+    # never `changed`) -- constructed directly so the severity
+    # classification logic itself is tested and ready before
+    # 0.12.0/0.13.0's real probing can ever actually trigger it.
+    before, after = _changed_pair(
+        "tool", "srv/search", lambda c: c.set("definitionSha256", "a" * 64), lambda c: c.set("definitionSha256", "b" * 64)
+    )
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "srv/search") == "HIGH"
+    assert "definition changed" in html_text
 
 
 def test_severity_new_mcp_server_http_no_tls_is_high():

@@ -238,6 +238,27 @@ def test_tool_risk_classification():
     assert by_name["totally_unclear_thing"].properties["riskClass"] == "unknown"
 
 
+def test_tool_gets_a_name_only_definition_hash():
+    # v0.11.0: no live MCP handshake exists yet, so the only real static
+    # fact a config declares about a tool is its own name -- confirmed
+    # this hashes exactly {"name": tool_name}, not the composite
+    # "server/toolname" this scanner's own Component.name uses.
+    from harness_aibom.fingerprint import canonical_json_sha256
+
+    config = {"mcp_servers": [{"name": "srv", "tools": ["search"]}]}
+    [(_server, tools, _package)] = extract_mcp_servers(config)
+    [tool] = tools
+    assert tool.properties["definitionSha256"] == canonical_json_sha256({"name": "search"})
+    assert tool.properties["definitionScope"] == "name-only"
+
+
+def test_two_tools_with_different_names_get_different_definition_hashes():
+    config = {"mcp_servers": [{"name": "srv", "tools": ["search", "fetch"]}]}
+    [(_server, tools, _package)] = extract_mcp_servers(config)
+    hashes = {t.properties["definitionSha256"] for t in tools}
+    assert len(hashes) == 2  # two distinct tool names, two distinct hashes
+
+
 def test_no_tools_declared_gives_no_tool_components():
     config = {"mcp_servers": [{"name": "srv", "url": "https://x.example"}]}
     [(_server, tools, _package)] = extract_mcp_servers(config)

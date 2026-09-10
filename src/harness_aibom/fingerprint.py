@@ -9,6 +9,7 @@ configuration files and skill directories.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 
@@ -73,3 +74,23 @@ def sha256_directory(path: Path) -> str | None:
 
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+#: v0.11.0's canonicalization recipe for `collectors/mcp.py`'s
+#: `definitionSha256` (an MCP tool's own pinned identity -- see SPEC.md
+#: for the full design). Written down here, once, deliberately -- a
+#: reviewer's own explicit warning: "changing it later breaks every
+#: stored baseline" (a `report --diff` run against a hash computed under
+#: a different recipe would read every tool as "changed" purely from the
+#: canonicalization shifting, not from anything about the tool itself).
+#: `sort_keys=True` makes key order irrelevant; `separators=(",", ":")`
+#: removes whitespace so two semantically-identical dicts always produce
+#: the same bytes regardless of how they were literally constructed;
+#: `ensure_ascii=False` keeps a real non-ASCII tool name/description
+#: byte-identical to its own UTF-8 form rather than a `\uXXXX` escape
+#: sequence (both are valid JSON, but only one matches what a human or
+#: another tool would actually see when reading the same value elsewhere
+#: in this project's own output, which never escapes non-ASCII either).
+def canonical_json_sha256(obj: dict) -> str:
+    canonical = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return sha256_text(canonical)

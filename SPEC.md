@@ -506,7 +506,7 @@ dependency graph. That's a real remaining gap, not claimed otherwise.
 | `secrets_surface` | `data` | `path`, `relPath` (absent when the scanned file isn't under `--home`, e.g. OpenClaw's `env_dir`), `mode`, `worldReadable`, `note` | recursive filesystem scan for `.env`, `*credentials*`, `*token*`, `*.pem`, `*.key`, `*.sqlite` under the harness's own directory, skill directories included; `name` is the path relative to the scanned root (not just the basename), so two `.env` files in different directories read as two distinct entries |
 | `prompt_surface` (v0.6.0) | `file` | `path`, `relPath`, `sha256` (fingerprinted -- an instruction file's content is meant to be read, not kept private), `symlink` (bool, v0.7.0), `pathOutsideHome` (bool, v0.7.0 -- set only when `symlink` is true and its *resolved* target lands outside `--home`, same `is_symlink_outside_home()` helper `hook` uses) | recursive filesystem scan for exact filenames `AGENTS.md`/`CLAUDE.md` under the harness's own directory -- real, cross-project conventions (agents.md; Claude Code's own), not confirmed specifically for Hermes/OpenClaw, recorded on the same "absence isn't an error, presence doesn't over-claim relevance" basis as `secrets_surface` |
 | `memory_store` (v0.6.0) | `data` | `path`, `relPath`, `mode`, `worldReadable` -- never fingerprinted, never opened to read content at all, same secrets-never-leak discipline as `secrets_surface` (§3); `symlink`, `pathOutsideHome` (v0.7.0, same semantics as `prompt_surface` above) | recursive filesystem scan for `chroma.sqlite3` (Chroma's own literal default filename), `*.faiss`/`*.index` (FAISS's own index-file extensions) -- deliberately narrower than a generic `*.sqlite`/`*.json` pattern |
-| `tool` | `application` | `server` (parent server's name), `riskClass` (`read`/`write`/`exec`/`network`/`unknown`, a heuristic over the tool's own *name* — see below) | one per name in a `mcp_server` entry's `tools` list |
+| `tool` | `application` | `server` (parent server's name), `riskClass` (`read`/`write`/`exec`/`network`/`unknown`, a heuristic over the tool's own *name* — see below); `definitionSha256`/`definitionScope` (v0.11.0 — a canonical-JSON hash of whatever this scanner actually knows about the tool, `"name-only"` today, `"probed"` once a live handshake exists — see §30) | one per name in a `mcp_server` entry's `tools` list |
 | `dependency` | `library` | `version`, native `purl` (see below); Python packages only -- one component per `(site_packages, name)` pair, never deduplicated across different `site_packages` directories, so two disagreeing copies both show up rather than one silently masking the other (v0.2.2); `path` (the exact dist-info directory found) and `distDir` (the same, relative to `installDir`); `relPath` is deliberately `<site_packages relative to installDir>::<name>`, NOT the dist-info directory -- a dist-info directory's name embeds its own version, so using it as the diffable identity made every version bump read as removed+added instead of `changed` (v0.2.3); native `licenses[]` from `METADATA`'s `License:`, native `supplier` from `Author:`/`Author-email:` (falling back to `Maintainer:`/`Maintainer-email:`) -- Python packages only (v0.2.4); `origin` (`"mcp-launcher"` or `"python-package"`, set by `mcp.py`/`deps.py` respectively) distinguishes the two sources this table's own "Source" column names, by a real recorded fact rather than an inferred absence -- security.py's `unpinned_dependency`-family risk rules key on it (v0.5.1, §12) | (a) a stdio `mcp_server`'s own launcher package (`npx`/`uvx`, parsed the same way as the server's `purl` property below), added as a child of that server; (b) an entry from the scanned harness's own Python install, via `collectors/deps.py` (§5) |
 
 **Services** (`bom.services[]`, no `type` field — see §1):
@@ -2726,3 +2726,83 @@ only with no network in one release, HTTP transports in the next, stdio
 subprocess handling last -- per the same reviewer's own suggested
 ordering, precisely because this tranche is what should land *before*
 the first feature that spawns processes and opens sockets, not after).
+
+## 30. Tool definition pinning, stage 1 of 3: pin what's already known, no network (v0.11.0)
+
+The one gap this project's own `tool` componentClass has named honestly
+since it was first added (§2's own note: "this scanner reads static
+config files, never performs a live MCP protocol handshake, so it has no
+tool *description* or *input schema* to hash — only the bare name the
+config happens to list"). A rug pull that changes only a tool's
+*description* is still invisible after this release -- that needs a real
+MCP handshake, deliberately staged as two more releases after this one
+(0.12.0: HTTP transports; 0.13.0: stdio, the one that spawns subprocesses)
+specifically so the riskier, network/process-touching work lands only
+after the schema, property names, diff severity, and coverage axis are
+already proven correct against zero-risk static data.
+
+**`fingerprint.canonical_json_sha256()`, the pinned recipe.**
+`json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`,
+then sha256 of the UTF-8 bytes. Written down once, deliberately, per an
+explicit warning: changing this recipe later would make every stored
+baseline's `definitionSha256` unrecoverable-by-recomputation, reading
+every tool as "changed" purely from the canonicalization shifting, not
+from anything about the tool itself. `sort_keys=True` makes key order
+irrelevant; the compact separators mean two semantically-identical dicts
+always produce the same bytes; `ensure_ascii=False` keeps a real non-ASCII
+tool name/description byte-identical to its own UTF-8 form, matching how
+every other property this project emits is already encoded.
+
+**`definitionSha256`/`definitionScope` (`collectors/mcp.py`).** Every
+tool now gets `definitionSha256 = canonical_json_sha256({"name":
+tool_name})` -- the *bare* tool name (`"search"`), not this scanner's own
+`"server/toolname"` composite display name, since the composite is this
+project's own identity convention, not something the MCP server itself
+declares. `definitionScope` is set to `"name-only"` on every tool this
+release computes a hash for, honestly recording that the hash covers
+exactly one field today. 0.12.0/0.13.0 will set it to `"probed"` once a
+real `description`/`inputSchema` from an actual handshake is folded into
+the same hash -- at that point `definitionSha256` for a previously-
+name-only tool changes too, a one-time, expected transition artifact
+this scanner's own knowledge deepening, never a claim the tool itself
+changed.
+
+**`mcp_tool_not_pinned` (security.py, severity low).** Fires for any
+tool whose `definitionScope` isn't `"probed"` -- which, in this release,
+is every tool, unconditionally, since no probing capability exists yet.
+Low severity deliberately: this is a real, narrow gap (behavior beyond
+the name is unverified), not "nothing about this tool is known" (the
+name itself genuinely is pinned, and a rename is now detectable via the
+diff-identity mechanism itself, same as any other component). A tool
+with no `definitionSha256` at all (an older document, scanned before
+this property existed) folds into the same rule rather than a second
+one -- the actionable fact is identical either way.
+
+**`compute_tool_pinning_coverage()` (security.py) -- a real, separate
+coverage axis**, deliberately NOT folded into `compute_coverage()`'s own
+componentClass checklist (§9): that checklist asks "did this scanner
+look for this KIND of thing at all" (12 of 12 as of v0.9.0); this asks a
+narrower, sub-property question about one class it already found: "how
+deeply is what it found actually verified." Rendered in `report.py`'s
+MCP security section as a one-line summary (`N of M probed, K name-only,
+J unpinned`), shown only when at least one tool exists at all -- same
+"don't render a stat for something that isn't there" discipline every
+other summary line in this project already follows.
+
+**Diff severity (`report.py`'s `_classify_and_describe_changed()`)**:
+a changed `definitionSha256` on a `tool` is **high** -- the rug-pull
+signal itself, matching `model`'s own digest-drift treatment (§16).
+Not producible by this release's own collectors alone: a tool's name IS
+its diff identity (§4), so a changed name reads as add+remove, never a
+`changed` entry -- this classification exists now, tested directly
+against a hand-constructed pair, so it's already correct and covered the
+moment 0.12.0/0.13.0's real probing can actually trigger it (a
+description/schema change with the tool's own name held fixed).
+
+**Deliberately not attempted here** (staged for 0.12.0/0.13.0
+specifically, per the reviewer's own three-way split, not bundled in):
+any live MCP protocol handshake at all -- no subprocess spawned, no
+socket opened, `--probe-mcp` doesn't exist yet. A description-only rug
+pull is still genuinely undetectable after this release; `mcp_tool_not_pinned`
+firing on every tool, unconditionally, is this release's own honest
+acknowledgment of exactly that gap, not a claim it's closed.

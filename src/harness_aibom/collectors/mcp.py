@@ -60,6 +60,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
+from ..fingerprint import canonical_json_sha256
 from ..model import Component
 
 #: env var *names* (never values) that look like they hold a credential --
@@ -285,6 +286,22 @@ def extract_mcp_servers(config: dict) -> list[tuple[Component, list[Component], 
             tool = Component(component_class="tool", name=f"{name}/{tool_name}")
             tool.set("server", name)
             tool.set("riskClass", _risk_class(tool_name))
+            # v0.11.0: tool definition pinning, stage 1 of 3 (SPEC.md) --
+            # no live MCP handshake exists yet (that's 0.12.0/0.13.0), so
+            # the only real, static fact a config declares about a tool
+            # is its own name. `definitionSha256` is computed over
+            # exactly that -- `{"name": tool_name}` -- via the same
+            # canonicalization recipe 0.12.0/0.13.0's real
+            # description/inputSchema hash will reuse unchanged.
+            # `definitionScope` records which fields the hash actually
+            # covers, honestly: "name-only" today, so a reader (or
+            # security.py's own `mcp_tool_not_pinned` rule) never
+            # mistakes this for proof a tool's actual behavior is
+            # pinned -- a description-only rug pull is still invisible
+            # at this stage, and this property says so on the data
+            # itself, not just in a docstring.
+            tool.set("definitionSha256", canonical_json_sha256({"name": tool_name}))
+            tool.set("definitionScope", "name-only")
             tools.append(tool)
 
         out.append((comp, tools, package))

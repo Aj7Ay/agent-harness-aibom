@@ -1375,11 +1375,30 @@ def _render_risk_observations(bom: dict) -> str:
     return f"<ul class='risk-list'>{items}</ul>"
 
 
-def _render_mcp_security(services: list[dict]) -> str:
+def _render_tool_pinning_summary(bom: dict) -> str:
+    """v0.11.0: `security.compute_tool_pinning_coverage()`'s own real
+    counts, rendered once at the top of the MCP security section -- the
+    "coverage axis" a reviewer specifically asked to see landed, not just
+    computed internally. Honest either way: says plainly that today's
+    pinning is name-only everywhere, never implies a description/schema
+    check this scanner doesn't yet perform.
+    """
+    coverage = security.compute_tool_pinning_coverage(bom)
+    if coverage["total"] == 0:
+        return ""
+    return (
+        f"<p class='muted small'>Tool definition pinning: {coverage['probed']} of {coverage['total']} "
+        f"probed (description/input schema verified), {coverage['name_only']} name-only, "
+        f"{coverage['unpinned']} unpinned. See the <code>mcp_tool_not_pinned</code> risk rule above.</p>"
+    )
+
+
+def _render_mcp_security(bom: dict, services: list[dict]) -> str:
     servers = [e for e in services if _component_class(e) == "mcp_server"]
     if not servers:
         return "<p class='risk-clean'>✓ No MCP servers discovered.</p>"
 
+    pinning_summary = _render_tool_pinning_summary(bom)
     cards = []
     for server in sorted(servers, key=lambda e: e.get("name", "")):
         props, _rel = _split_properties(server)
@@ -1416,7 +1435,7 @@ def _render_mcp_security(services: list[dict]) -> str:
             f"{tools_html}{purl_html}"
             "</div>"
         )
-    return "".join(cards)
+    return pinning_summary + "".join(cards)
 
 
 def _render_skill_category_breakdown(skills: list[dict]) -> str:
@@ -2174,7 +2193,7 @@ def render_html(bom: dict, diff_result: dict | None = None, signature_info: dict
 
 <section id="mcp">
   <h2>MCP security</h2>
-  {_render_mcp_security(services)}
+  {_render_mcp_security(bom, services)}
 </section>
 
 <section id="summary">
@@ -2477,6 +2496,17 @@ def _classify_and_describe_changed(entry: dict) -> tuple[str, str]:
     if cls == "model" and "harness-aibom:digest" in fields:
         f = fields["harness-aibom:digest"]
         return "high", f"Model {name}: digest changed  {_short_hash(f.get('before'))} -> {_short_hash(f.get('after'))}"
+    if cls == "tool" and "harness-aibom:definitionSha256" in fields:
+        # v0.11.0: the rug-pull signal -- a tool's own identity (its
+        # bom-ref, keyed on `name`) stayed the same while what it's
+        # declared to be changed underneath it. Not producible by
+        # today's name-only hash alone (name IS the diff identity, so a
+        # changed name is an add+remove, never a `changed` entry) --
+        # this branch exists now so it's tested and ready the moment
+        # 0.12.0/0.13.0's real description/inputSchema hash can actually
+        # trigger it without the tool's own name moving.
+        f = fields["harness-aibom:definitionSha256"]
+        return "high", f"{cls_label} {name}: definition changed  {_short_hash(f.get('before'))} -> {_short_hash(f.get('after'))}"
     if "harness-aibom:versionPinned" in fields:
         f = fields["harness-aibom:versionPinned"]
         if f.get("before") == "True" and f.get("after") == "False":
