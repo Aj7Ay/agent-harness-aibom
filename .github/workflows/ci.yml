@@ -62,3 +62,62 @@ jobs:
         run: |
           uv run harness-aibom scan --runtime hermes --home tests/fixtures/hermes_home -o /tmp/hermes-aibom.json
           uv run harness-aibom validate /tmp/hermes-aibom.json
+
+  # v0.10.1: run separately from the main `test` job above (which already
+  # includes this same file) so a real CycloneDX-schema failure shows up
+  # as its own, clearly labeled, impossible-to-miss check -- a reviewer
+  # named this "the highest-yield check in the whole list": it alone
+  # would have caught the real v0.1.2 `type: "service"` defect and the
+  # v0.2.4 idn-email defect before either ever shipped.
+  schema-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.12"
+      - name: Install the package and dev dependencies
+        run: uv sync --extra dev
+      - name: Validate every real document this project produces against the real CycloneDX 1.6 AND 1.7 schemas
+        run: uv run pytest tests/test_cyclonedx_schema.py tests/test_sarif.py -v
+
+  # v0.10.1: the only way the sdist/wheel *packaging* gap from v0.1.11
+  # (tests/ accidentally shipped) or a later one (v0.8.3's vendored
+  # signing_config_offline.json silently missing from a built wheel)
+  # would ever show up -- `uv run pytest` from a checkout never builds
+  # or installs the actual distributable artifact, so a packaging-only
+  # regression is invisible to every other job in this file.
+  build-and-test-from-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.12"
+      - name: Build the wheel and sdist
+        run: uv build
+      - name: Confirm the sdist excludes tests/
+        run: |
+          count=$(tar tzf dist/*.tar.gz | grep -c '/tests/' || true)
+          echo "tests/ files in sdist: $count"
+          test "$count" -eq 0
+      - name: Install the built wheel into a clean virtualenv (never this checkout's own src/)
+        run: |
+          python3 -m venv /tmp/clean-venv
+          /tmp/clean-venv/bin/pip install dist/*.whl
+      - name: Confirm the vendored signing_config_offline.json actually shipped in the wheel
+        run: |
+          /tmp/clean-venv/bin/python3 -c "
+          from harness_aibom.sign import DEFAULT_SIGNING_CONFIG
+          assert DEFAULT_SIGNING_CONFIG.is_file(), 'vendored signing config missing from the installed wheel'
+          print('present:', DEFAULT_SIGNING_CONFIG)
+          "
+      - name: Run scan -> validate -> report -> policy -> diff end to end from the installed artifact
+        run: |
+          /tmp/clean-venv/bin/harness-aibom scan --runtime hermes --home tests/fixtures/hermes_home -o /tmp/a.json
+          /tmp/clean-venv/bin/harness-aibom scan --runtime hermes --home tests/fixtures/hermes_home -o /tmp/b.json
+          /tmp/clean-venv/bin/harness-aibom validate /tmp/a.json
+          /tmp/clean-venv/bin/harness-aibom report /tmp/a.json -o /tmp/report.html
+          /tmp/clean-venv/bin/harness-aibom report --diff /tmp/a.json /tmp/b.json -o /tmp/change.html
+          /tmp/clean-venv/bin/harness-aibom diff /tmp/a.json /tmp/b.json
+          /tmp/clean-venv/bin/harness-aibom policy /tmp/a.json --fail-on high || true

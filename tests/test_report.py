@@ -1314,3 +1314,30 @@ def test_diff_report_persisting_bucket_is_collapsed_by_default():
     html_text = render_diff_report(bom, bom)
     security_section = html_text.split('id="security"')[1].split('id="raw"')[0]
     assert "<details><summary>Persisting (1)</summary>" in security_section
+
+
+# ---- v0.10.1: proving the "no CDN, no external resources" claim --------
+#
+# report.py's own module docstring has claimed "no CDN, no JavaScript
+# framework, no external dependency" since v0.4.0 -- asserted in prose,
+# never actually proven by a test until now. Registered in
+# test_docstring_claims.py's own CLAIMS dict.
+
+
+def test_report_has_no_external_resource_references():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="requests", version="2.34.2")
+    dep.set("purl", "pkg:pypi/requests@2.34.2")
+    doc.add(dep, "uses")
+    html_text = render_html(to_cyclonedx(doc))
+
+    # Every <script>/<style> is inline (no `src`/no separate <link>) --
+    # this is the actual thing "no CDN" means: nothing the browser would
+    # fetch over the network just to render the page.
+    assert not re.search(r"<script[^>]*\ssrc=", html_text)
+    assert "<link" not in html_text
+    assert not re.search(r"<img[^>]*\ssrc=[\"']https?://", html_text)
+    # Sanity check the test actually exercised real inline script/style,
+    # not an empty page that would trivially pass the checks above too.
+    assert re.search(r"<script(?![^>]*\ssrc=)[^>]*>", html_text)
+    assert "<style>" in html_text

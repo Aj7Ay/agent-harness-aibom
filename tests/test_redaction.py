@@ -57,6 +57,14 @@ mcp_servers:
     hooks_dir.mkdir(parents=True)
     (hooks_dir / "audit.sh").write_text(f"#!/bin/sh\n# {PLANTED_SECRET}\necho hi\n")
 
+    # v0.10.1: the two v0.6.0 collectors this test didn't originally cover
+    # -- memory_store never reads file contents at all (metadata only),
+    # and prompt_surface only ever fingerprints (sha256), never stores
+    # the file's own text -- both real, separate promises worth planting
+    # a canary against directly, not just asserting in a comment.
+    (hermes_dir / "chroma.sqlite3").write_bytes(f"SQLite format 3\x00{PLANTED_SECRET}".encode())
+    (hermes_dir / "AGENTS.md").write_text(f"Internal note: {PLANTED_SECRET}\n")
+
     return home
 
 
@@ -93,3 +101,67 @@ def test_no_planted_secret_value_reaches_the_serialized_output(tmp_path):
     assert "mcp_server" in classes
     assert "skill" in classes
     assert "hook" in classes
+    assert "memory_store" in classes
+    assert "prompt_surface" in classes
+
+
+# ---- v0.10.1: the same promise, across every downstream command's own
+# output -- not just the raw scan. `to_cyclonedx()` never seeing the
+# secret is necessary but not sufficient: report.py/sarif.py/compliance.py
+# each re-derive their own text from the same document, and each is a
+# real, separate place a future change could accidentally start reading
+# a value verbatim (a docstring or an f-string touching the wrong field).
+
+
+def test_no_planted_secret_reaches_any_downstream_command_output(tmp_path, capsys):
+    from harness_aibom.cli import main
+    from harness_aibom.compliance import FRAMEWORKS
+
+    home = _build_home_with_planted_secrets(tmp_path)
+    bom_path = tmp_path / "aibom.json"
+
+    # A real `scan` (not the injected-collector path the test above
+    # uses) -- `hermes`/`ollama` aren't installed in CI either, so this
+    # degrades exactly the way a real lab box without them would: a
+    # warning, not a crash, and everything else (config, MCP servers,
+    # skills, hooks, secrets, memory store, prompt surface) still
+    # collected for real.
+    capsys.readouterr()
+    assert main(["scan", "--runtime", "hermes", "--home", str(home), "-o", str(bom_path)]) == 0
+    scan_stderr = capsys.readouterr().err
+
+    capsys.readouterr()
+    assert main(["validate", str(bom_path)]) == 0
+    validate_out = capsys.readouterr().out
+
+    report_path = tmp_path / "report.html"
+    assert main(["report", str(bom_path), "-o", str(report_path)]) == 0
+    report_html = report_path.read_text()
+
+    diff_report_path = tmp_path / "diff.html"
+    # Against itself -- this test is about what the *rendering* of one
+    # document can leak, not about constructing a second scan; an empty
+    # diff still exercises every renderer in render_diff_report().
+    assert main(["report", "--diff", str(bom_path), str(bom_path), "-o", str(diff_report_path)]) == 0
+    diff_html = diff_report_path.read_text()
+
+    sarif_path = tmp_path / "results.sarif"
+    assert main(["policy", str(bom_path), "--format", "sarif", "-o", str(sarif_path), "--fail-on", "low"]) in (0, 1)
+    sarif_json = sarif_path.read_text()
+
+    capsys.readouterr()
+    for framework in FRAMEWORKS:
+        assert main(["compliance", str(bom_path), "--framework", framework, "--format", "json"]) == 0
+    compliance_out = capsys.readouterr().out
+
+    outputs = {
+        "scan stderr (warnings)": scan_stderr,
+        "validate stdout": validate_out,
+        "report html": report_html,
+        "report --diff html": diff_html,
+        "policy --format sarif": sarif_json,
+        "compliance --format json (all frameworks)": compliance_out,
+    }
+    secret_lower = PLANTED_SECRET.lower()
+    for label, text in outputs.items():
+        assert secret_lower not in text.lower(), f"planted secret leaked into {label}"

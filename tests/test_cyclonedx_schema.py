@@ -23,11 +23,23 @@ HERMES_HOME = Path(__file__).parent / "fixtures" / "hermes_home"
 OPENCLAW_HOME = Path(__file__).parent / "fixtures" / "openclaw_home"
 
 _VALIDATOR = JsonStrictValidator(SchemaVersion.V1_6)
+#: v0.10.1: this project's canonical output declares specVersion "1.6"
+#: and stays there deliberately (SPEC.md section 15 -- a format bump is
+#: its own migration decision, not a side effect of a test change). But
+#: confirmed directly (not assumed): every document this project already
+#: emits also validates cleanly against the real, current CycloneDX 1.7
+#: schema as-is, with no changes needed -- so every test in this file
+#: proves that too, for free, the same "highest-yield check in the whole
+#: list" a reviewer specifically called this file out as being.
+_VALIDATOR_1_7 = JsonStrictValidator(SchemaVersion.V1_7)
 
 
 def _assert_schema_valid(bom: dict) -> None:
-    error = _VALIDATOR.validate_str(json.dumps(bom))
+    text = json.dumps(bom)
+    error = _VALIDATOR.validate_str(text)
     assert error is None, f"not valid CycloneDX 1.6: {error}"
+    error_1_7 = _VALIDATOR_1_7.validate_str(text)
+    assert error_1_7 is None, f"not valid against the current CycloneDX 1.7 schema either: {error_1_7}"
 
 
 def test_hermes_scan_output_is_valid_cyclonedx():

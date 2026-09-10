@@ -106,3 +106,27 @@ def test_source_note_names_a_real_fetched_source_per_framework():
     for framework, fw in FRAMEWORKS.items():
         assert fw["source_note"], framework
         assert any(marker in fw["source_note"] for marker in (".org", "github", "nist.gov"))
+
+
+# ---- v0.10.1: the JSON disclaimer, proven not just added ----------------
+#
+# compliance.py's own DISCLAIMER constant was added in v0.9.1 specifically
+# because `--format json` had none, only the text-mode header did --
+# registered in test_docstring_claims.py's own CLAIMS dict so a future
+# refactor that quietly drops it from `evaluate_framework()`'s returned
+# dict gets caught here, not by another reviewer.
+
+
+def test_evaluate_framework_json_result_carries_the_disclaimer():
+    bom = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t"))
+    for framework in FRAMEWORKS:
+        result = evaluate_framework(bom, framework)
+        assert "disclaimer" in result
+        assert "not a compliance or certification claim" in result["disclaimer"]
+        # The disclaimer itself must not trip the same banned-language
+        # check every mapping's own text already has to pass -- confirmed
+        # real gap fixed in v0.9.1: an earlier draft's negated phrasing
+        # ("never 'compliant' or 'pass'") said the right thing but still
+        # contained both literal banned words.
+        assert "compliant" not in result["disclaimer"].lower()
+        assert "pass" not in result["disclaimer"].lower()

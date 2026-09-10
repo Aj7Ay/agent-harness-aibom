@@ -138,6 +138,24 @@ def test_component_without_a_license_property_has_no_licenses_field():
 # ---- external references from purl (v0.6.0) --------------------------
 
 
+def test_dependency_purl_is_a_native_top_level_field():
+    # v0.10.1: registered in test_docstring_claims.py's own CLAIMS dict --
+    # confirmed against the real CycloneDX 1.6 JSON schema before this
+    # project ever emitted one (v0.2.1): `purl` is a native top-level
+    # `component` field, not a harness-aibom:-only property. Both are set
+    # (see _shared_properties()'s own docstring for why the property
+    # copy exists too), but this test is specifically about the native
+    # top-level one -- the fact a schema-aware/generic SBOM tool that has
+    # never heard of the harness-aibom: namespace can still resolve.
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="requests")
+    dep.set("purl", "pkg:pypi/requests@2.31.0")
+    doc.add(dep, "uses")
+
+    [comp] = to_cyclonedx(doc)["components"]
+    assert comp["purl"] == "pkg:pypi/requests@2.31.0"
+
+
 def test_pypi_purl_gets_a_registry_external_reference():
     doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
     dep = Component(component_class="dependency", name="requests")

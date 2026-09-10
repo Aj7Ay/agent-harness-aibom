@@ -2612,3 +2612,117 @@ defects work (dead-code check, docstring-promise check, redaction test,
 hypothesis fuzzing, the two new CI jobs) -- both still tracked in
 `memory/aibom-explorer-roadmap.md`, per the reviewer's own suggested
 staged order.
+
+## 29. The test tranche -- making the suite lead defects, not trail them (v0.10.1)
+
+Every defect fixed across this project's whole history (SPEC.md sections
+5, 12, 15, 16, 27) was found by an external reviewer first, then fixed,
+then pinned with a regression test. That pattern prevents a *repeat*
+well -- confirmed by how few regressions this project has actually
+shipped -- but it never once caught the *first* instance of anything. A
+reviewer proposed five concrete, mechanical checks aimed specifically at
+that gap; four shipped here (the fifth, hypothesis-based fuzzing over
+collector inputs, was explicitly optional in the same proposal and stays
+open, tracked in `memory/aibom-explorer-roadmap.md`).
+
+**Dead-code check (`test_dead_code.py`).** Two shipped features were once
+defined but never actually wired up before an external reviewer found
+each (`classify_secret_confidence`, v0.3.0; see section 12's note on the
+class of bug). This is the "one grep away" check that should catch the
+next one first. Scope, stated honestly: top-level functions only (via
+`ast`'s own `tree.body`, not a full `ast.walk()`) -- class methods are
+deliberately excluded, since a common method name (`add`, `get`) would
+produce far more false negatives than this codebase's own distinctive
+module-level names ever would; a trustworthy method-level version needs
+real call-graph analysis, not attempted here. A function is flagged only
+if its own identifier appears nowhere in the whole codebase outside its
+own `def name(` line -- confirmed against the real codebase (zero
+false positives today) and confirmed to actually catch a genuinely
+unused function (a dedicated test proves the detection logic itself,
+not just that today's code happens to pass it). An `ALLOWLIST` exists
+for a real public-API function only ever called from within its own
+module (`build_parser`, `make_bom_ref` -- neither needed it in practice,
+both are called from within their own file) -- empty today, but present
+so a future one doesn't have to invent the mechanism under pressure, and
+every entry it ever gets needs a one-line reason (checked by its own
+test) so it can't quietly become a place to bury something actually
+unused.
+
+**Redaction test, extended (`test_redaction.py`).** The existing test
+(since early in this project) proved no planted secret reaches the raw
+serialized CycloneDX JSON. v0.10.1 extends the same planted-canary
+technique to the two v0.6.0 collectors it didn't originally cover
+(`memory_store`, `prompt_surface` -- both real, separate "never read the
+actual content" promises) and, more importantly, to every downstream
+command's own output, not just the raw scan: `validate`, `report`,
+`report --diff`, `policy --format sarif`, and `compliance --format json`
+(every registered framework) are all run for real (via `cli.main()`,
+capturing real stdout and real written files) against one document with
+a planted canary in every real leak-prone location (a `.env` file, an
+MCP server's `env`/`auth.token` config fields, a skill's own `.env`, a
+hook script, a memory-store file, a prompt-surface file), and the
+canary is asserted absent from every one of those six outputs,
+case-insensitively. Confirmed to have real teeth, not just pass
+vacuously: a deliberately-constructed leak (a secret value set as an
+ordinary component property) was shown to actually surface in
+`render_html()`'s output before this test was trusted to catch the real
+thing.
+
+**Docstring-promise registry (`test_docstring_claims.py`).** A blanket
+phrase scan for "never"/"always"/"fully" produces mostly noise -- most
+such words in this codebase's own docstrings are already accurate. A
+registry doesn't: `CLAIMS` maps `(module, a short paraphrase of the
+claim)` to the exact test function name that proves it, and
+`test_every_registered_claim_has_a_live_test()` runs a real `pytest
+--collect-only` (not a text grep -- a claim can't be satisfied by a test
+name that merely appears in a comment) to confirm every named test
+actually exists and is collected. Two of the registry's entries needed a
+genuinely new test written for them, both now real: `report`'s own
+"no CDN, no JavaScript framework, no external resource the browser
+would fetch" claim (confirmed no `<script src=`, no `<link>`, no
+external `<img src=`, checked against a document that DOES carry a real,
+legitimate `https://` link -- a purl-derived registry reference -- so
+the check is proven to distinguish "loaded automatically" from "a link
+a user might click"), and `cyclonedx.py`'s claim that `purl` is a real,
+native top-level CycloneDX field, not a `harness-aibom:`-only property
+(previously only proven indirectly, via the registry-URL feature it
+enables, never asserted on `purl` itself).
+
+**Two new CI jobs (`.github/workflows/ci.yml`).** Both run as their own
+named jobs, not buried inside the main `test` job's output, so either
+failing is immediately visible as its own check:
+
+- `schema-gate` -- re-runs `test_cyclonedx_schema.py` (already part of
+  `test`, given its own job anyway for visibility, per a reviewer's own
+  "highest-yield check in the whole list" framing) plus `test_sarif.py`.
+  `test_cyclonedx_schema.py`'s own `_assert_schema_valid()` now checks
+  the real CycloneDX **1.7** schema too, not just 1.6 -- confirmed
+  directly (not assumed) that every document this project already
+  produces validates cleanly against 1.7 as-is, with zero changes
+  needed. This does NOT change this project's canonical output format
+  (still `specVersion: "1.6"`, a deliberate, separate decision per
+  section 15/16) -- it's an additional, free correctness check on the
+  exact same documents, nothing more.
+- `build-and-test-from-artifact` -- builds the real wheel and sdist,
+  confirms `tests/` is excluded, installs the wheel into a genuinely
+  clean virtualenv (never this checkout's own `src/`), confirms the
+  vendored `signing_config_offline.json` (v0.8.3) actually shipped
+  inside it, then runs `scan -> validate -> report -> report --diff ->
+  diff -> policy` for real, from the installed artifact. This is the
+  only way a packaging-only regression (v0.1.11's original sdist gap; a
+  future vendored data file silently missing from a wheel, the same
+  class of bug `signing_config_offline.json` could have quietly
+  reintroduced) would ever actually surface -- `uv run pytest` from a
+  checkout never builds or installs the real distributable artifact at
+  all, so this class of bug is invisible to every other CI job.
+
+**Deliberately not attempted here**: hypothesis-based fuzzing over
+collector inputs (METADATA files, `config.yaml`, `hooks doctor` output,
+filenames) -- explicitly optional in the same proposal this tranche
+otherwise fully implements, and a real, separate piece of work (a new
+dev dependency, a fuzz-harness design, three invariants to get right);
+`--probe-mcp` (still staged as its own three-release sequence -- pin-
+only with no network in one release, HTTP transports in the next, stdio
+subprocess handling last -- per the same reviewer's own suggested
+ordering, precisely because this tranche is what should land *before*
+the first feature that spawns processes and opens sockets, not after).
