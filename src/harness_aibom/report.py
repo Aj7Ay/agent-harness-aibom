@@ -44,6 +44,7 @@ from datetime import datetime, timezone
 
 from . import security
 from .compliance import FRAMEWORKS, evaluate_framework
+from .diff import diff_documents_with_properties
 
 #: componentClasses shown in this order when present; anything else
 #: (a future class this file doesn't know about yet) is appended after,
@@ -2285,6 +2286,352 @@ def render_html(bom: dict, diff_result: dict | None = None, signature_info: dict
 
 <script type="application/json" id="bom-data">{bom_data_json}</script>
 <script>{_JS}</script>
+</body>
+</html>
+"""
+
+
+# ==========================================================================
+# v0.10.0: `report --diff` -- a dedicated, severity-sorted change report,
+# not one section of the full single-document explorer above. See
+# cli.py's `_run_report_diff()` and diff.py's `diff_documents_with_properties()`.
+# Deliberately its own small CSS block, not `_CSS` -- this page has none
+# of the explorer's search/filter/inspector machinery, and the whole
+# point (per an independent reviewer) is that a diff report stays small;
+# reusing the full stylesheet would drag in rules (nav, filter bar,
+# inspector modal) nothing here ever uses.
+# ==========================================================================
+
+_DIFF_CSS = """
+:root {
+  --bg: #f9f9f7; --surface: #fcfcfb; --fg: #0b0b0b; --secondary: #52514e;
+  --muted: #898781; --border: #e1e0d9; --code-bg: #f3f4f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d0d0d; --surface: #1a1a19; --fg: #ffffff; --secondary: #c3c2b7;
+    --muted: #898781; --border: #2c2c2a; --code-bg: #1a1d24;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  max-width: 860px; margin: 0 auto; padding: 2rem 1.25rem 4rem; line-height: 1.5;
+}
+header h1 { margin-bottom: 0.25rem; }
+.muted { color: var(--secondary); font-size: 0.9rem; }
+.small { font-size: 0.75rem; color: var(--muted); }
+section { margin-top: 2rem; }
+h2 { border-bottom: 1px solid var(--border); padding-bottom: 0.35rem; }
+table.diff-identity { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
+table.diff-identity th, table.diff-identity td { text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border); }
+table.diff-identity th { color: var(--secondary); font-weight: 500; }
+.diff-banner { border-left: 4px solid #fab219; background: #fdf1d9; border-radius: 6px; padding: 0.6rem 1rem; margin: 0.6rem 0; font-size: 0.9rem; }
+@media (prefers-color-scheme: dark) { .diff-banner { background: #3a2f13; } }
+.risk-list { list-style: none; margin: 0.5rem 0; padding: 0; }
+.risk-list li { padding: 0.5rem 0; border-top: 1px solid var(--border); display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
+.risk-list li:first-child { border-top: none; }
+.risk-badge { display: inline-block; border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; flex: none; }
+.risk-badge.sev-critical { background: #d03b3b; color: #fff; }
+.risk-badge.sev-serious { background: #ec835a; color: #fff; }
+.risk-badge.sev-warning { background: #fab219; color: #1a1a19; }
+.risk-clean { color: #0ca30c; font-weight: 600; }
+pre.raw-json { background: var(--code-bg); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.78rem; overflow-x: auto; white-space: pre; margin: 0.4rem 0 0; }
+code { background: var(--code-bg); border-radius: 4px; padding: 0.05rem 0.35rem; }
+footer { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }
+"""
+
+#: Same rank/label/CSS-class maps `_render_risk_observations()` already
+#: uses for the single-document report -- reused verbatim so a severity
+#: badge means the same thing (and looks the same) in both report modes.
+_DIFF_STRUCTURAL_SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
+
+
+def _diff_root_info(bom: dict) -> dict:
+    """The handful of document-identity facts the diff report's header
+    needs from one side (before or after): hostname, runtime kind, scan
+    timestamp, generating tool version, and any scan warnings. A partial
+    scan on either side changes what an honest "nothing changed" claim
+    can mean, so this has to be visible before any finding, not buried
+    in the raw JSON at the bottom.
+    """
+    root = bom.get("metadata", {}).get("component", {})
+    single, _rel = _split_properties(root)
+    tools = bom.get("metadata", {}).get("tools", {}).get("components", [])
+    return {
+        "name": root.get("name", "(unknown)"),
+        "hostname": single.get("harness-aibom:hostname", "(unknown)"),
+        "runtime_kind": single.get("harness-aibom:runtimeKind", "(unknown)"),
+        "timestamp": bom.get("metadata", {}).get("timestamp", _NOT_RECORDED),
+        "tool_version": tools[0].get("version", "(unknown)") if tools else "(unknown)",
+        "warnings": _extract_warnings(root),
+    }
+
+
+def _render_diff_identity_header(before: dict, after: dict) -> str:
+    b, a = _diff_root_info(before), _diff_root_info(after)
+    rows = (
+        "<tr><th></th><th>Before</th><th>After</th></tr>"
+        f"<tr><td>Host</td><td>{_esc(b['hostname'])}</td><td>{_esc(a['hostname'])}</td></tr>"
+        f"<tr><td>Runtime</td><td>{_esc(b['runtime_kind'])}</td><td>{_esc(a['runtime_kind'])}</td></tr>"
+        f"<tr><td>Scanned</td><td>{_esc(b['timestamp'])}</td><td>{_esc(a['timestamp'])}</td></tr>"
+        f"<tr><td>Tool version</td><td>{_esc(b['tool_version'])}</td><td>{_esc(a['tool_version'])}</td></tr>"
+    )
+    banners = []
+    if b["hostname"] != a["hostname"]:
+        banners.append(
+            "<div class='diff-banner'>&#9888; The two documents have different hostnames "
+            f"({_esc(b['hostname'])} vs {_esc(a['hostname'])}) -- this may not be a before/after "
+            "of the same machine.</div>"
+        )
+    if b["warnings"] or a["warnings"]:
+        if b["warnings"] and a["warnings"]:
+            side = "Both scans"
+        elif b["warnings"]:
+            side = "The 'before' scan"
+        else:
+            side = "The 'after' scan"
+        banners.append(
+            f"<div class='diff-banner'>&#9888; {side} had scan warnings (partial data) -- "
+            "see Raw diff below for the exact text. A diff against a partial scan may understate "
+            "what actually changed.</div>"
+        )
+    return f"<table class='diff-identity'>{rows}</table>{''.join(banners)}"
+
+
+def _classify_added_severity(props: dict) -> str:
+    """Severity for a newly-added component/service, from its own
+    recorded properties -- never a guess at behavior, only what's
+    actually on the entry (transport, tls, riskClass)."""
+    cls = props.get("harness-aibom:componentClass", "")
+    if cls == "mcp_server":
+        if props.get("harness-aibom:transport") in ("http", "sse") and props.get("harness-aibom:tls") == "False":
+            return "high"
+        return "medium"
+    if cls == "tool" and props.get("harness-aibom:riskClass") == "exec":
+        return "high"
+    return "low"
+
+
+def _describe_added(identity: str, props: dict) -> str:
+    cls, name = identity.split(":", 1)
+    cls_label = cls.replace("_", " ")
+    if cls == "mcp_server":
+        transport = props.get("harness-aibom:transport", "unknown")
+        detail = f", {transport}"
+        command = props.get("harness-aibom:command")
+        if command:
+            args = props.get("harness-aibom:args", "")
+            detail += f", runs {command} {args}".rstrip()
+        tls = props.get("harness-aibom:tls")
+        if tls == "False":
+            detail += ", no TLS"
+        return f"{cls_label} {name}: added{detail}"
+    if cls == "tool":
+        risk = props.get("harness-aibom:riskClass", "unknown")
+        return f"{cls_label} {name}: added, riskClass={risk}"
+    return f"{cls_label} {name}: added"
+
+
+def _describe_removed(identity: str, _props: dict) -> str:
+    cls, name = identity.split(":", 1)
+    return f"{cls.replace('_', ' ')} {name}: removed"
+
+
+def _short_hash(value: object) -> str:
+    """The first 8 characters of what looks like a hex digest -- same
+    convention `git` itself uses for a short hash -- so a `sha256`/
+    `digest` before/after pair reads as a real, comparable change
+    instead of two unreadable 64-char strings. Anything that doesn't
+    look like hex (a version string, a plain word) is shown in full."""
+    text = "" if value is None else str(value)
+    looks_like_hex = len(text) > 12 and all(c in "0123456789abcdefABCDEF" for c in text)
+    return text[:8] if looks_like_hex else text
+
+
+def _classify_and_describe_changed(entry: dict) -> tuple[str, str]:
+    """(severity, sentence) for one `diff_documents()` `changed` entry --
+    checked most-severe-first, so a component with more than one changed
+    field still gets classified at its worst one (first match wins).
+    Anything not specifically named below still gets a real sentence
+    (the sorted list of changed field names), never silently dropped --
+    same "unrecognized still shown, never hidden" principle as every
+    other renderer in this file.
+    """
+    cls, name = entry["component"].split(":", 1)
+    fields = entry["fields"]
+    cls_label = cls.replace("_", " ")
+
+    def _flipped_to_true(field_name: str) -> bool:
+        f = fields.get(field_name)
+        return bool(f) and f.get("before") != "True" and f.get("after") == "True"
+
+    if cls == "hook" and _flipped_to_true("harness-aibom:contentChangedSinceApproval"):
+        return "high", f"Hook {name}: content changed after approval"
+    if cls in ("hook", "skill", "prompt_surface") and "harness-aibom:sha256" in fields:
+        f = fields["harness-aibom:sha256"]
+        return "high", f"{cls_label} {name}: content changed  {_short_hash(f.get('before'))} -> {_short_hash(f.get('after'))}"
+    if cls in ("secrets_surface", "memory_store") and _flipped_to_true("harness-aibom:worldReadable"):
+        return "high", f"{cls_label} {name}: became world-readable"
+    if cls == "model" and "harness-aibom:digest" in fields:
+        f = fields["harness-aibom:digest"]
+        return "high", f"Model {name}: digest changed  {_short_hash(f.get('before'))} -> {_short_hash(f.get('after'))}"
+    if "harness-aibom:versionPinned" in fields:
+        f = fields["harness-aibom:versionPinned"]
+        if f.get("before") == "True" and f.get("after") == "False":
+            return "medium", f"{cls_label} {name}: no longer version-pinned"
+    if cls == "dependency" and ("harness-aibom:version" in fields or "harness-aibom:purl" in fields):
+        f = fields.get("harness-aibom:version") or fields.get("harness-aibom:purl")
+        return "medium", f"{cls_label} {name}: {f.get('before')} -> {f.get('after')}"
+    for key in ("harness-aibom:pathOutsideHome", "harness-aibom:symlink"):
+        if _flipped_to_true(key):
+            return "medium", f"{cls_label} {name}: {key.removeprefix('harness-aibom:')} newly true"
+    if cls == "configuration" and "harness-aibom:sha256" in fields:
+        return "low", f"{cls_label} {name}: content changed"
+    changed_field_names = ", ".join(sorted(k.removeprefix("harness-aibom:") for k in fields))
+    return "low", f"{cls_label} {name}: {changed_field_names} changed"
+
+
+def _render_diff_findings(lines: list[tuple[str, str, str]]) -> str:
+    items = "".join(
+        "<li>"
+        f"<span class='risk-badge {_SEVERITY_CSS_CLASS.get(severity, 'sev-warning')}'>"
+        f"{_esc(_SEVERITY_LABEL.get(severity, severity.upper()))}</span>"
+        f"<code class='small'>{_esc(kind)}</code>"
+        f"<span>{_esc(sentence)}</span>"
+        "</li>"
+        for severity, kind, sentence in lines
+    )
+    return f"<ul class='risk-list'>{items}</ul>"
+
+
+def _render_diff_clean_state() -> str:
+    return (
+        "<p class='risk-clean'>&#10003; No differences on the fields this tool compares.</p>"
+        "<p class='muted small'>This does not check the absolute <code>path</code> property "
+        "(deliberately host-specific, ignored by every diff this project renders) -- "
+        "and never compared <code>metadata.timestamp</code>/<code>serialNumber</code> at all, "
+        "since those always differ between two scans and carry no security meaning on their own. "
+        "An empty diff means the compared component/service properties match, not that nothing "
+        "about the harness could possibly differ.</p>"
+    )
+
+
+def _render_diff_security_bucket(title: str, observations: list[dict], default_open: bool) -> str:
+    if not observations:
+        return f"<h3>{_esc(title)} <span class='small'>(0)</span></h3><p class='muted small'>none</p>"
+    items = "".join(
+        "<li>"
+        f"<span class='risk-badge {_SEVERITY_CSS_CLASS.get(o['severity'], 'sev-warning')}'>"
+        f"{_esc(_SEVERITY_LABEL.get(o['severity'], o['severity'].upper()))}</span>"
+        f"<code class='small'>{_esc(o['rule'])}</code>"
+        f"<span>{_esc(o['summary'])}</span>"
+        f"<span class='small'>{_esc(', '.join(o['components']))}</span>"
+        "</li>"
+        for o in observations
+    )
+    open_attr = " open" if default_open else ""
+    return f"<details{open_attr}><summary>{_esc(title)} ({len(observations)})</summary><ul class='risk-list'>{items}</ul></details>"
+
+
+def _render_diff_security_buckets(security_diff: dict) -> str:
+    # New first (the thing a reviewer most needs to see), then Resolved
+    # (good news, still worth a glance), then Persisting collapsed by
+    # default (already-known, still-present risk -- the same "visible
+    # but not in your face" treatment `policy --baseline`'s own
+    # `~ [accepted]` marker gives this exact bucket, v0.9.1).
+    return (
+        _render_diff_security_bucket("New", security_diff["new"], default_open=True)
+        + _render_diff_security_bucket("Resolved", security_diff["resolved"], default_open=True)
+        + _render_diff_security_bucket("Persisting", security_diff["persisting"], default_open=False)
+    )
+
+
+def render_diff_report(before: dict, after: dict) -> str:
+    """A dedicated, severity-sorted change report between two harness-
+    aibom documents -- v0.10.0. Deliberately NOT the page `report
+    --baseline` produces (that's a full single-document explorer with
+    one diff section tacked on): here the changes themselves are the
+    whole page. No embedded copy of either full document -- only the
+    diff results themselves are embedded in the Raw section, the same
+    report-size discipline `report.py` has followed since v0.5.1's fix
+    for a real, measured size regression.
+
+    Fully deterministic: no wall-clock read anywhere in this function --
+    two `--deterministic` scans, diffed, produce byte-identical output
+    every time this is called.
+    """
+    diff_result = diff_documents_with_properties(before, after)
+    security_diff = security.diff_risk_observations(before, after)
+    b_info, a_info = _diff_root_info(before), _diff_root_info(after)
+
+    lines: list[tuple[str, str, str]] = []
+    for identity in diff_result["added"]:
+        props = diff_result["added_properties"].get(identity, {})
+        lines.append((_classify_added_severity(props), "added", _describe_added(identity, props)))
+    for identity in diff_result["removed"]:
+        props = diff_result["removed_properties"].get(identity, {})
+        lines.append(("low", "removed", _describe_removed(identity, props)))
+    for entry in diff_result["changed"]:
+        severity, sentence = _classify_and_describe_changed(entry)
+        lines.append((severity, "changed", sentence))
+    # Stable sort: entries that tie on severity keep the order they were
+    # appended in above (added, then removed, then changed), not an
+    # arbitrary one.
+    lines.sort(key=lambda t: _DIFF_STRUCTURAL_SEVERITY_RANK.get(t[0], 99))
+
+    findings_html = _render_diff_findings(lines) if lines else _render_diff_clean_state()
+    security_html = _render_diff_security_buckets(security_diff)
+
+    # Compact, not pretty-printed -- consistent with how the single-
+    # document report embeds its own one real copy of the BOM (v0.5.1).
+    diff_json = json.dumps(diff_result, separators=(",", ":"))
+    security_diff_json = json.dumps(security_diff, separators=(",", ":"))
+
+    title = f"Change report — {b_info['name']} → {a_info['name']}"
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{_esc(title)}</title>
+<style>{_DIFF_CSS}</style>
+</head>
+<body>
+<header>
+  <h1>Change report</h1>
+  <p class="muted">{_esc(b_info['name'])} &rarr; {_esc(a_info['name'])}</p>
+</header>
+
+<section id="identity">
+  <h2>What is being compared</h2>
+  {_render_diff_identity_header(before, after)}
+</section>
+
+<section id="findings">
+  <h2>Changes ({len(lines)})</h2>
+  <p class="muted">Every added, removed, or changed component/service, sorted highest severity
+    first -- the same severity scale (see SPEC.md) `report`'s own Risk observations section uses.</p>
+  {findings_html}
+</section>
+
+<section id="security">
+  <h2>Security findings</h2>
+  <p class="muted">security.py's own named risk rules (see SPEC.md section 3), diffed the same
+    way <code>policy --baseline</code> already does.</p>
+  {security_html}
+</section>
+
+<section id="raw">
+  <h2>Raw diff</h2>
+  <details><summary>Structural diff ({len(diff_json)} bytes, compact)</summary>
+  <pre class="raw-json">{_esc(diff_json)}</pre></details>
+  <details><summary>Security diff ({len(security_diff_json)} bytes, compact)</summary>
+  <pre class="raw-json">{_esc(security_diff_json)}</pre></details>
+</section>
+
+<footer class="muted">Generated by agent-harness-aibom &middot; harness-aibom report --diff.</footer>
 </body>
 </html>
 """

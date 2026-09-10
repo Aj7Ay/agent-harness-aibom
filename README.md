@@ -130,6 +130,9 @@ harness-aibom report aibom.json -o report.html
 # ...with a baseline, to render what changed inline
 harness-aibom report after.json --baseline before.json -o report.html
 
+# ...or a dedicated, severity-sorted change report -- the changes ARE the page
+harness-aibom report --diff before.json after.json -o change.html
+
 # Gate CI on the built-in risk rules (or your own policy-as-code rules)
 harness-aibom policy aibom.json --fail-on high
 harness-aibom policy aibom.json --policy-file policy.yaml

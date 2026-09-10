@@ -962,3 +962,81 @@ def test_compliance_missing_file_is_a_clean_error(capsys):
     exit_code = main(["compliance", "/no/such/aibom.json", "--framework", "owasp-llm-top10-2025"])
     assert exit_code == 1
     assert "no such file" in capsys.readouterr().err.lower()
+
+
+# ---- v0.10.0: report --diff ---------------------------------------------
+
+
+def test_report_diff_end_to_end(tmp_path):
+    before = tmp_path / "before.json"
+    after = tmp_path / "after.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(before)])
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(after)])
+
+    out = tmp_path / "change.html"
+    exit_code = main(["report", "--diff", str(before), str(after), "-o", str(out)])
+    assert exit_code == 0
+    html_text = out.read_text()
+    assert html_text.startswith("<!doctype html>")
+    assert "Change report" in html_text
+
+
+def test_report_diff_default_output_path(tmp_path):
+    before = tmp_path / "before.json"
+    after = tmp_path / "after.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(before)])
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(after)])
+
+    exit_code = main(["report", "--diff", str(before), str(after)])
+    assert exit_code == 0
+    assert (tmp_path / "after.diff.html").is_file()
+
+
+def test_report_diff_missing_file_is_a_clean_error(tmp_path, capsys):
+    after = tmp_path / "after.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(after)])
+    exit_code = main(["report", "--diff", "/no/such/before.json", str(after)])
+    assert exit_code == 1
+    assert "no such file" in capsys.readouterr().err.lower()
+
+
+def test_report_diff_rejects_a_non_dict_json_side(tmp_path, capsys):
+    before = tmp_path / "before.json"
+    before.write_text("[1, 2, 3]")
+    after = tmp_path / "after.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(after)])
+
+    exit_code = main(["report", "--diff", str(before), str(after)])
+    assert exit_code == 1
+    assert "not a CycloneDX document" in capsys.readouterr().err
+
+
+def test_report_diff_one_file_is_an_argparse_error():
+    # --diff has nargs=2 -- argparse itself rejects a single value,
+    # before this project's own code ever runs.
+    with pytest.raises(SystemExit):
+        main(["report", "--diff", "/tmp/only-one.json"])
+
+
+def test_report_two_positional_files_without_diff_is_an_argparse_error():
+    # `file` only ever accepts one positional -- a second one is an
+    # argparse-level "unrecognized arguments" error, not this project's.
+    with pytest.raises(SystemExit):
+        main(["report", "/tmp/a.json", "/tmp/b.json"])
+
+
+def test_report_diff_combined_with_file_is_a_clean_error(tmp_path, capsys):
+    before = tmp_path / "before.json"
+    after = tmp_path / "after.json"
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(before)])
+    main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--output", str(after)])
+
+    exit_code = main(["report", str(before), "--diff", str(before), str(after)])
+    assert exit_code == 1
+    assert "cannot be combined" in capsys.readouterr().err
+
+
+def test_report_no_file_and_no_diff_is_a_clean_error(capsys):
+    exit_code = main(["report"])
+    assert exit_code == 1
+    assert "a file is required" in capsys.readouterr().err

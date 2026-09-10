@@ -2,7 +2,7 @@ import re
 
 from harness_aibom.cyclonedx import to_cyclonedx
 from harness_aibom.model import Component, HarnessDocument
-from harness_aibom.report import render_html
+from harness_aibom.report import render_diff_report, render_html
 
 
 def _doc_with_everything() -> dict:
@@ -1026,3 +1026,291 @@ def test_linkify_bom_refs_function_is_wired_into_js():
     # Called unconditionally from highlightRawBom(), not only when a
     # search query happens to be active.
     assert "pre.innerHTML = linkifyBomRefs(html);" in html_text
+
+
+# ---- v0.10.0: report --diff / render_diff_report() ----------------------
+
+
+def _plain_doc(name: str = "h") -> HarnessDocument:
+    return HarnessDocument(harness_name=name, runtime_kind="hermes", hostname="testhost")
+
+
+def test_diff_report_is_a_complete_html_document():
+    before = to_cyclonedx(_plain_doc())
+    after = to_cyclonedx(_plain_doc())
+    html_text = render_diff_report(before, after)
+    assert html_text.startswith("<!doctype html>")
+    assert "</html>" in html_text
+    assert "Change report" in html_text
+
+
+def test_diff_report_clean_state_is_honest_about_ignored_fields():
+    before = to_cyclonedx(_plain_doc())
+    after = to_cyclonedx(_plain_doc())
+    html_text = render_diff_report(before, after)
+    assert "No differences on the fields this tool compares" in html_text
+    assert "path" in html_text
+    assert "Changes (0)" in html_text
+
+
+def test_diff_report_partial_scan_banner_appears_for_either_side():
+    before_doc = _plain_doc()
+    before_doc.warn("hermes binary not found on PATH; runtime component skipped")
+    before = to_cyclonedx(before_doc)
+    after = to_cyclonedx(_plain_doc())
+
+    html_text = render_diff_report(before, after)
+    assert "scan warnings" in html_text
+    assert "before" in html_text.lower()
+
+
+def test_diff_report_no_banner_when_neither_side_has_warnings():
+    before = to_cyclonedx(_plain_doc())
+    after = to_cyclonedx(_plain_doc())
+    html_text = render_diff_report(before, after)
+    assert "scan warnings" not in html_text
+
+
+def test_diff_report_hostname_mismatch_banner():
+    before = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="box-a"))
+    after = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="box-b"))
+    html_text = render_diff_report(before, after)
+    assert "different hostnames" in html_text
+    assert "box-a" in html_text and "box-b" in html_text
+
+
+def test_diff_report_no_hostname_banner_when_hosts_match():
+    before = to_cyclonedx(_plain_doc())
+    after = to_cyclonedx(_plain_doc())
+    html_text = render_diff_report(before, after)
+    assert "different hostnames" not in html_text
+
+
+def test_diff_report_is_byte_identical_for_two_deterministic_inputs():
+    before = to_cyclonedx(_plain_doc(), deterministic=True)
+    after_doc = _plain_doc()
+    after_doc.add(Component(component_class="skill", name="a"), "loads")
+    after = to_cyclonedx(after_doc, deterministic=True)
+
+    first = render_diff_report(before, after)
+    second = render_diff_report(before, after)
+    assert first == second
+
+
+# ---- one case per severity row --------------------------------------
+
+
+def _changed_pair(cls: str, name: str, set_before, set_after):
+    before_doc, after_doc = _plain_doc(), _plain_doc()
+    b = Component(component_class=cls, name=name)
+    set_before(b)
+    before_doc.add(b, "loads" if cls in ("skill", "hook", "prompt_surface") else "uses")
+    a = Component(component_class=cls, name=name)
+    set_after(a)
+    after_doc.add(a, "loads" if cls in ("skill", "hook", "prompt_surface") else "uses")
+    return to_cyclonedx(before_doc), to_cyclonedx(after_doc)
+
+
+def _severity_of(html_text: str, needle: str) -> str:
+    """Extracts the risk-badge severity word immediately preceding
+    `needle`'s own <li> in the Changes section -- lets each severity
+    test assert against the real rendered badge, not just "the text is
+    somewhere on the page"."""
+    idx = html_text.index(needle)
+    li_start = html_text.rindex("<li>", 0, idx)
+    li = html_text[li_start:idx]
+    for label in ("HIGH", "MEDIUM", "LOW"):
+        if label in li:
+            return label
+    raise AssertionError(f"no severity badge found before {needle!r}")
+
+
+def test_severity_hook_content_changed_after_approval_is_high():
+    before, after = _changed_pair(
+        "hook", "pre-commit.sh",
+        lambda c: c.set("contentChangedSinceApproval", False),
+        lambda c: c.set("contentChangedSinceApproval", True),
+    )
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "pre-commit.sh") == "HIGH"
+    assert "content changed after approval" in html_text
+
+
+def test_severity_skill_sha256_changed_is_high():
+    before, after = _changed_pair("skill", "research", lambda c: c.set("sha256", "a" * 64), lambda c: c.set("sha256", "b" * 64))
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "research") == "HIGH"
+
+
+def test_severity_prompt_surface_sha256_changed_is_high():
+    before, after = _changed_pair(
+        "prompt_surface", "AGENTS.md", lambda c: c.set("sha256", "a" * 64), lambda c: c.set("sha256", "b" * 64)
+    )
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "AGENTS.md") == "HIGH"
+
+
+def test_severity_secrets_surface_becoming_world_readable_is_high():
+    before, after = _changed_pair(
+        "secrets_surface", ".env", lambda c: c.set("worldReadable", False), lambda c: c.set("worldReadable", True)
+    )
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, ".env") == "HIGH"
+    assert "became world-readable" in html_text
+
+
+def test_severity_model_digest_changed_is_high():
+    before, after = _changed_pair("model", "qwen3:8b", lambda c: c.set("digest", "a" * 20), lambda c: c.set("digest", "b" * 20))
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "qwen3:8b") == "HIGH"
+
+
+def test_severity_new_mcp_server_http_no_tls_is_high():
+    doc = _plain_doc()
+    doc.add(Component(component_class="mcp_server", name="exfil").set("transport", "http").set("tls", False), "uses")
+    before, after = to_cyclonedx(_plain_doc()), to_cyclonedx(doc)
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "exfil") == "HIGH"
+    assert "no TLS" in html_text
+
+
+def test_severity_new_tool_riskclass_exec_is_high():
+    doc = _plain_doc()
+    doc.add(Component(component_class="tool", name="danger-tool").set("riskClass", "exec"), "invokes")
+    before, after = to_cyclonedx(_plain_doc()), to_cyclonedx(doc)
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "danger-tool") == "HIGH"
+
+
+def test_severity_new_mcp_server_stdio_is_medium():
+    doc = _plain_doc()
+    doc.add(Component(component_class="mcp_server", name="local-fs").set("transport", "stdio"), "uses")
+    before, after = to_cyclonedx(_plain_doc()), to_cyclonedx(doc)
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "local-fs") == "MEDIUM"
+
+
+def test_severity_version_pinned_true_to_false_is_medium():
+    before, after = _changed_pair(
+        "mcp_server", "local-fs", lambda c: c.set("versionPinned", True), lambda c: c.set("versionPinned", False)
+    )
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "local-fs") == "MEDIUM"
+    assert "no longer version-pinned" in html_text
+
+
+def test_severity_dependency_version_changed_is_medium():
+    before, after = _changed_pair(
+        "dependency", "openai", lambda c: setattr(c, "version", "3.0.0"), lambda c: setattr(c, "version", "4.0.0")
+    )
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "openai") == "MEDIUM"
+    assert "3.0.0 -&gt; 4.0.0" in html_text or "3.0.0 -> 4.0.0" in html_text
+
+
+def test_severity_path_outside_home_newly_true_is_medium():
+    before, after = _changed_pair(
+        "prompt_surface", "AGENTS.md", lambda c: c.set("pathOutsideHome", False), lambda c: c.set("pathOutsideHome", True)
+    )
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "AGENTS.md") == "MEDIUM"
+
+
+def test_severity_symlink_newly_true_is_medium():
+    before, after = _changed_pair(
+        "memory_store", "chroma.sqlite3", lambda c: c.set("symlink", False), lambda c: c.set("symlink", True)
+    )
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "chroma.sqlite3") == "MEDIUM"
+
+
+def test_severity_model_added_is_low():
+    doc = _plain_doc()
+    doc.add(Component(component_class="model", name="qwen3:8b"), "uses")
+    before, after = to_cyclonedx(_plain_doc()), to_cyclonedx(doc)
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "qwen3:8b") == "LOW"
+
+
+def test_severity_model_removed_is_low():
+    doc = _plain_doc()
+    doc.add(Component(component_class="model", name="qwen3:8b"), "uses")
+    before, after = to_cyclonedx(doc), to_cyclonedx(_plain_doc())
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "qwen3:8b") == "LOW"
+    assert "removed" in html_text
+
+
+def test_severity_configuration_sha256_changed_is_low():
+    before, after = _changed_pair(
+        "configuration", "config.yaml", lambda c: c.set("sha256", "a" * 64), lambda c: c.set("sha256", "b" * 64)
+    )
+    html_text = render_diff_report(before, after)
+    assert _severity_of(html_text, "config.yaml") == "LOW"
+
+
+def test_findings_are_sorted_worst_first_regardless_of_append_order():
+    # Deliberately construct the LOW-severity change first in code, the
+    # HIGH-severity one second -- the rendered order must still be
+    # HIGH before LOW, proving this is a real sort, not insertion order.
+    before_doc, after_doc = _plain_doc(), _plain_doc()
+
+    low_before = Component(component_class="configuration", name="config.yaml")
+    low_before.set("sha256", "a" * 64)
+    before_doc.add(low_before, "uses")
+    low_after = Component(component_class="configuration", name="config.yaml")
+    low_after.set("sha256", "b" * 64)
+    after_doc.add(low_after, "uses")
+
+    high_before = Component(component_class="hook", name="pre-commit.sh")
+    high_before.set("contentChangedSinceApproval", False)
+    before_doc.add(high_before, "loads")
+    high_after = Component(component_class="hook", name="pre-commit.sh")
+    high_after.set("contentChangedSinceApproval", True)
+    after_doc.add(high_after, "loads")
+
+    html_text = render_diff_report(to_cyclonedx(before_doc), to_cyclonedx(after_doc))
+    changes_section = html_text.split('id="findings"')[1].split('id="security"')[0]
+    assert changes_section.index("pre-commit.sh") < changes_section.index("config.yaml")
+
+
+def test_unrecognized_changed_field_still_shown_not_hidden():
+    before, after = _changed_pair(
+        "dependency", "some-lib", lambda c: c.set("someNewFutureField", "old"), lambda c: c.set("someNewFutureField", "new")
+    )
+    html_text = render_diff_report(before, after)
+    assert "some-lib" in html_text
+    assert "someNewFutureField" in html_text
+
+
+# ---- security findings buckets ---------------------------------------
+
+
+def test_diff_report_shows_new_and_resolved_security_findings():
+    before_doc, after_doc = _plain_doc(), _plain_doc()
+    resolved_secret = Component(component_class="secrets_surface", name="old.env")
+    resolved_secret.set("worldReadable", True)
+    before_doc.add(resolved_secret, "accesses")
+
+    new_secret = Component(component_class="secrets_surface", name="new.env")
+    new_secret.set("worldReadable", True)
+    after_doc.add(new_secret, "accesses")
+
+    html_text = render_diff_report(to_cyclonedx(before_doc), to_cyclonedx(after_doc))
+    security_section = html_text.split('id="security"')[1].split('id="raw"')[0]
+    assert "New (1)" in security_section
+    assert "new.env" in security_section
+    assert "Resolved (1)" in security_section
+    assert "old.env" in security_section
+
+
+def test_diff_report_persisting_bucket_is_collapsed_by_default():
+    doc = _plain_doc()
+    secret = Component(component_class="secrets_surface", name=".env")
+    secret.set("worldReadable", True)
+    doc.add(secret, "accesses")
+    bom = to_cyclonedx(doc)
+
+    html_text = render_diff_report(bom, bom)
+    security_section = html_text.split('id="security"')[1].split('id="raw"')[0]
+    assert "<details><summary>Persisting (1)</summary>" in security_section

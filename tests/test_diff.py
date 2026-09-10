@@ -1,5 +1,5 @@
 from harness_aibom.cyclonedx import to_cyclonedx
-from harness_aibom.diff import diff_documents
+from harness_aibom.diff import diff_documents, diff_documents_with_properties
 from harness_aibom.model import Component, HarnessDocument
 
 
@@ -195,3 +195,54 @@ def test_single_named_mcp_server_is_unaffected_by_duplicate_handling():
     [change] = result["changed"]
     assert change["component"] == "mcp_server:corp-docs"
     assert change["fields"]["harness-aibom:tls"] == {"before": "True", "after": "False"}
+
+
+# ---- v0.10.0: diff_documents_with_properties() -- for report --diff -----
+
+
+def test_diff_with_properties_has_same_identity_as_plain_diff():
+    before = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t"))
+    after_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    after_doc.add(Component(component_class="skill", name="new"), "loads")
+    after = to_cyclonedx(after_doc)
+
+    plain = diff_documents(before, after)
+    detailed = diff_documents_with_properties(before, after)
+    assert detailed["added"] == plain["added"]
+    assert detailed["removed"] == plain["removed"]
+    assert detailed["changed"] == plain["changed"]
+
+
+def test_diff_with_properties_exposes_the_full_property_dict_for_added():
+    before = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t"))
+    after_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    mcp = Component(component_class="mcp_server", name="exfil")
+    mcp.set("transport", "http")
+    mcp.set("tls", False)
+    after_doc.add(mcp, "uses")
+    after = to_cyclonedx(after_doc)
+
+    result = diff_documents_with_properties(before, after)
+    assert result["added"] == ["mcp_server:exfil"]
+    props = result["added_properties"]["mcp_server:exfil"]
+    assert props["harness-aibom:transport"] == "http"
+    assert props["harness-aibom:tls"] == "False"
+
+
+def test_diff_with_properties_exposes_the_full_property_dict_for_removed():
+    before_doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    before_doc.add(Component(component_class="model", name="qwen3:8b"), "uses")
+    before = to_cyclonedx(before_doc)
+    after = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t"))
+
+    result = diff_documents_with_properties(before, after)
+    assert result["removed"] == ["model:qwen3:8b"]
+    assert result["removed_properties"]["model:qwen3:8b"]["harness-aibom:componentClass"] == "model"
+
+
+def test_diff_with_properties_has_no_entries_when_nothing_added_or_removed():
+    before = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t"))
+    after = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t"))
+    result = diff_documents_with_properties(before, after)
+    assert result["added_properties"] == {}
+    assert result["removed_properties"] == {}

@@ -2509,3 +2509,106 @@ doesn't perform); a leading test suite (the reviewer's own observation
 that defects have so far trailed reports rather than the suite catching
 them first) -- a real, structural discipline question, not a one-release
 fix.
+
+## 28. `report --diff` -- a dedicated, severity-sorted change report (v0.10.0)
+
+The last unbuilt item from the original persisted plan, and the one a
+reviewer called out as changing "how the tool reads in a lab" the most:
+`diff` has always been this project's strongest signal (SPEC.md section
+4), but its only output was raw JSON. `report --baseline` (v0.7.0)
+rendered the same diff *inline*, as one section of a full single-
+document explorer -- useful, but the diff itself was still buried among
+everything else in the document. `report --diff before.json after.json`
+is different: the changes ARE the whole page, nothing else.
+
+**CLI shape.** `report`'s `file` positional becomes optional (`nargs="?"`);
+`--diff BEFORE AFTER` (`nargs=2`) selects the new mode outright, mutually
+exclusive with `file`/`--baseline`/`--bundle`/`--key` (checked explicitly,
+a clean one-line error, not a confusing combination of both modes'
+output). Passing `--diff` with one file, or a second positional `file`
+without `--diff`, are both caught by argparse itself (`nargs=2` and a
+single positional respectively) before this project's own code ever
+runs.
+
+**`diff.py`'s `diff_documents_with_properties()`.** `diff_documents()`
+itself only ever needed an added/removed entry's bare identity string
+(`"componentClass:identity"`) -- `_index()` already built the full
+property dict internally for the `changed` case, it just never surfaced
+that for `added`/`removed` before, since nothing needed to render *why*
+an addition matters until this report needed to (e.g. "this newly-added
+`mcp_server` uses `http` with no TLS" needs the new entry's own
+`transport`/`tls` properties, not just its identity). The new function
+returns exactly `diff_documents()`'s own result plus `added_properties`/
+`removed_properties` dicts keyed by that same identity string -- same
+identity, same added/removed/changed lists, confirmed identical in a
+dedicated test, so `report --diff` and plain `diff`/`policy --baseline`
+can never disagree about what counts as a change.
+
+**Document identity header.** Before any finding: both sides' hostname,
+runtime kind, scan timestamp, and generating tool version, plus two
+honest banners -- a hostname mismatch (this may not be a before/after of
+the same machine) and a partial-scan warning (either side's root
+`harness-aibom:warning` properties, naming which side). A diff between a
+complete baseline and a partial rescan is not a trustworthy diff, and
+this project's own discipline says so before the first finding, not
+buried in the raw JSON.
+
+**Severity-sorted findings, one sentence each.** Every added, removed,
+or changed component/service gets exactly one line: a severity badge
+(the same `HIGH`/`MEDIUM`/`LOW` scale and CSS classes `report`'s own Risk
+observations section already uses), the change kind (`added`/`removed`/
+`changed`), and a human sentence -- never a raw field dump. Severity is
+derived from real, recorded properties only, first-match-wins checked
+most-severe-first (so a component with more than one changed field still
+lands at its worst one):
+
+| Change | Severity |
+|---|---|
+| hook `contentChangedSinceApproval` flips to true | high |
+| hook/skill/prompt_surface `sha256` changed | high |
+| secrets_surface/memory_store `worldReadable` flips to true | high |
+| model `digest` changed | high |
+| new `mcp_server` with `transport` http/sse and `tls=False` | high |
+| new `tool` with `riskClass` exec | high |
+| new `mcp_server` (any other) | medium |
+| `versionPinned` flips from true to false | medium |
+| dependency `version`/`purl` changed | medium |
+| `pathOutsideHome`/`symlink` flips to true | medium |
+| configuration `sha256` changed | low |
+| anything added/removed/changed not named above | low, shown with its real changed-field names, never hidden |
+
+**Security findings, reusing `security.diff_risk_observations()`
+directly** (the same function `policy --baseline`, v0.9.1, already
+uses) -- three buckets, New and Resolved open by default, Persisting
+collapsed (the same "visible but not in your face" treatment
+`policy --baseline`'s own `~ [accepted]` marker gives already-accepted,
+still-present risk).
+
+**An honest "nothing changed" state**, same discipline as every other
+empty state in this report: names exactly what wasn't compared (the
+absolute `path` property, deliberately host-specific and ignored;
+`metadata.timestamp`/`serialNumber`, never part of the compared surface
+at all) so an empty diff is never mistaken for "nothing about the
+harness could possibly differ."
+
+**Deliberately its own, small stylesheet** (`_DIFF_CSS`), not the main
+report's `_CSS` -- this page has none of the single-document explorer's
+search/filter/inspector machinery, and reusing the full stylesheet would
+drag in rules nothing here ever uses. No embedded copy of either full
+document either -- only the diff results themselves (compact JSON) are
+embedded in the Raw section, the same size discipline `report.py` has
+followed since v0.5.1's real, measured size-bloat fix. Fully
+deterministic (no wall-clock read anywhere in `render_diff_report()`):
+confirmed with a dedicated test that two `--deterministic` inputs
+produce byte-identical output across repeated calls.
+
+**Deliberately not attempted here**: tool definition pinning via an
+MCP-handshake probe mode (`--probe-mcp`, still the next roadmap item --
+a real new capability that spawns subprocesses and opens network
+connections based on someone else's config, which deserves its own
+release and its own careful verification against a real test MCP
+server, not a rushed bundle with this feature); the test-suite-leads-
+defects work (dead-code check, docstring-promise check, redaction test,
+hypothesis fuzzing, the two new CI jobs) -- both still tracked in
+`memory/aibom-explorer-roadmap.md`, per the reviewer's own suggested
+staged order.

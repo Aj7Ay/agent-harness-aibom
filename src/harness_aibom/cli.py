@@ -13,10 +13,10 @@ from .compliance import FRAMEWORKS, evaluate_framework
 from .collectors.hermes import HermesCollector
 from .collectors.openclaw import OpenClawCollector
 from .cyclonedx import current_hostname, to_cyclonedx
-from .diff import diff_documents
+from .diff import diff_documents, diff_documents_with_properties
 from .model import HarnessDocument
 from .policy_yaml import PolicyFileError, evaluate_policy_rules, load_policy_rules
-from .report import render_html
+from .report import render_diff_report, render_html
 from .security import compute_risk_observations, diff_risk_observations
 from .sign import CosignNotFound, sign_blob, verify_blob
 from .validate import find_orphan_components, validate_document
@@ -255,7 +255,52 @@ def _run_compliance(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_report_diff(args: argparse.Namespace) -> int:
+    """`report --diff before.json after.json` -- a dedicated,
+    severity-sorted change report, not a full single-document explorer
+    with one diff section. Reuses `diff_documents_with_properties()`
+    (diff.py) and `diff_risk_observations()` (security.py) directly --
+    the same "never a second implementation of what counts as a change"
+    discipline `report --baseline` (v0.7.0) already established.
+    """
+    before_path, after_path = args.diff
+    before = _load_json_file(before_path)
+    after = _load_json_file(after_path)
+    if before is None or after is None:
+        return 1
+    if not isinstance(before, dict):
+        print(f"error: {before_path}: not a CycloneDX document (expected a JSON object)", file=sys.stderr)
+        return 1
+    if not isinstance(after, dict):
+        print(f"error: {after_path}: not a CycloneDX document (expected a JSON object)", file=sys.stderr)
+        return 1
+
+    out_path = Path(args.output) if args.output else Path(after_path).with_suffix("").with_suffix(".diff.html")
+    try:
+        out_path.write_text(render_diff_report(before, after), encoding="utf-8")
+    except OSError as exc:
+        print(f"error: {out_path}: {exc.strerror or exc}", file=sys.stderr)
+        return 1
+    print(f"wrote {out_path}")
+    return 0
+
+
 def _run_report(args: argparse.Namespace) -> int:
+    # v0.10.0: `report --diff before.json after.json` is a dedicated
+    # change-report mode, not the single-document explorer -- rejected
+    # cleanly, before touching either file, if combined with anything
+    # from that other mode (a single `file` positional makes no sense
+    # alongside two named diff inputs, and --baseline/--bundle/--key are
+    # all properties of the single-document report `--diff` replaces).
+    if args.diff:
+        if args.file or args.baseline or args.bundle or args.key:
+            print("error: --diff cannot be combined with file/--baseline/--bundle/--key", file=sys.stderr)
+            return 1
+        return _run_report_diff(args)
+    if not args.file:
+        print("error: a file is required (or use --diff before.json after.json)", file=sys.stderr)
+        return 1
+
     data = _load_json_file(args.file)
     if data is None:
         return 1
@@ -634,12 +679,20 @@ def build_parser() -> argparse.ArgumentParser:
     validate.set_defaults(func=_run_validate)
 
     report = sub.add_parser("report", help="render a harness-aibom document as a single static HTML file")
-    report.add_argument("file")
+    report.add_argument("file", nargs="?", help="a single harness-aibom document (omit when using --diff)")
     report.add_argument("--output", "-o", help="output HTML file (default: <file> with a .html extension)")
     report.add_argument(
         "--baseline",
         help="a second harness-aibom JSON document to diff against -- renders the changes inline "
         "(a Baseline diff section) instead of the report's usual 'not available for a single scan' note",
+    )
+    report.add_argument(
+        "--diff",
+        nargs=2,
+        metavar=("BEFORE", "AFTER"),
+        help="v0.10.0: render a dedicated, severity-sorted change report between two documents "
+        "instead of a single-document explorer -- the changes ARE the report, not one section of it. "
+        "Mutually exclusive with the positional `file`/--baseline/--bundle/--key.",
     )
     report.add_argument("--bundle", help="a cosign signature bundle for `file` -- verified via cosign at render "
                          "time and shown in the Artifact integrity section; requires --key")

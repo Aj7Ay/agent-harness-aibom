@@ -142,3 +142,32 @@ def diff_documents(before: dict, after: dict) -> dict:
         changed.append(entry)
 
     return {"added": added, "removed": removed, "changed": changed}
+
+
+def diff_documents_with_properties(before: dict, after: dict) -> dict:
+    """Same result as `diff_documents()` -- same identity, same
+    added/removed/changed entries, so `report --diff` (report.py) and
+    plain `diff`/`policy --baseline` can never disagree about what
+    counts as a change -- plus each `added`/`removed` identity's own
+    full property dict attached, keyed by that identity string.
+
+    `diff_documents()` itself only ever needed the *identity* of an
+    added/removed entry (a bare "componentClass:identity" string) --
+    `_index()` already builds the full properties dict for exactly this
+    purpose internally (used for `changed`'s field-level diff), it just
+    never surfaced it for `added`/`removed` before, since nothing needed
+    to render *why* an added component matters until v0.10.0's severity-
+    sorted `report --diff` (e.g. "this newly-added mcp_server uses http
+    with no TLS" needs the new entry's own `transport`/`tls` properties,
+    not just its identity).
+    """
+    ambiguous_keys = _ambiguous_keys(before, after)
+    before_index = _index(before, ambiguous_keys)
+    after_index = _index(after, ambiguous_keys)
+    before_keys, after_keys = set(before_index), set(after_index)
+
+    base = diff_documents(before, after)
+    added_properties = {f"{k[0]}:{k[1]}": after_index[k] for k in after_keys - before_keys}
+    removed_properties = {f"{k[0]}:{k[1]}": before_index[k] for k in before_keys - after_keys}
+
+    return {**base, "added_properties": added_properties, "removed_properties": removed_properties}
