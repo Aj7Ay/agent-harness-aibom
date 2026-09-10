@@ -322,6 +322,29 @@ def compute_risk_observations(bom: dict) -> list[dict]:
             "components": [e.get("bom-ref") for e in imperative_tools],
         })
 
+    # v1.0.0: a live-probed tool the static config never named at all
+    # (`declaredInConfig == "False"`, set only by a real probe -- see
+    # probe.py's own docstring) -- a server advertising a tool the
+    # operator never configured is one of the strongest signals a live
+    # probe can produce, and used to be indistinguishable from an
+    # ordinary, expected tool. Only ever fires against a real, live-
+    # probed tool (`declaredInConfig` is never set at all for a
+    # name-only-stage tool), same "no false positive on data this stage
+    # doesn't have" discipline `mcp_tool_description_imperative` already
+    # follows.
+    undeclared_tools = [
+        e for e in tools
+        if _properties(e).get("harness-aibom:declaredInConfig") == "False"
+    ]
+    if undeclared_tools:
+        observations.append({
+            "rule": "mcp_tool_undeclared",
+            "severity": "medium",
+            "summary": f"{len(undeclared_tools)} live-probed tool(s) were never named in the static config -- "
+                       "the server is advertising more than the operator configured",
+            "components": [e.get("bom-ref") for e in undeclared_tools],
+        })
+
     observations.sort(key=lambda o: _SEVERITY_RANK.get(o["severity"], 99))
     return observations
 

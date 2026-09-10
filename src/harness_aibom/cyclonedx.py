@@ -380,7 +380,7 @@ def to_cyclonedx(doc: HarnessDocument, deterministic: bool = False, spec_version
         # This project's own document-contract version -- NOT the
         # CycloneDX wire-format specVersion below, see
         # HARNESS_CONTRACT_VERSION's own docstring for the distinction.
-        {"name": "harness-aibom:specVersion", "value": HARNESS_CONTRACT_VERSION},
+        {"name": "harness-aibom:contractVersion", "value": HARNESS_CONTRACT_VERSION},
     ]
     # Scan warnings used to reach only stderr, never the document itself
     # -- confirmed real: a reviewer found a scan that missed Ollama and

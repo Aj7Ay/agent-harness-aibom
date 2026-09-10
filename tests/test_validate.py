@@ -16,6 +16,26 @@ def test_missing_bom_format_is_flagged():
     assert any("bomFormat" in e for e in errors)
 
 
+# ---- v1.0.0: specVersion must be one of this project's supported values --
+
+
+def test_valid_spec_versions_are_not_flagged():
+    for version in ("1.6", "1.7"):
+        doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+        errors = validate_document(to_cyclonedx(doc, spec_version=version))
+        assert not any("specVersion" in e for e in errors)
+
+
+def test_unsupported_spec_version_is_flagged():
+    # Confirmed real gap: a real CycloneDX 1.7 schema validator puts no
+    # enum on specVersion at all, so it happily accepts a nonsense value
+    # here too -- this project's own validate() is the only place that
+    # can catch a declared/actual mismatch.
+    bad = {"bomFormat": "CycloneDX", "specVersion": "banana", "components": []}
+    errors = validate_document(bad)
+    assert any("specVersion" in e and "banana" in e for e in errors)
+
+
 def test_unknown_component_class_is_flagged():
     bad = {
         "bomFormat": "CycloneDX",

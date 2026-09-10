@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:170e90bf-1530-4d69-87fa-61ea2fa003d5",
+  "serialNumber": "urn:uuid:32fd5999-77a3-4ba7-9962-40c9892160c9",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.11.0"
+          "version": "1.0.0"
         }
       ]
     },
@@ -31,6 +31,10 @@
           "value": "Ajays-MacBook-Pro.local"
         },
         {
+          "name": "harness-aibom:contractVersion",
+          "value": "1"
+        },
+        {
           "name": "harness-aibom:warning",
           "value": "openclaw binary not found on PATH; runtime component skipped"
         },
@@ -48,7 +52,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-10T07:42:17+00:00"
+    "timestamp": "2026-09-10T10:49:56+00:00"
   },
   "components": [
     {

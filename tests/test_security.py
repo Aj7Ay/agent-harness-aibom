@@ -211,6 +211,52 @@ def test_probed_tool_without_imperative_description_is_not_flagged():
     assert "mcp_tool_description_imperative" not in rules
 
 
+def test_undeclared_probed_tool_is_flagged():
+    doc = _doc()
+    server = Component(component_class="mcp_server", name="srv")
+    doc.add(server, "uses")
+    tool = Component(component_class="tool", name="srv/ghost")
+    tool.set("server", "srv")
+    tool.set("definitionScope", "probed")
+    tool.set("declaredInConfig", False)
+    doc.add_child(tool, server, "uses")
+    bom = to_cyclonedx(doc)
+
+    rules = {o["rule"] for o in compute_risk_observations(bom)}
+    assert "mcp_tool_undeclared" in rules
+
+
+def test_declared_probed_tool_is_not_flagged_as_undeclared():
+    doc = _doc()
+    server = Component(component_class="mcp_server", name="srv")
+    doc.add(server, "uses")
+    tool = Component(component_class="tool", name="srv/search")
+    tool.set("server", "srv")
+    tool.set("definitionScope", "probed")
+    tool.set("declaredInConfig", True)
+    doc.add_child(tool, server, "uses")
+    bom = to_cyclonedx(doc)
+
+    rules = {o["rule"] for o in compute_risk_observations(bom)}
+    assert "mcp_tool_undeclared" not in rules
+
+
+def test_name_only_tool_never_flagged_as_undeclared():
+    # declaredInConfig is only ever set by a real probe -- a name-only
+    # stage tool must never false-positive here.
+    doc = _doc()
+    server = Component(component_class="mcp_server", name="srv")
+    doc.add(server, "uses")
+    tool = Component(component_class="tool", name="srv/search")
+    tool.set("server", "srv")
+    tool.set("definitionScope", "name-only")
+    doc.add_child(tool, server, "uses")
+    bom = to_cyclonedx(doc)
+
+    rules = {o["rule"] for o in compute_risk_observations(bom)}
+    assert "mcp_tool_undeclared" not in rules
+
+
 def test_unpinned_mcp_launcher_package_is_flagged():
     doc = _doc()
     dep = Component(component_class="dependency", name="some-pkg")  # no .version

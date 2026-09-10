@@ -51,14 +51,14 @@ def test_supported_spec_versions_are_exactly_1_6_and_1_7():
 
 
 def test_root_carries_this_projects_own_contract_version_independent_of_cyclonedx_specversion():
-    # harness-aibom:specVersion is THIS project's own data-contract version
+    # harness-aibom:contractVersion is THIS project's own data-contract version
     # (SPEC.md) -- must never move just because the CycloneDX wire-format
     # specVersion above was switched to 1.7; the two are independent axes.
     bom_1_6 = to_cyclonedx(build_doc(), spec_version="1.6")
     bom_1_7 = to_cyclonedx(build_doc(), spec_version="1.7")
     for bom in (bom_1_6, bom_1_7):
         props = {p["name"]: p["value"] for p in bom["metadata"]["component"]["properties"]}
-        assert props["harness-aibom:specVersion"] == HARNESS_CONTRACT_VERSION == "1"
+        assert props["harness-aibom:contractVersion"] == HARNESS_CONTRACT_VERSION == "1"
     assert bom_1_6["specVersion"] != bom_1_7["specVersion"]
 
 

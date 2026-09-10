@@ -412,13 +412,13 @@ def test_metadata_section_shows_bom_format_and_spec_version():
 
 
 def test_metadata_section_shows_the_projects_own_contract_version_separately_from_cyclonedx_specversion():
-    # v1.0.0: harness-aibom:specVersion (this project's own data contract)
+    # v1.0.0: harness-aibom:contractVersion (this project's own data contract)
     # is a separate axis from CycloneDX's own specVersion -- both shown
     # in the metadata section so a reader never conflates the two.
     bom = _doc_with_everything()
     html_text = render_html(bom)
     metadata_section = html_text.split('id="metadata"')[1].split('id="external-references"')[0]
-    assert "harness-aibom:specVersion" in metadata_section
+    assert "harness-aibom:contractVersion" in metadata_section
 
 
 def test_external_references_vulnerabilities_compositions_have_honest_empty_states():

@@ -253,6 +253,16 @@ def apply_mcp_probing(doc: HarnessDocument, timeout: float) -> None:
             hashes = _tool_hashes(live_tool)
 
             existing = existing_tools.get(full_name)
+            # v1.0.0: whether the static config actually named this tool
+            # is itself a real, security-relevant signal -- a server
+            # advertising a tool the operator never configured is one of
+            # the strongest things a live probe can surface, and it used
+            # to be indistinguishable from an ordinary, expected tool.
+            # `declaredInConfig` is recorded explicitly either way (never
+            # only on the interesting case), so its *absence* still means
+            # exactly one thing: this tool was never live-probed at all,
+            # not "presumed declared".
+            declared_in_config = existing is not None
             if existing is None:
                 existing = Component(component_class="tool", name=full_name)
                 existing.set("server", server.name)
@@ -260,6 +270,7 @@ def apply_mcp_probing(doc: HarnessDocument, timeout: float) -> None:
                 doc.add_child(existing, server, "uses")
 
             existing.set("definitionScope", "probed")
+            existing.set("declaredInConfig", declared_in_config)
             for key, value in hashes.items():
                 existing.set(key, value)
 

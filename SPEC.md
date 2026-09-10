@@ -2910,6 +2910,21 @@ keeps out of scope); legacy SSE-framed transport; sending any credential
 (see above); `tools/call` (this is read-only discovery, never invocation
 -- calling a tool has side effects this scanner has no business causing).
 
+**`declaredInConfig` and `mcp_tool_undeclared` (added during the v1.0.0
+rc period, real gap a reviewer found testing against a live probe).** A
+tool a live server actually lists is added/updated by `apply_mcp_probing()`
+regardless of whether the static config's own `tools:` list ever named
+it (see "ground truth over static config" above) -- but until this fix,
+that undeclared case was recorded with the exact same properties as an
+ordinary, expected, already-configured tool. A server advertising a tool
+the operator never configured is one of the strongest signals a live
+probe can produce, and it was silently indistinguishable from the normal
+case. `declaredInConfig` (true/false) is now set explicitly on every
+`probed` tool either way -- never left unset just because it's the
+unremarkable case, so its *absence* still means exactly one thing: this
+tool was never live-probed at all. `mcp_tool_undeclared` (security.py,
+severity medium) fires on the false case.
+
 ## 32. The CycloneDX contract and deprecation policy (v1.0.0)
 
 The last of the pre-1.0 decisions this project had left open: which real
@@ -2951,7 +2966,7 @@ project's own `DEFAULT_SPEC_VERSION` will only ever change alongside a
 major version bump and its own release-note headline, exactly so that
 never happens to anyone depending on this tool's default output shape.
 
-**`harness-aibom:specVersion` (root property, value `"1"` as of this
+**`harness-aibom:contractVersion` (root property, value `"1"` as of this
 release) is a SEPARATE axis from CycloneDX's own `specVersion`.** The
 latter (`bom.specVersion`, `"1.6"`/`"1.7"`) is the CycloneDX *wire
 format* this document is serialized as. The former
@@ -2961,12 +2976,18 @@ the componentClass taxonomy documented throughout this file -- versioned
 entirely independently. The two can move on completely different
 schedules: a future release could adopt CycloneDX 2.0 (bumping
 `specVersion`) while this project's own property meanings stay
-byte-identical (`harness-aibom:specVersion` unchanged), or this project
+byte-identical (`harness-aibom:contractVersion` unchanged), or this project
 could rename/retire a `harness-aibom:` property (bumping
-`harness-aibom:specVersion`) while still emitting plain CycloneDX 1.6. A
+`harness-aibom:contractVersion`) while still emitting plain CycloneDX 1.6. A
 consumer parsing both fields always knows exactly which promise changed.
 "1" means: as of v1.0.0, this project's own property/taxonomy contract is
 considered stable -- see the deprecation policy below for what "stable"
+means. (Named `contractVersion`, not `specVersion` -- an rc1 draft of
+this exact property briefly used the latter name and a reviewer caught
+it before the freeze: `specVersion` reads as CycloneDX's own field,
+right next to it in the same properties list, which is exactly the
+ambiguity this property exists to prevent. Caught and fixed inside the
+rc period, which is what an rc period is for.)
 actually commits to.
 
 **The native-slot question, closed for v1.0.0: the property namespace
@@ -2999,15 +3020,26 @@ native CycloneDX field populated) can land in any release, same as
 always. A *breaking* change to this project's own contract --
 renaming or removing a `harness-aibom:*` property, changing what an
 existing componentClass means, changing `DEFAULT_SPEC_VERSION` -- requires
-a `harness-aibom:specVersion` bump and is called out by name in that
+a `harness-aibom:contractVersion` bump and is called out by name in that
 release's own notes; as of v1.0.0 this also means a major version bump
 of the package itself (the pre-1.0 line never made that promise, and
 didn't claim to).
 
+**`validate` cross-checks `specVersion` against `SUPPORTED_SPEC_VERSIONS`
+(added during the rc period, real gap a reviewer found).** The real
+CycloneDX 1.7 schema puts no `enum` on its own `specVersion` field, so a
+document declaring `specVersion: "banana"` (or, more realistically, a
+stale/typo'd value) validates cleanly against a generic schema validator
+-- "schema-valid" says nothing about whether the *declared* version is
+even one this project supports. No external validator can catch that
+mismatch; `validate_document()` (validate.py) now does, checking the
+declared value against the exact same `SUPPORTED_SPEC_VERSIONS` tuple
+`to_cyclonedx()` itself enforces, so the two can never drift apart.
+
 **Where this leaves the pre-1.0 checklist:** all four items now have a
 real answer. `--spec-version` (this section) closes the CycloneDX-target
 question; the native-slot question is closed above; the
-`harness-aibom:specVersion` root property (this section) versions this
+`harness-aibom:contractVersion` root property (this section) versions this
 project's own contract independently of CycloneDX's; this section itself
 is the contract/deprecation policy write-up. v1.0.0 ships as an RC first
 (`1.0.0rc1`, a real PEP 440 pre-release -- `pip install agent-harness-aibom`

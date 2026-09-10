@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 
+from .cyclonedx import SUPPORTED_SPEC_VERSIONS
 from .model import CDX_TYPE_FOR_CLASS, SERVICE_CLASSES
 
 REQUIRED_TOP_LEVEL = ("bomFormat", "specVersion", "components")
@@ -103,6 +104,20 @@ def validate_document(data: dict) -> list[str]:
 
     if "bomFormat" in data and data["bomFormat"] != "CycloneDX":
         errors.append(f"bomFormat must be 'CycloneDX', got {data['bomFormat']!r}")
+
+    # v1.0.0: confirmed real gap -- a real CycloneDX schema validator
+    # (test_cyclonedx_schema.py) accepts a document declaring specVersion
+    # "1.6" just as happily as one declaring "1.7": the 1.7 schema puts no
+    # `enum` on `specVersion` at all, so "validates against the 1.7
+    # schema" says nothing about whether the DECLARED version is even one
+    # this project actually supports (or a typo'd/nonsense value like
+    # "banana"). No external validator catches that mismatch -- this
+    # project's own `validate` is the only place that can, so it does.
+    if "specVersion" in data and data["specVersion"] not in SUPPORTED_SPEC_VERSIONS:
+        errors.append(
+            f"specVersion {data['specVersion']!r} is not one of this project's supported versions "
+            f"{SUPPORTED_SPEC_VERSIONS} (see `scan --spec-version` / SPEC.md's contract/deprecation policy)"
+        )
 
     for i, comp in enumerate(data.get("components", [])):
         label = f"components[{i}] ({comp.get('name')!r})"

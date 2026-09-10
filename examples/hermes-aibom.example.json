@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:af67be45-37d8-415e-a669-6380bd9cf3de",
+  "serialNumber": "urn:uuid:aaae4af7-fd1c-4b3b-8f1b-7d0426171d8e",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.11.0"
+          "version": "1.0.0"
         }
       ]
     },
@@ -29,6 +29,10 @@
         {
           "name": "harness-aibom:hostname",
           "value": "Ajays-MacBook-Pro.local"
+        },
+        {
+          "name": "harness-aibom:contractVersion",
+          "value": "1"
         },
         {
           "name": "harness-aibom:warning",
@@ -60,7 +64,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-10T07:42:16+00:00"
+    "timestamp": "2026-09-10T10:49:56+00:00"
   },
   "components": [
     {

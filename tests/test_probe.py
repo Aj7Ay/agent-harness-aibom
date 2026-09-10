@@ -290,6 +290,10 @@ def test_apply_mcp_probing_pins_an_already_declared_tool():
     [tool] = [c for c in doc.components if c.component_class == "tool"]
     assert tool.properties["definitionScope"] == "probed"
     assert tool.properties["descriptionLength"] == str(len("Search docs"))
+    # v1.0.0: a tool the static config already named is confirmed
+    # declared, explicitly -- never left unset just because it's the
+    # unremarkable case.
+    assert tool.properties["declaredInConfig"] == "True"
 
 
 def test_apply_mcp_probing_adds_a_live_tool_the_static_config_never_declared():
@@ -307,6 +311,7 @@ def test_apply_mcp_probing_adds_a_live_tool_the_static_config_never_declared():
     assert len(tools) == 1
     assert tools[0].name == "docs-server/undeclared_tool"
     assert tools[0].properties["definitionScope"] == "probed"
+    assert tools[0].properties["declaredInConfig"] == "False"
 
 
 def test_apply_mcp_probing_never_removes_a_tool_the_live_server_did_not_list():
