@@ -220,3 +220,50 @@ def test_dependency_graph_has_no_dangling_references():
         assert dep["ref"] in all_refs
         for target in dep["dependsOn"]:
             assert target in all_refs
+
+
+# ---- declarations (v0.9.0, self-assessed coverage claims) ----------------
+
+
+def test_declarations_absent_when_no_claimable_category_has_any_entries():
+    # build_doc() has only a `model` component *without* a digest -- wait,
+    # build_doc() sets one, so use a genuinely empty document instead.
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    bom = to_cyclonedx(doc)
+    assert "declarations" not in bom
+
+
+def test_declarations_present_with_a_real_computed_ratio():
+    bom = to_cyclonedx(build_doc())  # one `model` component, digest set
+    decl = bom["declarations"]
+    assert decl["assessors"][0]["thirdParty"] is False
+    predicates = [c["predicate"] for c in decl["claims"]]
+    assert any("1 of 1 discovered model(s) carry a real content digest" in p for p in predicates)
+    # every claim references real evidence, not a bare assertion
+    for claim in decl["claims"]:
+        assert claim["evidence"], f"claim {claim['bom-ref']} has no evidence[]"
+        assert claim["evidence"][0] in {e["bom-ref"] for e in decl["evidence"]}
+
+
+def test_declarations_skip_a_category_with_zero_entries_rather_than_claim_0_of_0():
+    bom = to_cyclonedx(build_doc())  # no skills, no mcp_servers, no dependencies at all
+    decl = bom["declarations"]
+    predicates = " ".join(c["predicate"] for c in decl["claims"])
+    assert "skill" not in predicates
+    assert "MCP server" not in predicates
+    assert "dependency component" not in predicates
+
+
+def test_declarations_reflect_a_missing_digest_honestly():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    doc.add(Component(component_class="model", name="qwen3:8b"), "uses")  # no digest set
+    bom = to_cyclonedx(doc)
+    predicates = [c["predicate"] for c in bom["declarations"]["claims"]]
+    assert any("0 of 1 discovered model(s)" in p for p in predicates)
+
+
+def test_declarations_never_claim_compliance_or_pass_fail_language():
+    bom = to_cyclonedx(build_doc())
+    text = str(bom["declarations"]).lower()
+    for banned in ("compliant", "certified", "passed", "audit passed"):
+        assert banned not in text

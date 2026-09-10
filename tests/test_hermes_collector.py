@@ -47,8 +47,16 @@ def fake_fetch(url):
     return TAGS_RESPONSE
 
 
+def fake_show_fetch(base_url, model_name):
+    # Never a real network call in this suite (see test_ollama.py for
+    # dedicated /api/show enrichment tests) -- "nothing available" is a
+    # real, honest response shape too (an older Ollama, or one that
+    # doesn't implement /api/show).
+    raise ConnectionError("no /api/show enrichment in this fixture")
+
+
 def collect() -> HarnessDocument:
-    collector = HermesCollector(home=FIXTURE_HOME, run=fake_run, fetch=fake_fetch)
+    collector = HermesCollector(home=FIXTURE_HOME, run=fake_run, fetch=fake_fetch, show_fetch=fake_show_fetch)
     assert collector.is_present()
     doc = HarnessDocument(harness_name="hermes@test", runtime_kind="hermes", hostname="test")
     collector.collect(doc)

@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:2183ddec-b021-435a-b974-2bf4a426cd89",
+  "serialNumber": "urn:uuid:fadb5f78-79ea-4038-b886-0f271384bb71",
   "version": 1,
   "metadata": {
     "tools": {
@@ -48,7 +48,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-09T22:35:21+00:00"
+    "timestamp": "2026-09-10T00:12:55+00:00"
   },
   "components": [
     {
@@ -68,7 +68,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a3b79b8822d056259/tests/fixtures/openclaw_home/.openclaw/openclaw.json"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/openclaw.json"
         },
         {
           "name": "harness-aibom:relPath",
@@ -115,7 +115,7 @@
         },
         {
           "name": "harness-aibom:path",
-          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/.claude/worktrees/agent-a3b79b8822d056259/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite"
+          "value": "/Users/ajay/Aj-2.0/aibom-agent-harness/tests/fixtures/openclaw_home/.openclaw/agents/main/agent/openclaw-agent.sqlite"
         },
         {
           "name": "harness-aibom:relPath",
@@ -166,6 +166,10 @@
           "value": "http"
         },
         {
+          "name": "harness-aibom:transportConfidence",
+          "value": "inferred"
+        },
+        {
           "name": "harness-aibom:endpoint",
           "value": "http://127.0.0.1:9001"
         },
@@ -201,5 +205,48 @@
         "model:qwen3-8b"
       ]
     }
-  ]
+  ],
+  "declarations": {
+    "assessors": [
+      {
+        "bom-ref": "declaration-assessor:agent-harness-aibom",
+        "thirdParty": false,
+        "organization": {
+          "name": "agent-harness-aibom (self-assessment, not a third-party audit)"
+        }
+      }
+    ],
+    "claims": [
+      {
+        "bom-ref": "declaration-claim:mcp-auth-posture-recorded",
+        "target": "harness-root",
+        "predicate": "1 of 1 discovered MCP server(s) have harness-aibom:authConfigured explicitly recorded.",
+        "reasoning": "collectors/mcp.py sets authConfigured (true or false) for every mcp_server entry it extracts from a harness's own config file -- a missing value here would mean this scanner's own extraction code didn't run for that entry, not that auth posture is merely unknown.",
+        "evidence": [
+          "declaration-evidence:mcp-auth-posture-recorded"
+        ]
+      },
+      {
+        "bom-ref": "declaration-claim:model-digest-provenance",
+        "target": "harness-root",
+        "predicate": "0 of 1 discovered model(s) carry a real content digest (harness-aibom:digest) from Ollama's own manifest, not just a tag/name.",
+        "reasoning": "digest is taken verbatim from Ollama's GET /api/tags response for every model this scanner finds -- never recomputed or guessed (SPEC.md section 3). A model missing one means Ollama's own API response didn't include a digest for that entry, not that this scanner failed to look.",
+        "evidence": [
+          "declaration-evidence:model-digest-provenance"
+        ]
+      }
+    ],
+    "evidence": [
+      {
+        "bom-ref": "declaration-evidence:mcp-auth-posture-recorded",
+        "propertyName": "harness-aibom:coverageEvidence",
+        "description": "collectors/mcp.py sets authConfigured (true or false) for every mcp_server entry it extracts from a harness's own config file -- a missing value here would mean this scanner's own extraction code didn't run for that entry, not that auth posture is merely unknown."
+      },
+      {
+        "bom-ref": "declaration-evidence:model-digest-provenance",
+        "propertyName": "harness-aibom:coverageEvidence",
+        "description": "digest is taken verbatim from Ollama's GET /api/tags response for every model this scanner finds -- never recomputed or guessed (SPEC.md section 3). A model missing one means Ollama's own API response didn't include a digest for that entry, not that this scanner failed to look."
+      }
+    ]
+  }
 }

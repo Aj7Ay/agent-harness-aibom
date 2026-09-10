@@ -499,7 +499,7 @@ dependency graph. That's a real remaining gap, not claimed otherwise.
 | `componentClass` | CDX `type` | Key properties | Source |
 |---|---|---|---|
 | `runtime` | `application` | `version`, `installDir`, `installMethod`, `upstreamHash`, `pythonVersion`, `sdkVersion` | `hermes --version` / `openclaw --version` |
-| `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest`, `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx` | Ollama `GET /api/tags`, cross-referenced against the configured default model |
+| `model` | `machine-learning-model` (native CDX ML-BOM type) | `digest` (`digestConfidence: "observed"` alongside it -- v0.9.0, §20), `sizeBytes`, `modifiedAt`, `family`, `parameterSize`, `quantizationLevel`, `contextLength`, `thinking`, `ollamaNumCtx`; `promptTemplate`, `declaredParameters`, `capabilities`, `parentModel`, `modelfileFormat`, `architecture` (v0.9.0, §22 -- opportunistic, from `POST /api/show`, only when this scanner's own real, fetched-and-verified field names are present in the response) | Ollama `GET /api/tags`, cross-referenced against the configured default model; `POST /api/show` (v0.9.0, optional, §22) |
 | `configuration` | `file` | `path`, `relPath` (path relative to `--home`; see §4), `sha256` | `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json` |
 | `skill` | `library` | `path`, `relPath`, `category` (if nested), `sha256` (of the whole skill directory), `description` (`descriptionSource`: `"frontmatter"` when a real `description:` field won, `"heading"` when it fell back to the first markdown heading -- v0.8.2); `referencedServers`/`urls`/`shellIndicators`/`envVarReferences` (v0.6.0, opportunistic -- only set when `analyze_skill_content()` actually finds something; a *text mention* in the skill's own `SKILL.md` prose, never confirmation the skill invokes it at runtime -- see §13); `frontmatterName`/`license`/`allowedTools` (v0.8.2, opportunistic -- only set when the SKILL.md's own `---`-delimited YAML frontmatter declares them; `frontmatterName` is informational only, `comp.name` itself stays directory-derived, the real bom-ref/diff identity) | `~/.hermes/skills/<category>/<name>/SKILL.md`, any depth |
 | `hook` | `file` | `approvalStatus`, `approvedAt`, `rawLine`, `contentChangedSinceApproval` (bool, from the "since approval" status line, checked unconditionally regardless of marker or repeated script name), `path`/`relPath`/`sha256`/`mode`/`symlink` (opportunistic, same `path`/`relPath`/`sha256` names as `configuration`/`skill` — set only when a guessed file location happens to exist, never resolved against the current working directory; absence means "not found," not "no script"), `pathOutsideHome` (bool, driven off the resolved location, so a symlink escaping `--home` is caught too, not just a literally-absolute captured path) | `hermes hooks doctor` (best-effort text parse, see §5) |
@@ -1932,3 +1932,498 @@ never changes PASS/FAIL or the exit code in baseline mode, exactly as
 before. Two new regression tests in `test_cli.py` cover the marker
 appearing (baseline == current) and NOT appearing at all outside
 `--baseline` mode.
+## 18. Vulnerability/VEX integration via OSV.dev (v0.9.0)
+
+The first of the 33-item wishlist's remaining "no real data source yet"
+items to actually get one. **OSV.dev** (https://osv.dev) is a real,
+free, public, no-auth API -- confirmed directly, not assumed, before
+writing a line of `vex.py`:
+
+```
+POST https://api.osv.dev/v1/query
+{"package": {"purl": "pkg:pypi/pyyaml@5.3"}}
+```
+
+returned a real record for PyYAML's actual 2020 arbitrary-code-execution
+advisory (`GHSA-6757-jp84-gxfx` / `CVE-2020-1747`), with exactly the
+shape `vex.py`'s module docstring quotes in full; the same query against
+`pkg:pypi/requests@2.34.2` (the real latest release as of this writing)
+returned a bare `{}` -- confirmed the "clean" and "nothing found" cases
+are the same shape (an absent/empty `vulns` list), not two different
+ones. `https://osv.dev/vulnerability/<id>` was also confirmed live
+(HTTP 200) before being used as this module's `vulnerability.source.url`.
+
+**Deliberately a separate, opt-in step, never part of `scan`.** `scan`
+reads the filesystem and local subprocesses/HTTP only -- adding a
+mandatory call to a third-party internet API there would be a real,
+undocumented change to what "just run `scan`" does and would break
+`scan`'s own byte-identical `--deterministic` promise (§10) the moment
+OSV's own database changes between two scans of the same, unchanged
+box. Instead: `harness-aibom scan-vulns aibom.json -o aibom-with-vulns.json`
+(`cli.py`'s `_run_scan_vulns`, `vex.py`'s `enrich_bom_with_vulnerabilities()`)
+takes an already-produced document and queries OSV.dev for every
+component that carries a native CycloneDX `purl` field -- today, only
+this project's `dependency` components (cyclonedx.py) actually do.
+
+**Never a fabricated "0 vulnerabilities found."** The exact same
+"checked vs. not collected" discipline `security.py`'s
+`COLLECTIBLE_CLASSES`/`NOT_YET_COLLECTED` already applies to whole
+componentClasses is applied here per-component instead: every component
+`scan-vulns` actually queries gets a `harness-aibom:vulnCheck` property,
+`"checked"` (query succeeded, whether or not it found anything) or
+`"failed"` (the OSV query itself errored -- network down, timeout,
+malformed response). A component with neither property was never
+queried at all (no `purl` to check). `report.py`'s Vulnerabilities
+section reads this property back, never re-derives it, so the three
+real states -- never checked / checked, clean / checked, vulnerable --
+can never be confused with each other, and a check that failed can
+never silently render as a clean scan. One bad or unreachable purl never
+aborts the whole enrichment (`vex.py` catches per-purl, continues with
+the rest) -- the same "missing pieces are never fatal" discipline `scan`
+itself already follows for a missing `hermes` binary or unreachable
+Ollama, just applied to a new failure mode.
+
+**Real CycloneDX 1.6 `vulnerabilities[]`, not a bespoke shape.** The
+exact field names and enums (`id`, `source`, `ratings[].method`'s closed
+enum, `cwes[]` as bare positive integers -- not OSV's own `"CWE-20"`
+string form, `affects[].ref`) were read directly out of this project's
+own vendored schema dependency
+(`cyclonedx.schema._res.bom-1.6.SNAPSHOT.schema.json`, the same one
+`test_cyclonedx_schema.py` already validates every other document
+against), not guessed from memory. `test_vex.py` includes a dedicated
+test that runs a real enriched document through the same
+`JsonStrictValidator` `test_cyclonedx_schema.py` uses, confirming the
+new array is actually schema-valid, not just plausible-looking. CVSS
+scores are recorded as OSV's own vector string (`rating.vector`) plus
+its qualitative `database_specific.severity` label, mapped onto
+CycloneDX's own `critical`/`high`/`medium`/`low` enum -- deliberately
+**never** a numeric score computed from the vector by this project
+itself, which would mean re-implementing the CVSS scoring formula and
+risking getting it subtly wrong (the same reasoning `sign.py` never
+re-implements signature verification, SPEC.md §16).
+
+**`report.py`'s Vulnerabilities section**, previously a permanent
+"not collected by this scanner" stub, now renders real entries --
+severity-sorted (reusing the existing `risk-badge`/`sev-*` CSS classes,
+never a new, undifferentiated color scheme), each with a link to the
+real `osv.dev/vulnerability/<id>` page, its CVSS vector, and a button
+per affected component that opens that component's own Component
+Inspector (`data-inspect`, the same delegated click-handling `openInspector()`
+already uses -- no new JS wiring needed, since the handler is already
+bound on `document` for any element carrying that attribute anywhere on
+the page, not just inside a rendered `.entry`). Absent any
+`vulnerabilities[]` data, the section says plainly that vulnerability
+data has never been checked for this document and names the command
+that would check it -- never a bare, misleadingly-clean "0" or the
+previous stub wording that no longer distinguishes "not collected" from
+"checked, none found."
+
+**Regression tests** (`tests/test_vex.py`, 11 cases; `tests/test_cli.py`,
+4 new `scan-vulns` cases; `tests/test_report.py`, 4 new Vulnerabilities-
+section cases) all inject a fake `query`/`default_query` -- the one real
+network call against the live OSV.dev API was made manually during
+development (see the exact requests and responses quoted above and in
+`vex.py`'s own docstring), never repeated automatically in CI or this
+test suite.
+
+## 19. CycloneDX declarations -- self-assessed coverage claims (v0.9.0)
+
+CycloneDX 1.6 added a top-level `declarations` block (assessors, claims,
+evidence, attestations) for "conformance to standards" -- confirmed
+directly from this project's own vendored schema dependency
+(`cyclonedx.schema._res.bom-1.6.SNAPSHOT.schema.json`, the same one
+`test_cyclonedx_schema.py` already validates every document against),
+not guessed from the spec's prose. Nothing in `declarations` is
+required, so a small, honest subset was picked: `assessors[]`,
+`claims[]`, `evidence[]`. `attestations[]`/`targets`/`affirmation` are
+deliberately **not** used -- `attestations[].map[].requirement`
+references a `requirement` bom-ref, and CycloneDX 1.6's own schema has
+no `requirements[]` array anywhere in `declarations` for one to point
+at (confirmed by reading the full `declarations` property list:
+`assessors`, `attestations`, `claims`, `evidence`, `targets`,
+`affirmation`, `signature` -- no `requirements`). Building a formal
+requirement-to-claim map with no real requirement catalog to reference
+would mean inventing control IDs, exactly what this project's whole
+discipline forbids -- so this scanner emits bare `claims[]` with
+`reasoning`/`evidence` instead, and stops there.
+
+**Four real, narrow, computed ratios** (`cyclonedx.py`'s
+`_DECLARATION_CLAIMS`), each a `len()` over entries already in the
+document being serialized -- nothing invented, nothing estimated:
+
+- skill-fingerprint-coverage -- N of N `skill` components carry a
+  native `hashes[]` entry.
+- mcp-auth-posture-recorded -- N of N `mcp_server` services have
+  `harness-aibom:authConfigured` explicitly recorded.
+- model-digest-provenance -- N of N `model` components carry a real
+  Ollama-sourced `harness-aibom:digest`.
+- dependency-purl-coverage -- N of N `dependency` components carry a
+  native `purl`.
+
+Each claim's `reasoning` names the exact collector behavior the ratio
+depends on (e.g. "a skill missing a hash here means the whole skill
+directory was unreadable, never that hashing was skipped"), and links
+to a real `evidence[]` entry via `claims[].evidence` -- never a bare
+assertion with nothing backing it. **A category with zero entries in
+this document is skipped entirely**, never emitted as "0 of 0" -- that
+would read as a vacuous 100% rather than "not applicable to this scan".
+`declarations` itself is omitted from the whole document when every
+category is empty (an empty harness scan has nothing honest to
+self-assess). `assessors[0].thirdParty` is always `false` and its
+organization name says "self-assessment, not a third-party audit"
+outright, both in the raw JSON and in `report.py`'s new Declarations
+section -- this is deliberately never phrased as "compliant",
+"certified", or "passed" anywhere (confirmed by a dedicated regression
+test that greps the rendered claim text for those words).
+
+`report.py`'s Declarations section renders each claim's predicate and
+reasoning; `tests/test_cyclonedx_schema.py` confirms a real document
+carrying this block still validates against the actual vendored
+CycloneDX 1.6 schema, not just a plausible-looking shape.
+
+**Deliberately not attempted here**: `attestations[]` (needs a real
+requirement catalog CycloneDX 1.6 itself doesn't provide a slot for),
+`affirmation`/signed signatories (needs a real human signatory, not
+something a scanner can assert on anyone's behalf), and any claim
+broader than the four ratios above -- e.g. no claim about `tool`
+riskClass accuracy, secrets-surface completeness, or anything else this
+scanner doesn't already compute a precise ratio for.
+
+## 20. Compliance evidence mapping (v0.9.0) -- three frameworks, real IDs, never a certification claim
+
+The highest-risk item on the wishlist -- overclaiming compliance is
+worse than not attempting it -- so every control/technique ID in
+`compliance.py` was fetched from each framework's own real, currently
+published, canonical source before a single mapping was written down,
+never recalled from memory or guessed:
+
+- **NIST AI RMF 1.0**: fetched the real Playbook pages
+  (`airc.nist.gov/AI_RMF_Knowledge_Base/Playbook/{Govern,Map,Measure}`)
+  and confirmed real category IDs and verbatim titles -- `GOVERN 1.6`
+  ("Mechanisms are in place to inventory AI systems..."), `GOVERN 6.1`
+  (third-party AI risk policies), `MAP 4.1` (mapping third-party
+  component risks), `MEASURE 2.7` (security and resilience evaluated
+  and documented, explicitly including third-party security audits).
+- **OWASP Top 10 for LLM Applications (2025)**: fetched the real,
+  official list at `genai.owasp.org/llm-top-10/` -- confirmed
+  `LLM03:2025` (Supply Chain), `LLM06:2025` (Excessive Agency),
+  `LLM02:2025` (Sensitive Information Disclosure) verbatim.
+- **MITRE ATLAS**: fetched the real, canonical data source
+  (`github.com/mitre-atlas/atlas-data`'s `ATLAS.yaml` -- the same data
+  ATLAS's own website is built from) -- confirmed real tactic/technique
+  IDs `AML.T0010` (AI Supply Chain Compromise), `AML.T0055` (Unsecured
+  Credentials), `AML.T0007` (Discover AI Artifacts).
+
+**Frameworks deliberately skipped, not guessed at**: ISO/IEC 42001's
+actual clause text is paywalled by ISO -- mapping to it here would mean
+either guessing clause numbers from secondary summaries or buying the
+standard, neither of which meets this project's "verify against a real,
+fetched, canonical source" bar (the same one `test_cyclonedx_schema.py`
+and `test_sarif.py` already hold this project's own output to). SLSA is
+a build-provenance framework about how software is *built*; this
+scanner reads an already-deployed harness's filesystem/config, so SLSA's
+levels have no meaningful evidence source here without inventing one.
+Both are named and explained, not silently dropped.
+
+**Every mapping's status is one of exactly three words** -- "evidence
+collected" / "partial evidence" / "not assessed" -- **never**
+"compliant", "certified", or "pass"/"fail" (a dedicated regression test,
+`test_no_mapping_ever_uses_compliance_or_pass_fail_language`, greps the
+rendered output for those words). Each mapping's `ceiling` (the most
+this scanner could ever honestly claim for that control, chosen once
+per mapping, never per-document) is downgraded to "not assessed"
+whenever the specific document being evaluated has zero relevant
+entries -- a claim is never shown about evidence that doesn't actually
+exist in front of the reader. Every mapping also carries a `rationale`
+naming the exact componentClass/property/risk-rule the evidence comes
+from, and an `evidenceCount` -- a real `len()` over the document, not
+an estimate.
+
+**Two ways to see it**: `harness-aibom compliance aibom.json --framework
+nist-ai-rmf` (text or `--format json`), and an unconditional "Compliance
+evidence mapping" section in `report.py` showing all three frameworks
+at once (cheap, since every mapping is a pure function over data already
+in the document) -- both labeled, in the exact same words, as evidence
+mapping rather than a certification.
+
+## 21. Confidence tagging: formalizing an already-documented observed/inferred distinction (v0.9.0)
+
+Deliberately **not** a universal per-relationship confidence model
+across every collector -- that was correctly identified in SPEC.md
+section 16 as too invasive to retrofit safely in one pass, and remains
+so. What v0.9.0 actually does is narrower: three places in this
+codebase already say, in prose, that one specific fact is a text
+mention or a guess rather than a directly confirmed one -- this release
+turns exactly those three, and only those three, into a real, queryable
+`harness-aibom:` property, without inventing a new ambiguity anywhere
+else.
+
+- **`skills.py`'s `analyze_skill_content()` output**
+  (`referencedServers`/`urls`/`shellIndicators`/`envVarReferences`) --
+  already documented since v0.6.0 as "a text mention... never
+  confirmation the skill actually invokes it at runtime". Now also
+  carries `harness-aibom:contentAnalysisConfidence: "inferred"` on the
+  skill component, set only when at least one of those four fields
+  actually found something (never fabricated for a skill whose analysis
+  came back empty -- there's no inferred fact to tag).
+- **The same skill's own `sha256`** -- contrasted directly on the same
+  component with `harness-aibom:sha256Confidence: "observed"` (this
+  scanner hashed the directory's real bytes itself). Always set
+  alongside a real hash -- `skill_dir` is guaranteed to be a real,
+  existing directory at this point (its own `SKILL.md` was just found
+  inside it), so this is never conditional.
+- **A model's own digest** (`collectors/ollama.py`) -- SPEC.md section 3
+  already states this is "taken verbatim from Ollama's own manifest
+  digest, never recomputed". Now carries
+  `harness-aibom:digestConfidence: "observed"`, set only when Ollama's
+  own response actually included a digest (never fabricated for a model
+  entry with none).
+- **An MCP server's own transport** (`collectors/mcp.py`) -- a real,
+  second instance of the same distinction, found while implementing
+  this feature rather than pre-existing in a comment: a config entry
+  that explicitly declares its own `transport` key is a directly
+  *observed* fact (read verbatim); the common case -- deriving it from
+  whether `url`/`command` is present, because most real configs don't
+  bother declaring it -- is genuinely *inferred*. Both cases now carry
+  `harness-aibom:transportConfidence` (`"observed"` or `"inferred"`
+  respectively), instead of the two cases being indistinguishable in the
+  document the way they were before this release.
+
+**Deliberately not tagged**: everything else. `path`/`category`/
+`command`/`args`/`endpoint`/etc. were never ambiguous in the first
+place -- this scanner either read them directly off disk/config or
+didn't record them at all -- so tagging them would manufacture a
+distinction that doesn't exist, exactly what this section's own
+introduction (and SPEC.md section 16) warns against. This unblocks §22
+(evidence chains) narrowly, for exactly the case now tagged here.
+
+## 22. Evidence chains in the Component Inspector (v0.9.0, built on §21)
+
+A rendering feature over data that already exists as of §21 -- explicitly
+**not** a generic evidence-chain engine over every property this scanner
+records, since most properties have no real confidence/provenance data
+behind them to chain in the first place. Scoped to exactly the two
+confidence-tagged fact groups §21 introduced:
+
+- For a skill with `harness-aibom:contentAnalysisConfidence: "inferred"`,
+  one evidence-chain row per actual value in `referencedServers`/`urls`/
+  `shellIndicators`/`envVarReferences` -- the exact rule that produced it
+  (named plainly, e.g. "analyze_skill_content() found this MCP server
+  name mentioned in the skill's own SKILL.md prose"), the specific
+  triggering value itself, and an `INFERRED` badge.
+- For the same skill's `harness-aibom:sha256Confidence: "observed"`, one
+  row naming `fingerprint.py`'s `sha256_directory()` and the actual hash
+  value, with an `OBSERVED` badge -- so a reader sees the contrast
+  directly, on the same component, not just in two different places in
+  the spec.
+
+**Implemented as markup on the entry itself (`_render_evidence_chain()`,
+`report.py`), not a second client-side render path** -- the same "reuse,
+don't re-derive" principle the Component Inspector itself was built on
+in v0.8.0 (SPEC.md §15): `openInspector()` clones an already-rendered
+`.entry` element's DOM into the modal, so the evidence chain `<details>`
+block needs zero new JavaScript to appear there. **Confirmed with real
+dispatched browser events** (headless Chrome, driven directly over the
+DevTools Protocol -- `MouseEvent` dispatched via `dispatchEvent()` on the
+real Inspect `<button>`, never a direct call into `openInspector()`):
+the cloned modal body actually contains the Evidence chain block, both
+badges, and the real triggering value (`corp-docs`) after a real click,
+not just in the static pre-click HTML -- exactly the check this
+project's own SPEC.md has required for every JS-adjacent change since
+the v0.4.0 postmortem (a real shipped bug -- a written-but-never-wired
+`addEventListener` -- was caught only this way, most recently for the
+v0.8.2 Raw BOM search box, §16).
+
+Returns nothing for every other componentClass and for a skill whose
+content analysis found nothing to infer (no fabricated empty evidence
+chain) -- confirmed by a dedicated regression test.
+
+## 23. Tokenizer/prompt-template metadata via Ollama /api/show (v0.9.0)
+
+`collectors/ollama.py` previously only called Ollama's `GET /api/tags`.
+Ollama's own real API is publicly documented at
+`github.com/ollama/ollama/blob/main/docs/api.md` -- fetched directly
+before writing a line of this feature, not recalled from memory. The
+real, current doc confirms `POST /api/show`'s request shape
+(`{"model": "<name>", "verbose": <bool>}`) and its response's exact
+field names, reproduced verbatim in `ollama.py`'s own module docstring
+and in `tests/test_ollama.py`'s `REAL_SHOW_RESPONSE_EXAMPLE` (Ollama's
+own documented example response, not a guessed one): `modelfile`,
+`parameters`, `template`, `details` (`parent_model`, `format`, `family`,
+`families`, `parameter_size`, `quantization_level`), `model_info` (a
+large, architecture-dependent dict), `capabilities` (a real array, e.g.
+`["completion", "vision"]`).
+
+**Only genuinely new, confirmed fields are recorded** -- `family`/
+`parameter_size`/`quantization_level` are already captured from
+`/api/tags`'s own `details`, so only the two `/api/show`-only `details`
+fields (`parent_model`, `format`) are added here, alongside `template`
+(-> `promptTemplate`), `parameters` (-> `declaredParameters`), and
+`capabilities`. **`model_info` is deliberately read for exactly one
+key**, `general.architecture` -- the only one confirmed
+architecture-agnostic in Ollama's own documented example; every other
+key there (`llama.attention.head_count`, etc.) is namespaced to one
+specific model family, and reading it as if it generalized to every
+model would be inventing a schema Ollama itself doesn't fix across
+architectures.
+
+**A clearly-optional collection step, with real graceful degradation** --
+`enrich_model_with_show_info()` never raises: a network error, an older
+Ollama without this endpoint, or a response missing an expected field
+all just mean "nothing added for this model," never a crash and never a
+dropped model. `discover_models()` takes an injectable `show_fetch`
+(mirroring `fetch`'s own existing test-injection pattern) that a caller
+can pass `None` to skip entirely. `HermesCollector`/`OpenClawCollector`
+both wire it through with the same real-by-default constructor pattern
+`fetch` already has -- confirmed this doesn't slow down or risk the
+existing test suite: every existing fixture with a non-empty `/api/tags`
+model list now explicitly injects a fake `show_fetch` too (same
+discipline as injecting `fake_fetch`), and every fixture with an empty
+model list is entirely unaffected (the loop `show_fetch` would run
+inside never executes).
+
+**Honesty about verification, exactly as this project's own standing bar
+requires**: this was implemented strictly against Ollama's real,
+published, fetched API doc. **It was NOT verified against a live Ollama
+server** -- no Ollama instance was available in the sandbox this was
+built in, and `brew`/disk space were available to install one but doing
+so (installing the binary, pulling even a small real model, running the
+server) was judged too large a time cost against this pass's remaining
+scope, not attempted lightly. If a live box becomes available later,
+the thing most worth re-confirming is whether `model_info`'s key names
+are exactly as documented for a real, currently-pulled model -- that's
+the one field this module reads that Ollama's own doc describes as
+varying by architecture in practice, even though the one key this
+module actually reads (`general.architecture`) is documented as a fixed
+name.
+
+## 24. Dataset/model provenance beyond §23 (v0.9.0) -- nothing additional found
+
+Same real data source as §23 (`POST /api/show`). Ollama's own real,
+fetched API doc was searched specifically for a `license` or model-card-
+adjacent field on this endpoint's response. **None exists**: `license`
+appears in the docs only as a request-side field on the unrelated
+`POST /api/create` endpoint (a string or list of strings the *caller*
+supplies when creating a model), never as a field `/api/show` or
+`/api/tags` returns about an existing model. A real Ollama Modelfile can
+embed a `LICENSE` directive as free text inside the `modelfile` string
+`/api/show` already returns (§23) -- but extracting that reliably would
+mean parsing Ollama's own Modelfile DSL (a `FROM`/`TEMPLATE`/`PARAMETER`/
+`LICENSE`-directive text format this scanner has no parser for), which
+this project's "verify a real, checkable source or convention" standard
+doesn't stretch to cover from a doc search alone. **Nothing added for
+this item** -- explicitly reporting "no additional real field found"
+rather than fabricating a dataset-provenance schema Ollama doesn't
+actually expose, per this section's own scope.
+
+## 25. Dependency graph explorer (v0.9.0) -- per-instance, collapsed by default
+
+A real, per-*instance* dependency graph (as distinct from the
+componentClass-level Architecture diagram, §9), reusing data this
+project already computes (`security.build_dependency_children()`/
+`build_dependency_parents()`, the same adjacency the per-entry "Depends
+on"/"Blast radius" lists in the Component Inspector already use).
+
+**Scale is the real design problem this section exists to solve** (a
+document can have hundreds of components) -- solved the same way this
+section's own design note anticipated: nothing is rendered until a
+component is chosen (a text input with a name/bom-ref datalist, any
+Component Inspector's new "View in graph" button, or clicking a
+neighbor box to walk the graph), never an all-nodes-at-once canvas.
+Each component/service that has at least one real dependency edge gets
+its own small, pre-rendered (server-side, same "no live client-side
+layout engine" principle as the rest of this file), *hidden* neighborhood
+diagram -- immediate parents above, the node itself in the middle,
+immediate children below, capped at 8 boxes per side
+(`_NEIGHBORHOOD_MAX_PER_SIDE`) with an honest "N more not shown" note
+pointing at the existing full-BFS lists for anything beyond that.
+Client-side JS (`showDependencyGraph()`) only toggles which
+pre-rendered node is visible -- it never builds SVG or inserts
+untrusted text via `innerHTML` itself, keeping every escaping
+responsibility exactly where `_esc()` already lives.
+
+**Reused, not reinvented**: `_render_dependency_neighborhood_svg()`
+follows `_render_architecture_graph()`'s own layout patterns (computed
+box positions, `<line>` edges, `.arch-box`/`.arch-edge`/`.arch-label`
+CSS classes, `.chart-card`'s width/height-auto sizing fix) and its
+delegated-click discipline (`data-view-graph`, read via `getAttribute()`
+and compared in a loop, never built into a CSS selector or concatenated
+JS string -- the same reasoning `data-goto`/`data-inspect` are built that
+way, since a bom-ref this scanner didn't itself generate could contain a
+character that breaks a hand-built selector). A genuinely edge-less
+component only happens for a hand-edited/malformed document (the same
+"orphan" case `validate.py`'s `find_orphan_components()` already
+checks for) -- a real scan's own output always gives every component at
+least one edge (the harness root itself), confirmed by a dedicated test
+that also exercises the true orphan case by hand-appending a component
+to `components[]` with no `dependencies[]` entry at all, distinguishing
+it from a plain "no match for that search" state.
+
+**Confirmed with real dispatched browser events** (headless Chrome,
+driven directly over the DevTools Protocol, same discipline as §22):
+the section starts fully collapsed (every `.dep-graph-node` hidden);
+clicking a component's real Inspect button -> its Inspector's real
+"View in graph" button closes the inspector and reveals exactly that
+component's own diagram; clicking a real neighbor box inside that
+diagram re-centers it on the neighbor and updates the search input;
+searching by a partial *name* (not just an exact bom-ref) finds and
+shows the right node; a genuinely unmatched search shows "no match
+found"; and a real, hand-crafted orphan component shows the distinct
+"this component has no recorded dependency-graph edges" message instead
+of either of those two -- five real states, not just the happy path.
+
+## 26. Raw BOM -> Component Inspector cross-navigation (v0.9.0)
+
+A practical, honestly-scoped slice of "jump from a match inside the Raw
+BOM's pretty-printed JSON back to that component's own rendered entry" --
+scoped to the one unambiguous anchor every real component/service entry
+actually has: its own `"bom-ref": "value"` line. `_JS`'s new
+`linkifyBomRefs()` wraps every such occurrence in a clickable
+`<span class="raw-bom-ref-link" data-inspect="...">` -- reusing
+`openInspector()` verbatim (the exact function every per-entry "Inspect"
+button already calls), so this needed **zero new click-handling code**:
+the existing delegated `document` click listener already dispatches on
+`[data-inspect]` for the unrelated Inspect-button case, and picks these
+new spans up automatically. Runs on every render of the Raw BOM block
+(`highlightRawBom()`), with or without an active search -- not only
+when a search match happens to land on a bom-ref line, a real, if
+narrower, superset of the "match falls within a JSON object with a
+bom-ref key" idea this item started from.
+
+**A deliberate, narrow trade-off, not a defect**: `linkifyBomRefs()`'s
+own regex requires the bom-ref *value* to contain neither `"` nor `<`.
+Since it runs *after* `highlightRawBom()`'s own `<mark>`-wrapping, a
+search query that happens to match text *inside* a bom-ref's own value
+(e.g. searching "qwen3" when a model's own bom-ref is
+`model:qwen3-8b`) leaves a literal `<mark>` tag spliced into that one
+occurrence's text -- excluded by the `<`-exclusion, so that one
+occurrence simply isn't linkified (still shown, still highlighted,
+just not clickable) rather than risk splicing a stray tag into the
+`data-inspect` attribute itself and silently mis-wiring the link.
+Confirmed both sides of this trade-off directly, not just asserted:
+searching for a term that overlaps no bom-ref's own text still yields a
+fully clickable link after highlighting; searching for a term that
+does overlap one (`"qwen3"` inside `"model:qwen3-8b"`) correctly drops
+just that one link while every other one stays live. Clicking a bom-ref
+with no matching rendered entry at all (a `declarations` claim/
+evidence/assessor bom-ref, §19 -- none of which get their own
+Components/Services list entry) is a safe no-op, the same
+`findEntryByRef()`-returns-null guard `openInspector()` already had.
+
+**Not attempted**: true bidirectional navigation from an arbitrary
+*non*-bom-ref position inside the raw JSON (e.g. a specific property
+value with no bom-ref of its own nearby) back to a specific rendered
+field -- doing that correctly for every possible JSON location would
+need a real position-aware JSON-to-DOM mapping, a much larger and
+riskier feature than the scope named here. This ships the one part
+that's unambiguous and fully verifiable: bom-ref lines, which every
+real component/service entry has exactly one of.
+
+**Confirmed with real dispatched browser events** (headless Chrome over
+the DevTools Protocol, same discipline as §22/§25): opening the Raw BOM
+block with a real click on its `<summary>` populates and linkifies it;
+a real dispatched click on a bom-ref link inside it opens the correct
+Component Inspector (confirmed by bom-ref identity, not just "a modal
+opened"); and, after a real dispatched `input` event runs a search,
+both halves of the documented trade-off above were confirmed directly
+against the live DOM, not just asserted in a comment.

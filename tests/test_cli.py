@@ -821,3 +821,111 @@ def test_policy_file_together_with_sarif_format_is_a_clean_error(tmp_path, capsy
     exit_code = main(["policy", str(bom_path), "--policy-file", str(policy_file), "--format", "sarif"])
     assert exit_code == 1
     assert "not supported together with --format sarif" in capsys.readouterr().err
+
+
+# ---- scan-vulns (OSV.dev enrichment, opt-in, network-requiring) ---------
+
+
+def _bom_with_purl_dependency(tmp_path):
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    dep = Component(component_class="dependency", name="pyyaml", version="5.3")
+    dep.set("purl", "pkg:pypi/pyyaml@5.3")
+    doc.add(dep, "uses")
+    bom_path = tmp_path / "aibom.json"
+    bom_path.write_text(json.dumps(to_cyclonedx(doc)))
+    return bom_path
+
+
+def test_scan_vulns_never_makes_a_real_network_call_in_this_suite(tmp_path, capsys, monkeypatch):
+    # Confirms the CLI wiring end-to-end (arg parsing, vex.py call,
+    # output file) using an injected fake `query` -- never the real
+    # OSV.dev network function, same discipline as test_vex.py.
+    from harness_aibom import vex
+
+    monkeypatch.setattr(vex, "default_query", lambda purl: [
+        {
+            "id": "GHSA-6757-jp84-gxfx",
+            "summary": "Improper Input Validation in PyYAML",
+            "database_specific": {"severity": "CRITICAL", "cwe_ids": ["CWE-20"]},
+            "references": [],
+            "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}],
+        }
+    ])
+
+    bom_path = _bom_with_purl_dependency(tmp_path)
+    out_path = tmp_path / "aibom-with-vulns.json"
+    exit_code = main(["scan-vulns", str(bom_path), "-o", str(out_path)])
+    assert exit_code == 0
+
+    stderr = capsys.readouterr().err
+    assert "checked 1/1 purl(s)" in stderr
+    assert "1 with known vulnerabilities" in stderr
+
+    data = json.loads(out_path.read_text())
+    assert data["vulnerabilities"][0]["id"] == "GHSA-6757-jp84-gxfx"
+
+
+def test_scan_vulns_records_failed_checks_without_failing_the_command(tmp_path, capsys, monkeypatch):
+    from harness_aibom import vex
+
+    def _boom(purl):
+        raise TimeoutError("simulated OSV outage")
+
+    monkeypatch.setattr(vex, "default_query", _boom)
+    bom_path = _bom_with_purl_dependency(tmp_path)
+    exit_code = main(["scan-vulns", str(bom_path)])
+    assert exit_code == 0  # a failed OSV query is never fatal -- same discipline as scan's own warnings
+    stderr = capsys.readouterr().err
+    assert "1 check(s) failed" in stderr
+    assert "simulated OSV outage" in stderr
+
+
+def test_scan_vulns_missing_file_is_a_clean_error(capsys):
+    exit_code = main(["scan-vulns", "/no/such/aibom.json"])
+    assert exit_code == 1
+    assert "no such file" in capsys.readouterr().err.lower()
+
+
+def test_scan_vulns_rejects_non_dict_json(tmp_path, capsys):
+    bad = tmp_path / "bad.json"
+    bad.write_text("[1, 2, 3]")
+    exit_code = main(["scan-vulns", str(bad)])
+    assert exit_code == 1
+    assert "not a json object" in capsys.readouterr().err.lower()
+
+
+# ---- compliance (evidence mapping, never a certification claim) ---------
+
+
+def test_compliance_text_output_names_real_control_ids(tmp_path, capsys):
+    bom_path = _bom_with_purl_dependency(tmp_path)
+    exit_code = main(["compliance", str(bom_path), "--framework", "nist-ai-rmf"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "NOT a compliance or certification claim" in out
+    assert "GOVERN 1.6" in out
+    assert "MAP 4.1" in out
+
+
+def test_compliance_json_output_is_well_formed(tmp_path, capsys):
+    bom_path = _bom_with_purl_dependency(tmp_path)
+    exit_code = main(["compliance", str(bom_path), "--framework", "mitre-atlas", "--format", "json"])
+    assert exit_code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["framework"] == "mitre-atlas"
+    assert {m["controlId"] for m in data["mappings"]} == {"AML.T0010", "AML.T0055", "AML.T0007"}
+
+
+def test_compliance_unknown_framework_is_a_clean_argparse_error(tmp_path, capsys):
+    bom_path = _bom_with_purl_dependency(tmp_path)
+    with pytest.raises(SystemExit):
+        main(["compliance", str(bom_path), "--framework", "iso-42001"])
+
+
+def test_compliance_missing_file_is_a_clean_error(capsys):
+    exit_code = main(["compliance", "/no/such/aibom.json", "--framework", "owasp-llm-top10-2025"])
+    assert exit_code == 1
+    assert "no such file" in capsys.readouterr().err.lower()

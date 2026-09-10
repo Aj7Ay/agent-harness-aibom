@@ -57,11 +57,15 @@ class OpenClawCollector(Collector):
         home: Path | None = None,
         run: RunFn = default_run,
         fetch: ollama_mod.FetchFn = ollama_mod.default_fetch,
+        show_fetch: ollama_mod.ShowFetchFn = ollama_mod.default_show_fetch,
         env_dir: Path | None = None,
     ):
         super().__init__(home)
         self.run = run
         self.fetch = fetch
+        # v0.9.0: optional per-model `/api/show` enrichment -- same
+        # real-by-default, test-injectable pattern as `fetch` above.
+        self.show_fetch = show_fetch
         # /opt/openclaw/.env on the real box; overridable since a non-root
         # scan can't read /opt/openclaw there anyway, and tests need a
         # fixture-local path.
@@ -171,7 +175,7 @@ class OpenClawCollector(Collector):
         default_model = (config.get("models") or {}).get("default")
         default_name = default_model.split("/", 1)[1] if default_model and "/" in default_model else default_model
 
-        models = ollama_mod.discover_models(base_url, self.fetch)
+        models = ollama_mod.discover_models(base_url, self.fetch, self.show_fetch)
         matched = False
         for m in models:
             if default_name and m.name == default_name:

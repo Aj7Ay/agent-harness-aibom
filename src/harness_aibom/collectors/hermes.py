@@ -65,10 +65,14 @@ class HermesCollector(Collector):
         home: Path | None = None,
         run: RunFn = default_run,
         fetch: ollama_mod.FetchFn = ollama_mod.default_fetch,
+        show_fetch: ollama_mod.ShowFetchFn = ollama_mod.default_show_fetch,
     ):
         super().__init__(home)
         self.run = run
         self.fetch = fetch
+        # v0.9.0: optional per-model `/api/show` enrichment -- same
+        # real-by-default, test-injectable pattern as `fetch` above.
+        self.show_fetch = show_fetch
 
     @property
     def hermes_dir(self) -> Path:
@@ -197,7 +201,7 @@ class HermesCollector(Collector):
         doc.add_child(endpoint, config_comp, "uses")
 
         default_name = model_cfg.get("default")
-        models = ollama_mod.discover_models(base_url, self.fetch)
+        models = ollama_mod.discover_models(base_url, self.fetch, self.show_fetch)
         matched = False
         for m in models:
             if default_name and m.name == default_name:

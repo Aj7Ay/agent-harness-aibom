@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .compliance import FRAMEWORKS, evaluate_framework
 from .collectors.hermes import HermesCollector
 from .collectors.openclaw import OpenClawCollector
 from .cyclonedx import current_hostname, to_cyclonedx
@@ -19,6 +20,7 @@ from .report import render_html
 from .security import compute_risk_observations, diff_risk_observations
 from .sign import CosignNotFound, sign_blob, verify_blob
 from .validate import find_orphan_components, validate_document
+from . import vex
 
 COLLECTORS = {
     "hermes": HermesCollector,
@@ -160,6 +162,82 @@ def _run_validate(args: argparse.Namespace) -> int:
         print(f"warning: {ref}: not reachable from the harness root via dependencies[] (orphan)", file=sys.stderr)
     suffix = f" ({len(orphans)} orphan warning{'s' if len(orphans) != 1 else ''})" if orphans else ""
     print(f"{args.file}: valid{suffix}")
+    return 0
+
+
+def _run_scan_vulns(args: argparse.Namespace) -> int:
+    """Opt-in, network-requiring enrichment step, deliberately separate
+    from `scan` (which must stay fully offline) -- see vex.py and SPEC.md.
+    Queries the real OSV.dev API for every component this document
+    already carries a native `purl` for, and writes a new document with
+    a populated `vulnerabilities[]`. Never fails the command just
+    because some purls couldn't be checked (OSV down, one bad purl) --
+    that's recorded per-component (`harness-aibom:vulnCheck`) and
+    summarized on stderr, the same "missing pieces are never fatal, but
+    never invisible either" discipline `scan` itself follows.
+    """
+    data = _load_json_file(args.file)
+    if data is None:
+        return 1
+    if not isinstance(data, dict):
+        print(f"error: {args.file}: not a JSON object", file=sys.stderr)
+        return 1
+
+    # Looked up as a module attribute at call time (never bound as this
+    # function's own default parameter) specifically so a test can
+    # monkeypatch `vex.default_query` and have it actually take effect --
+    # a default-argument value would already be captured at vex.py's own
+    # import time and wouldn't observe a later monkeypatch.
+    enriched, result = vex.enrich_bom_with_vulnerabilities(data, query=vex.default_query)
+
+    total = len(result.checked) + len(result.failed)
+    print(
+        f"OSV.dev: checked {len(result.checked)}/{total} purl(s), "
+        f"{len(result.vulnerable_purls)} with known vulnerabilities, "
+        f"{len(result.failed)} check(s) failed",
+        file=sys.stderr,
+    )
+    for purl, err in result.failed.items():
+        print(f"warning: OSV query failed for {purl}: {err}", file=sys.stderr)
+
+    text = json.dumps(enriched, indent=2 if args.pretty else None)
+    if args.output:
+        Path(args.output).write_text(text + "\n")
+        print(f"wrote {args.output}")
+    else:
+        print(text)
+    return 0
+
+
+def _run_compliance(args: argparse.Namespace) -> int:
+    """Prints a real, narrow evidence mapping (compliance.py) -- never a
+    compliance/certification verdict. See compliance.py's own docstring
+    and SPEC.md for exactly which real, published control/technique IDs
+    this covers and how each status was decided.
+    """
+    data = _load_json_file(args.file)
+    if data is None:
+        return 1
+    if not isinstance(data, dict):
+        print(f"error: {args.file}: not a JSON object", file=sys.stderr)
+        return 1
+    try:
+        result = evaluate_framework(data, args.framework)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+        return 0
+
+    print(f"{result['displayName']} -- evidence mapping, NOT a compliance or certification claim")
+    print(result["sourceNote"])
+    print()
+    for m in result["mappings"]:
+        print(f"[{m['status']}] {m['controlId']}: {m['controlTitle']}")
+        print(f"    {m['rationale']}")
+        print(f"    evidence count in this document: {m['evidenceCount']}")
     return 0
 
 
@@ -607,6 +685,30 @@ def build_parser() -> argparse.ArgumentParser:
     verify_signature.add_argument("--key", required=True, help="cosign public key file (cosign.pub)")
     verify_signature.add_argument("--bundle", help="bundle path (default: <file>.bundle)")
     verify_signature.set_defaults(func=_run_verify_signature)
+
+    scan_vulns = sub.add_parser(
+        "scan-vulns",
+        help="enrich a harness-aibom document with real OSV.dev vulnerability data (opt-in, requires network)",
+    )
+    scan_vulns.add_argument("file", help="a harness-aibom JSON document (from `scan`)")
+    scan_vulns.add_argument("--output", "-o", help="write to this file instead of stdout")
+    scan_vulns.add_argument(
+        "--pretty",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="pretty-print JSON (default: on; pass --no-pretty for compact single-line output)",
+    )
+    scan_vulns.set_defaults(func=_run_scan_vulns)
+
+    compliance = sub.add_parser(
+        "compliance",
+        help="print a narrow evidence mapping toward a real framework's control IDs -- NEVER a "
+        "compliance/certification claim (see SPEC.md)",
+    )
+    compliance.add_argument("file")
+    compliance.add_argument("--framework", choices=sorted(FRAMEWORKS), required=True)
+    compliance.add_argument("--format", choices=["text", "json"], default="text")
+    compliance.set_defaults(func=_run_compliance)
 
     return parser
 

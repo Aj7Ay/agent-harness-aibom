@@ -161,7 +161,7 @@ def test_architecture_section_shows_class_level_nodes_not_instance_level():
     for name in ("a", "b", "c"):
         doc.add(Component(component_class="skill", name=name), "loads")
     html_text = render_html(to_cyclonedx(doc))
-    architecture_section = html_text.split('id="architecture"')[1].split('id="security-summary"')[0]
+    architecture_section = html_text.split('id="architecture"')[1].split('id="dependency-graph"')[0]
 
     assert "Architecture" in html_text
     # the aggregate node label "skill" with its count, not three
@@ -395,7 +395,10 @@ def test_external_references_vulnerabilities_compositions_have_honest_empty_stat
     # so external references legitimately stay in the empty state too.
     html_text = render_html(_doc_with_everything())
     assert "External references are not collected by this scanner." in html_text
-    assert "Vulnerability data is not collected by this scanner." in html_text
+    # Vulnerabilities (v0.9.0, vex.py) now distinguishes "not collected" from
+    # "checked, none found" -- see the dedicated tests below -- so this
+    # document (never run through `scan-vulns`) gets the "never checked" copy.
+    assert "has not been checked for this document" in html_text
     assert "Composition/completeness declarations are not collected by this scanner." in html_text
     # never a bare "0" that could look like a verified empty *result*
     ext_section = html_text.split('id="external-references"')[1].split('id="vulnerabilities"')[0]
@@ -758,3 +761,268 @@ def test_artifact_integrity_shows_not_verified_state_honestly():
     assert "NOT VERIFIED" in section
     assert "failed to verify signature" in section
     assert "Signature verified" not in section
+
+
+# ---- Vulnerabilities section (vex.py / OSV.dev, opt-in) ------------------
+
+
+def _vuln_section(bom: dict) -> str:
+    html_text = render_html(bom)
+    return html_text.split('id="vulnerabilities"')[1].split('id="compositions"')[0]
+
+
+def test_vulnerabilities_section_says_never_checked_by_default():
+    section = _vuln_section(_doc_with_everything())
+    assert "has not been checked for this document" in section
+    assert "scan-vulns" in section
+
+
+def test_vulnerabilities_section_distinguishes_checked_clean_from_never_checked():
+    bom = _doc_with_everything()
+    bom["components"].append(
+        {
+            "type": "library",
+            "bom-ref": "dependency:clean-pkg",
+            "name": "clean-pkg",
+            "purl": "pkg:pypi/clean-pkg@1.0",
+            "properties": [
+                {"name": "harness-aibom:componentClass", "value": "dependency"},
+                {"name": "harness-aibom:vulnCheck", "value": "checked"},
+            ],
+        }
+    )
+    section = _vuln_section(bom)
+    assert "has not been checked for this document" not in section
+    assert "Checked, none found for 1 component" in section
+
+
+def test_vulnerabilities_section_renders_a_real_finding_with_severity_and_link():
+    bom = _doc_with_everything()
+    bom["components"].append(
+        {
+            "type": "library",
+            "bom-ref": "dependency:pyyaml",
+            "name": "pyyaml",
+            "purl": "pkg:pypi/pyyaml@5.3",
+            "properties": [
+                {"name": "harness-aibom:componentClass", "value": "dependency"},
+                {"name": "harness-aibom:vulnCheck", "value": "checked"},
+            ],
+        }
+    )
+    bom["vulnerabilities"] = [
+        {
+            "id": "GHSA-6757-jp84-gxfx",
+            "source": {"name": "OSV", "url": "https://osv.dev/vulnerability/GHSA-6757-jp84-gxfx"},
+            "description": "Improper Input Validation in PyYAML",
+            "affects": [{"ref": "dependency:pyyaml"}],
+            "ratings": [{"source": {"name": "OSV"}, "method": "CVSSv31", "severity": "critical",
+                         "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}],
+            "cwes": [20],
+        }
+    ]
+    section = _vuln_section(bom)
+    assert "GHSA-6757-jp84-gxfx" in section
+    assert "https://osv.dev/vulnerability/GHSA-6757-jp84-gxfx" in section
+    assert "Improper Input Validation in PyYAML" in section
+    assert "CRITICAL" in section
+    assert 'data-inspect=\'dependency:pyyaml\'' in section  # reuses the Component Inspector wiring
+    assert "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" in section
+
+
+def test_vulnerabilities_with_no_cvss_vector_render_as_unrated_not_a_fabricated_severity():
+    bom = _doc_with_everything()
+    bom["vulnerabilities"] = [
+        {"id": "PYSEC-2018-28", "source": {"name": "OSV"}, "affects": [{"ref": "harness-root"}]}
+    ]
+    section = _vuln_section(bom)
+    assert "UNRATED" in section
+
+
+# ---- Declarations section (cyclonedx.py, self-assessed coverage claims) --
+
+
+def _declarations_section(bom: dict) -> str:
+    html_text = render_html(bom)
+    return html_text.split('id="declarations"')[1].split('id="compositions"')[0]
+
+
+def test_declarations_section_present_for_a_real_scan():
+    bom = to_cyclonedx(HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t"))
+    # A plain empty document has nothing to self-assess -- honest empty state.
+    section = _declarations_section(bom)
+    assert "No self-assessed claims" in section
+
+
+def test_declarations_section_renders_a_real_claim_and_never_third_party():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    model = Component(component_class="model", name="qwen3:8b")
+    model.set("digest", "abc123")
+    doc.add(model, "uses")
+    bom = to_cyclonedx(doc)
+    section = _declarations_section(bom)
+    assert "1 of 1 discovered model(s) carry a real content digest" in section
+    assert "thirdParty: false" in section
+    assert "is compliant" not in section.lower()
+    assert "certified" not in section.lower()
+
+
+# ---- Compliance evidence mapping section (compliance.py) -----------------
+
+
+def _compliance_section(bom: dict) -> str:
+    html_text = render_html(bom)
+    return html_text.split('id="compliance"')[1].split('id="compositions"')[0]
+
+
+def test_compliance_section_labels_itself_as_evidence_mapping_not_certification():
+    section = _compliance_section(_doc_with_everything())
+    assert "NOT a compliance or certification claim" in section
+    assert "is compliant" not in section.lower()
+    assert "certified" not in section.lower()
+
+
+def test_compliance_section_renders_all_three_frameworks_with_real_ids():
+    section = _compliance_section(_doc_with_everything())
+    assert "NIST AI Risk Management Framework" in section
+    assert "GOVERN 1.6" in section
+    assert "OWASP Top 10 for LLM Applications" in section
+    assert "LLM03:2025" in section
+    assert "MITRE ATLAS" in section
+    assert "AML.T0007" in section
+
+
+# ---- Evidence chains in the Component Inspector (v0.9.0, built on #4) ----
+
+
+def _skill_doc_with_content_analysis() -> dict:
+    doc = HarnessDocument(harness_name="hermes@testhost", runtime_kind="hermes", hostname="testhost")
+    skill = Component(component_class="skill", name="web-fetcher")
+    skill.set("sha256", "a" * 64)
+    skill.set("sha256Confidence", "observed")
+    skill.set("referencedServers", "corp-docs")
+    skill.set("shellIndicators", "curl")
+    skill.set("contentAnalysisConfidence", "inferred")
+    doc.add(skill, "loads")
+    return to_cyclonedx(doc)
+
+
+def test_evidence_chain_renders_for_a_skill_with_content_analysis():
+    html_text = render_html(_skill_doc_with_content_analysis())
+    assert "Evidence chain" in html_text
+    assert "analyze_skill_content() found this MCP server name mentioned" in html_text
+    assert ">corp-docs<" in html_text
+    assert "INFERRED" in html_text
+    assert "sha256_directory() directly hashed every file under this component directory" in html_text
+    assert "OBSERVED" in html_text
+
+
+def test_evidence_chain_absent_for_a_component_with_no_confidence_data():
+    # _doc_with_everything() has a model/model_endpoint/mcp_server, none
+    # of which carry the v0.9.0 confidence properties in this test setup.
+    html_text = render_html(_doc_with_everything())
+    assert "Evidence chain" not in html_text
+
+
+def test_evidence_chain_never_shown_for_a_skill_analysis_found_nothing():
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    skill = Component(component_class="skill", name="quiet-skill")
+    skill.set("sha256", "b" * 64)
+    skill.set("sha256Confidence", "observed")
+    # No contentAnalysisConfidence -- analysis found nothing to infer.
+    doc.add(skill, "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    assert "Evidence chain" in html_text  # the observed sha256 row still shows
+    assert "INFERRED" not in html_text
+    assert "OBSERVED" in html_text
+
+
+# ---- Dependency graph explorer (v0.9.0) -----------------------------------
+
+
+def _dep_graph_doc_with_edges() -> dict:
+    doc = HarnessDocument(harness_name="hermes@testhost", runtime_kind="hermes", hostname="testhost")
+    endpoint = Component(component_class="model_endpoint", name="http://127.0.0.1:11434")
+    doc.add(endpoint, "uses")
+    model = Component(component_class="model", name="qwen3:8b")
+    doc.add_child(model, endpoint, "uses")
+    return to_cyclonedx(doc)
+
+
+def test_dependency_graph_section_gives_every_real_component_at_least_a_root_edge():
+    # A component added via HarnessDocument.add() is always a root child,
+    # so it always has at least one recorded parent edge (the harness
+    # root itself) -- a genuinely edge-less component (§ below) only
+    # happens for a hand-edited/malformed document, not a real scan.
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    skill = Component(component_class="skill", name="lonely-skill")
+    doc.add(skill, "loads")
+    html_text = render_html(to_cyclonedx(doc))
+    section = html_text.split('id="dependency-graph"')[1].split('id="security-summary"')[0]
+    assert "dep-graph-node" in section
+
+
+def test_dependency_graph_section_absent_state_for_a_genuine_orphan():
+    # A component present in components[] but never referenced anywhere
+    # in dependencies[] at all -- the same real, malformed-document case
+    # validate.py's find_orphan_components() exists to catch (`report`
+    # renders any JSON handed to it, not just this scanner's own output).
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    doc.add(Component(component_class="skill", name="normal-skill"), "loads")
+    bom = to_cyclonedx(doc)
+    bom["components"].append({
+        "type": "library", "bom-ref": "skill:orphan", "name": "orphan-skill",
+        "properties": [{"name": "harness-aibom:componentClass", "value": "skill"}],
+    })
+    html_text = render_html(bom)
+    section = html_text.split('id="dependency-graph"')[1].split('id="security-summary"')[0]
+    assert "data-ref='skill:orphan'" not in section  # no node pre-rendered for it
+    assert "dep-graph-no-edges" in section  # the JS-side fallback message still exists
+
+
+def test_dependency_graph_section_renders_hidden_nodes_and_controls():
+    html_text = render_html(_dep_graph_doc_with_edges())
+    section = html_text.split('id="dependency-graph"')[1].split('id="security-summary"')[0]
+    assert "dep-graph-show" in section
+    assert "dep-graph-input" in section
+    assert "qwen3:8b" in section  # datalist option label
+    # both the endpoint and the model have real edges -- both get a node
+    assert section.count("dep-graph-node") >= 2
+    # hidden by default -- collapsed, not an all-nodes-at-once canvas
+    assert "class='dep-graph-node' data-ref=" in section and "hidden>" in section
+
+
+def test_dependency_graph_neighbor_boxes_are_clickable_via_data_view_graph():
+    html_text = render_html(_dep_graph_doc_with_edges())
+    assert "data-view-graph=" in html_text
+
+
+def test_inspector_has_a_view_in_graph_button():
+    html_text = render_html(_dep_graph_doc_with_edges())
+    assert "inspector-view-graph" in html_text
+    assert "View in graph" in html_text
+
+
+def test_dependency_graph_functions_are_wired_into_js():
+    html_text = render_html(_dep_graph_doc_with_edges())
+    for fn in ("showDependencyGraph", "findEntryRefByNameOrRef", "viewInGraph"):
+        assert f"function {fn}(" in html_text
+    assert "data-view-graph" in html_text
+    assert "inspector-view-graph" in html_text
+
+
+# ---- Raw BOM -> Component Inspector cross-navigation (v0.9.0) -----------
+
+
+def test_raw_bom_intro_mentions_clickable_bom_refs():
+    html_text = render_html(_doc_with_everything())
+    assert "clickable link back to" in html_text
+
+
+def test_linkify_bom_refs_function_is_wired_into_js():
+    html_text = render_html(_doc_with_everything())
+    assert "function linkifyBomRefs(" in html_text
+    assert "raw-bom-ref-link" in html_text
+    # Called unconditionally from highlightRawBom(), not only when a
+    # search query happens to be active.
+    assert "pre.innerHTML = linkifyBomRefs(html);" in html_text

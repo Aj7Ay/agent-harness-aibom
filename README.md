@@ -46,16 +46,45 @@ not a flat list of everything the harness happens to touch.
 
 Nothing here is a second, independent scan - every result below is a pure function over the CycloneDX document `scan` already produced re-derivable by anyone from the same JSON:
 
-- **Risk observations** - a fixed, named set of explainable rules (world-readable secrets at two confidence tiers, plaintext unauthenticated MCP transport, unpinned launcher packages, models with no content digest, world-readable memory stores), never a single opaque score.
-- **Attack surface & trust zones** - every component classified by where it actually sits (filesystem, local process, loopback, network, a credential store, a model provider), then split into what stays on the box versus what crosses a real network boundary.
-- **Capability matrix** - componentClass × capability × reachability, aggregated - never a fabricated per-asset checklist of capabilities this scanner didn't actually observe.
-- **Supply chain & blast radius** - for any component, an exact BFS over the real dependency graph in both directions: what it depends on, and what would be affected if it were compromised.
-- **Baseline diff & digest drift** - diff two scans and see exactly what was added, removed, or changed, with a distinct callout when a model's own tag stays the same while its content digest doesn't.
+- **Risk observations** - a fixed, named set of explainable rules
+  (world-readable secrets at two confidence tiers, plaintext/
+  unauthenticated MCP transport, unpinned launcher packages, models with
+  no content digest, world-readable memory stores), never a single
+  opaque score.
+- **Attack surface & trust zones** - every component classified by where
+  it actually sits (filesystem, local process, loopback, network, a
+  credential store, a model provider), then split into what stays on the
+  box versus what crosses a real network boundary.
+- **Capability matrix** - componentClass × capability × reachability,
+  aggregated - never a fabricated per-asset checklist of capabilities
+  this scanner didn't actually observe.
+- **Supply chain & blast radius** - for any component, an exact BFS over
+  the real dependency graph in both directions: what it depends on, and
+  what would be affected if it were compromised.
+- **Baseline diff & digest drift** - diff two scans and see exactly
+  what was added, removed, or changed, with a distinct callout when a
+  model's own tag stays the same while its content digest doesn't.
+- **Vulnerability data** - real OSV.dev records via `scan-vulns` (opt-in,
+  the one command that talks to the network), rendered into CycloneDX's
+  native `vulnerabilities[]` and the report's own Vulnerabilities section.
+- **Self-assessed declarations & compliance evidence mapping** - a
+  handful of narrow, real, computed coverage claims (CycloneDX
+  `declarations`) and a mapping of this scanner's own data to real NIST
+  AI RMF / OWASP LLM Top 10 / MITRE ATLAS control IDs - always "evidence
+  collected" or "partial evidence", never a compliance/certification claim.
 
 ## The AIBOM Explorer
 
-`harness-aibom report` renders the whole document as a single, offline, static HTML file - no server, no CDN, no external dependency. Live search and class filtering, a click-through Component Inspector for every entry, a baseline-diff view, and an Artifact Integrity panel when
-the document is signed. See [`examples/hermes-aibom.example.html`](examples/hermes-aibom.example.html) for a full, real rendering.
+`harness-aibom report` renders the whole document as a single, offline,
+static HTML file - no server, no CDN, no external dependency. Live
+search and class filtering, a click-through Component Inspector for
+every entry (with evidence chains for confidence-tagged facts and a
+"View in graph" jump into a collapsed-by-default, per-instance
+Dependency graph explorer), a baseline-diff view, an Artifact Integrity
+panel when the document is signed, and a Raw BOM view whose own
+`"bom-ref"` lines click straight back into the Component Inspector. See
+[`examples/hermes-aibom.example.html`](examples/hermes-aibom.example.html)
+for a full, real rendering.
 
 ## Install
 
@@ -110,11 +139,27 @@ harness-aibom policy aibom.json --format sarif -o results.sarif
 harness-aibom scan --deterministic -o aibom.json
 harness-aibom sign aibom.json --key cosign.key
 harness-aibom verify-signature aibom.json --key cosign.pub
+
+# Enrich with real OSV.dev vulnerability data -- opt-in, requires network,
+# never part of `scan` itself
+harness-aibom scan-vulns aibom.json -o aibom-with-vulns.json
+
+# A narrow, real evidence mapping toward a published framework's own
+# control IDs -- NEVER a compliance or certification claim
+harness-aibom compliance aibom.json --framework nist-ai-rmf
+harness-aibom compliance aibom.json --framework owasp-llm-top10-2025
+harness-aibom compliance aibom.json --framework mitre-atlas
 ```
 
 Run `harness-aibom <command> --help` for the full set of flags on any subcommand.
 
-`scan` runs entirely against the local filesystem and local subprocesses/HTTP calls (`hermes`/`openclaw` CLIs, Ollama's `/api/tags`). To scan a remote box, install the package there (or SSH in and run it) - there's no built-in remote transport.
+`scan` runs entirely against the local filesystem and local subprocesses/
+HTTP calls (`hermes`/`openclaw` CLIs, Ollama's `/api/tags` and, opportunistically,
+`/api/show` for prompt-template/tokenizer metadata). To scan a
+remote box, install the package there (or SSH in and run it) - there's
+no built-in remote transport. `scan-vulns` is the one command that talks
+to a third-party network service (the public OSV.dev API) - deliberately
+separate, so `scan` itself stays fully offline.
 
 Missing pieces are never fatal: if `hermes` isn't on `PATH`, or Ollama isn't reachable, the scan still completes and prints a `warning[...]`
 line to stderr explaining what it skipped, so the resulting document is never mistaken for a complete one.
@@ -136,6 +181,8 @@ src/harness_aibom/
 ├── policy_yaml.py           # policy-as-code rule evaluation
 ├── sarif.py                  # SARIF 2.1.0 output for code-scanning UIs
 ├── sign.py                    # cosign sign/verify wrapper
+├── vex.py                      # OSV.dev vulnerability enrichment (scan-vulns)
+├── compliance.py                # NIST AI RMF / OWASP LLM Top 10 / MITRE ATLAS evidence mapping
 ├── paths.py                    # relPath / symlink-escape helpers
 ├── fingerprint.py                # sha256 helpers
 ├── cli.py                         # `harness-aibom` entrypoint
@@ -169,8 +216,27 @@ Collector tests run entirely against fixtures under `tests/fixtures/` (`hermes_h
 
 ## What's not here yet
 
-This project only ever ships a feature once it's been verified against real behavior, not because it looks reasonable - that discipline is
-documented in full, including every deliberate deferral and the reasoning behind it, in [`SPEC.md`](SPEC.md). Currently open: a per-relationship confidence/provenance model, an interactive per-instance dependency graph, tokenizer/dataset provenance, vulnerability/ VEX data, CycloneDX declarations and attestations, and a compliance control mapping (NIST AI RMF, ISO 42001, OWASP Agentic AI, MITRE ATLAS,SLSA) - each waiting on either a real data source or its own design pass, not attempted half-way.
+This project only ever ships a feature once it's been verified against
+real behavior, not because it looks reasonable - that discipline is
+documented in full, including every deliberate deferral and the
+reasoning behind it, in [`SPEC.md`](SPEC.md). As of v0.9.0: vulnerability/
+VEX data (real OSV.dev records, `scan-vulns`), CycloneDX `declarations`
+(narrow, self-assessed coverage claims), a compliance evidence mapping
+(NIST AI RMF, OWASP Top 10 for LLM Applications 2025, MITRE ATLAS - real,
+independently-verified control/technique IDs, always "evidence
+collected"/"partial evidence"/"not assessed", never a certification
+claim), narrow observed/inferred confidence tags plus evidence chains in
+the Component Inspector, optional Ollama `/api/show` prompt-template/
+tokenizer metadata (verified against Ollama's own published API doc, not
+against a live server - none was available), and a collapsed-by-default
+per-instance Dependency graph explorer with Raw-BOM-to-Inspector
+cross-navigation are all in. Still open: ISO/IEC 42001 and SLSA in the
+compliance mapping (no real, freely fetchable canonical source for the
+former; the latter doesn't have a meaningful evidence source for what
+this scanner actually reads), CycloneDX `attestations`/`affirmation`
+(no real requirements catalog to map to), and a live-Ollama-verified
+`/api/show` - each waiting on either a real data source or its own
+design pass, not attempted half-way.
 
 ## License
 
