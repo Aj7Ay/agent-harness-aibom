@@ -868,7 +868,12 @@ def test_scan_vulns_never_makes_a_real_network_call_in_this_suite(tmp_path, caps
     assert data["vulnerabilities"][0]["id"] == "GHSA-6757-jp84-gxfx"
 
 
-def test_scan_vulns_records_failed_checks_without_failing_the_command(tmp_path, capsys, monkeypatch):
+def test_scan_vulns_fails_the_command_when_every_check_failed(tmp_path, capsys, monkeypatch):
+    # v0.9.1: a reviewer found a wholesale OSV outage (every query
+    # failing, e.g. behind a blocking proxy) previously still exited 0
+    # and wrote a document indistinguishable from "no known
+    # vulnerabilities" -- fixed so a CI job can actually catch this
+    # instead of a silently "clean" result.
     from harness_aibom import vex
 
     def _boom(purl):
@@ -877,10 +882,38 @@ def test_scan_vulns_records_failed_checks_without_failing_the_command(tmp_path, 
     monkeypatch.setattr(vex, "default_query", _boom)
     bom_path = _bom_with_purl_dependency(tmp_path)
     exit_code = main(["scan-vulns", str(bom_path)])
-    assert exit_code == 0  # a failed OSV query is never fatal -- same discipline as scan's own warnings
+    assert exit_code == 1  # every check failed -- this must now fail the command
     stderr = capsys.readouterr().err
     assert "1 check(s) failed" in stderr
     assert "simulated OSV outage" in stderr
+
+
+def test_scan_vulns_a_partial_failure_still_succeeds(tmp_path, capsys, monkeypatch):
+    # A failed check is still never fatal on its own -- only a TOTAL
+    # failure is (see the test above). Same "missing pieces are never
+    # fatal" discipline `scan` itself already follows.
+    from harness_aibom import vex
+    from harness_aibom.cyclonedx import to_cyclonedx
+    from harness_aibom.model import Component, HarnessDocument
+
+    doc = HarnessDocument(harness_name="h", runtime_kind="hermes", hostname="t")
+    ok_dep = Component(component_class="dependency", name="requests", version="2.34.2")
+    ok_dep.set("purl", "pkg:pypi/requests@2.34.2")
+    doc.add(ok_dep, "uses")
+    bad_dep = Component(component_class="dependency", name="pyyaml", version="5.3")
+    bad_dep.set("purl", "pkg:pypi/pyyaml@5.3")
+    doc.add(bad_dep, "uses")
+    bom_path = tmp_path / "aibom.json"
+    bom_path.write_text(json.dumps(to_cyclonedx(doc)))
+
+    def _selective_boom(purl):
+        if "pyyaml" in purl:
+            raise TimeoutError("simulated OSV outage")
+        return []
+
+    monkeypatch.setattr(vex, "default_query", _selective_boom)
+    exit_code = main(["scan-vulns", str(bom_path)])
+    assert exit_code == 0  # one of two checks failed -- still not total
 
 
 def test_scan_vulns_missing_file_is_a_clean_error(capsys):

@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:ce909ba7-87f0-468c-9805-8c010c1b83d1",
+  "serialNumber": "urn:uuid:a1914687-98b5-4aff-a461-d102879ea844",
   "version": 1,
   "metadata": {
     "tools": {
@@ -9,7 +9,7 @@
         {
           "type": "application",
           "name": "agent-harness-aibom",
-          "version": "0.8.3"
+          "version": "0.9.1"
         }
       ]
     },
@@ -60,7 +60,7 @@
         }
       ]
     },
-    "timestamp": "2026-09-10T00:12:54+00:00"
+    "timestamp": "2026-09-10T04:32:25+00:00"
   },
   "components": [
     {

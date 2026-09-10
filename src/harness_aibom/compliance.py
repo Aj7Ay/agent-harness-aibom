@@ -216,6 +216,28 @@ FRAMEWORKS = {
 }
 
 
+#: The exact caveat the text-format output (cli.py's `_run_compliance`)
+#: already leads with -- also carried on the dict itself (v0.9.1) so a
+#: caller reading only the JSON (a dashboard, a CI job, `--format json`)
+#: still gets it. Before this fix, the JSON's `sourceNote` covered ID
+#: *provenance* ("verified against the real, canonical source") only --
+#: it said nothing about the mapping not being a compliance verdict, the
+#: one sentence a machine consumer is the most likely audience to need
+#: and the least likely to see, since it isn't the one that reads the
+#: text-mode header.
+#: Deliberately avoids the literal words this project's own
+#: `test_no_mapping_ever_uses_compliance_or_pass_fail_language` bans from
+#: appearing ANYWHERE in a mapping's text (a blanket substring check, not
+#: aware of negation) -- an earlier draft of this exact sentence said
+#: "never 'compliant' or 'pass'", which technically never claims either
+#: one but still contains both words literally. Says the same thing
+#: without them.
+DISCLAIMER = (
+    "This is an evidence mapping, not a compliance or certification claim. "
+    "Statuses are limited to 'evidence collected', 'partial evidence', or 'not assessed'."
+)
+
+
 def evaluate_framework(bom: dict, framework: str) -> dict:
     """The evidence mapping for one framework against `bom`. Raises
     ValueError for an unknown framework key -- callers (cli.py) turn
@@ -238,6 +260,7 @@ def evaluate_framework(bom: dict, framework: str) -> dict:
     return {
         "framework": framework,
         "displayName": fw["display_name"],
+        "disclaimer": DISCLAIMER,
         "sourceNote": fw["source_note"],
         "mappings": mappings,
     }

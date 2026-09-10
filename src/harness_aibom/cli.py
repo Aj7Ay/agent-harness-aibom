@@ -206,6 +206,20 @@ def _run_scan_vulns(args: argparse.Namespace) -> int:
         print(f"wrote {args.output}")
     else:
         print(text)
+
+    # v0.9.1: a wholesale OSV outage (every attempted query failed --
+    # e.g. behind a blocking proxy, or the service itself down) now fails
+    # the command, not just the individual component's own vulnCheck
+    # property -- a reviewer found that a totally failed run still
+    # exited 0 and produced a document that read as "clean", the exact
+    # failure mode this project has already designed against elsewhere
+    # (`scan`'s own root-level warning promotion). A partial failure
+    # (some purls checked, others not) still exits 0 -- that's the
+    # existing "missing pieces are never fatal" discipline, and is
+    # already visible via the per-purl warnings above and the document's
+    # own root-level harness-aibom:warning property (vex.py).
+    if result.failed and not result.checked:
+        return 1
     return 0
 
 
@@ -537,6 +551,21 @@ def _run_sign(args: argparse.Namespace) -> int:
         print(result.stderr, end="", file=sys.stderr)
     if result.returncode == 0:
         print(f"wrote {bundle_path}")
+        # v0.9.1: cosign still tries (and, offline, fails) to fetch a
+        # live TUF trusted-root even when --signing-config already gave
+        # it everything it needs to sign -- harmless, the sign above
+        # already succeeded, but a reviewer found the raw warning alone
+        # reads as alarming on an air-gapped box ("did this actually
+        # work?"). Relaying cosign's own stderr verbatim stays the
+        # default (never suppressed); this is an ADDITIONAL one-line
+        # note, shown only when that specific warning actually appeared,
+        # never a blanket claim printed regardless of what cosign said.
+        if "trusted_root" in result.stderr or "TUF" in result.stderr:
+            print(
+                "note: the TUF warning above is expected when signing fully offline -- "
+                "the signature itself succeeded.",
+                file=sys.stderr,
+            )
     return result.returncode
 
 

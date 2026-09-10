@@ -57,6 +57,14 @@ from typing import Callable
 
 OSV_QUERY_URL = "https://api.osv.dev/v1/query"
 
+#: The distinctive, fixed prefix of the root-level warning
+#: `enrich_bom_with_vulnerabilities()` adds on a failure -- matched
+#: exactly (never a substring guess) to find and remove THIS function's
+#: own prior warning on a re-run, without ever touching an unrelated
+#: warning some other part of this project added (e.g. `scan`'s own
+#: partial-scan warnings).
+_OSV_WARNING_PREFIX = "OSV.dev vulnerability check failed"
+
 QueryFn = Callable[[str], list[dict]]
 
 #: GitHub Security Advisory's own qualitative severity scale, exactly as
@@ -224,24 +232,59 @@ def enrich_bom_with_vulnerabilities(bom: dict, query: QueryFn = default_query) -
     this function's return value -- so `report`/anyone reading the raw
     JSON later can still tell "checked, clean" apart from "never checked"
     or "checking it failed" without re-running this command.
+
+    Two fixes (v0.9.1), both from a real reviewer reproduction against
+    this exact function, not a hypothetical:
+
+    - **A failure is also promoted to a root-level `harness-aibom:warning`
+      property** on `metadata.component`, the same place `scan` itself
+      already promotes a partial-scan warning to (cyclonedx.py). Before
+      this fix, a wholesale OSV outage (every query failing, e.g. behind
+      a blocking proxy) produced a document indistinguishable from "OSV
+      was queried and found nothing" -- the per-component `vulnCheck:
+      failed` property was real, but nothing surfaced it at the
+      document level, where `report`'s Vulnerabilities section and a
+      human skimming the raw JSON both actually look. `cli.py`'s
+      `_run_scan_vulns` also exits 1 when EVERY attempted query failed
+      (not just some), so a CI job can catch a wholesale outage instead
+      of a silently "clean" result.
+    - **Re-running on an already-enriched document is now idempotent.**
+      Before this fix, a component's `properties[]` accumulated a new
+      `vulnCheck` entry on every call (never replacing the old one), and
+      an already-enriched document with a `vulnerabilities[]` array that
+      later legitimately became clean (e.g. the dependency was upgraded)
+      never had that stale array cleared, since the assignment below was
+      previously skipped whenever nothing new was found. Both are fixed
+      the same way: this function is now the sole, authoritative source
+      of both `vulnCheck` (any stale copy is dropped before the fresh one
+      is added) and `vulnerabilities[]` (replaced outright, not merged)
+      for every component it actually attempts to check in a given call.
     """
     out = copy.deepcopy(bom)
     result = VulnScanResult()
     vulns_by_id: dict[str, dict] = {}
+    any_component_queried = False
 
     for comp in out.get("components", []):
         purl = comp.get("purl")
         if not purl:
             continue
+        any_component_queried = True
+        # Idempotency: drop any vulnCheck property a previous enrichment
+        # run already left on this component before adding the fresh one
+        # below -- otherwise a second run just keeps appending, and the
+        # component ends up carrying every past run's verdict at once.
+        comp["properties"] = [p for p in comp.get("properties", []) if p.get("name") != "harness-aibom:vulnCheck"]
+
         try:
             vulns = query(purl)
         except Exception as exc:  # noqa: BLE001 - any network/parse failure, recorded not raised
             result.failed[purl] = str(exc)
-            comp.setdefault("properties", []).append({"name": "harness-aibom:vulnCheck", "value": "failed"})
+            comp["properties"].append({"name": "harness-aibom:vulnCheck", "value": "failed"})
             continue
 
         result.checked.append(purl)
-        comp.setdefault("properties", []).append({"name": "harness-aibom:vulnCheck", "value": "checked"})
+        comp["properties"].append({"name": "harness-aibom:vulnCheck", "value": "checked"})
         if vulns:
             result.vulnerable_purls.append(purl)
         for vuln in vulns:
@@ -262,6 +305,34 @@ def enrich_bom_with_vulnerabilities(bom: dict, query: QueryFn = default_query) -
             else:
                 vulns_by_id[vid] = entry
 
-    if vulns_by_id:
+    if any_component_queried:
+        # Authoritative for THIS run -- replaces any stale vulnerabilities[]
+        # a previous enrichment left behind, rather than only ever adding
+        # to it. An empty list here is a real, meaningful "checked, clean"
+        # result, not the same as the key being absent entirely (which
+        # still means "never enriched at all").
         out["vulnerabilities"] = list(vulns_by_id.values())
+
+    if any_component_queried:
+        # Idempotency, same reasoning as the vulnCheck property above:
+        # drop this function's OWN prior root warning (matched by its
+        # exact, distinctive prefix, so a genuinely different warning
+        # from some other source -- e.g. scan's own "hermes binary not
+        # found" -- is never touched) before conditionally adding a
+        # fresh one. Without this, a failed run's warning would outlive
+        # a later successful re-run, since nothing else ever removes it.
+        root = out.setdefault("metadata", {}).setdefault("component", {})
+        root["properties"] = [
+            p for p in root.get("properties", [])
+            if not (p.get("name") == "harness-aibom:warning" and str(p.get("value", "")).startswith(_OSV_WARNING_PREFIX))
+        ]
+
+    if result.failed:
+        root = out.setdefault("metadata", {}).setdefault("component", {})
+        root.setdefault("properties", []).append({
+            "name": "harness-aibom:warning",
+            "value": f"{_OSV_WARNING_PREFIX} for {len(result.failed)} package(s) -- "
+                     "see per-component harness-aibom:vulnCheck properties",
+        })
+
     return out, result

@@ -2427,3 +2427,85 @@ Component Inspector (confirmed by bom-ref identity, not just "a modal
 opened"); and, after a real dispatched `input` event runs a search,
 both halves of the documented trade-off above were confirmed directly
 against the live DOM, not just asserted in a comment.
+
+## 27. Four real findings from a v0.9.0 review, fixed in v0.9.1
+
+A reviewer went through the two newest modules (`vex.py`, `compliance.py`)
+plus the v0.8.3 signing fix looking specifically for gaps between what
+they claimed and what actually happens under real conditions (a totally
+unreachable OSV.dev, a second enrichment pass, a `--format json` caller,
+an air-gapped sign). All four were reproduced for real before being
+fixed; none were guessed from the report text alone.
+
+**A wholesale OSV.dev outage read as "clean" (Medium).** §18's own
+`enrich_bom_with_vulnerabilities()` already recorded a per-component
+`harness-aibom:vulnCheck: failed` property when a query failed, but
+nothing surfaced that at the document level -- the one place
+`report`'s Vulnerabilities section and a human skimming the raw JSON
+both actually look, and the exact same place `scan` itself already
+promotes its own partial-scan warnings to (`cyclonedx.py`). Reproduced
+directly: every query failing (a real `TimeoutError` injected) produced
+a document with zero visible sign anything went wrong, and
+`scan-vulns` exited 0 regardless. Fixed two ways: (1) a root-level
+`harness-aibom:warning` property (`vex.py`) is added whenever any
+query failed, mirroring `scan`'s own root-warning discipline exactly;
+(2) `harness-aibom scan-vulns` (cli.py) now exits 1 when EVERY
+attempted query failed -- a *partial* failure (some purls checked,
+some not) still exits 0, since that's the existing "missing pieces are
+never fatal" discipline and is already visible via the per-purl stderr
+warnings and the new root property.
+
+**`scan-vulns` was not idempotent (Medium).** Re-running enrichment on
+an already-enriched document appended a second `harness-aibom:vulnCheck`
+property to every re-checked component (never replacing the first),
+and a component that WAS vulnerable but later became clean (e.g. the
+dependency was upgraded) kept its stale `vulnerabilities[]` entry
+forever, since the array was previously only ever assigned when
+something new was found. Reproduced directly: two consecutive calls
+left two `vulnCheck` properties on the same component. Fixed by making
+`enrich_bom_with_vulnerabilities()` the sole, authoritative source for
+both `vulnCheck` (any prior copy is dropped before the fresh one is
+added) and `vulnerabilities[]` (replaced outright, not merged, for any
+document where at least one component was actually queried this call)
+-- including its own root-level warning property from a previous
+failed run, cleared the same way once a later run recovers. An empty
+`vulnerabilities: []` is now a real, distinct "checked, clean" result
+whenever at least one component was queried, never conflated with the
+key being absent entirely ("never enriched at all") -- two existing
+tests that had hard-coded the old, less precise "absent when nothing
+found" behavior were updated to this more accurate contract.
+
+**`compliance --format json` had no disclaimer (Low).** The text-mode
+output already leads with "NOT a compliance or certification claim";
+the JSON `evaluate_framework()` (`compliance.py`) returns had no
+equivalent field, only `sourceNote` (which covers control-ID
+*provenance*, not the "this isn't a compliance verdict" caveat) --
+exactly the format most likely to be re-presented on a dashboard or by
+another tool, where the text-mode header is never seen. Fixed with a
+`disclaimer` key carrying the same caveat, worded to avoid the literal
+banned words (`compliant`, `pass`) this project's own
+`test_no_mapping_ever_uses_compliance_or_pass_fail_language` scans for
+everywhere in a mapping's text -- an earlier draft's negated phrasing
+("never 'compliant' or 'pass'") said the right thing but still
+contained both words literally, which the test correctly flagged as
+soon as it was added to the dict it already scans.
+
+**cosign prints an alarming TUF warning on a successful offline sign
+(Low).** `sign-blob` still *tries* (and, offline, fails) to fetch a
+live TUF trusted root even when `--signing-config` already gave it
+everything it needs -- harmless (the sign still succeeds), but the raw
+warning alone reads as "did this actually work?" on an air-gapped box.
+Fixed with one additional stderr line after a successful sign, shown
+only when that specific warning actually appeared (matched by its own
+text, `trusted_root`/`TUF`) -- cosign's own stderr is still relayed
+verbatim and unsuppressed either way; this is an addition, never a
+replacement.
+
+**Deliberately not attempted here**: `report --diff` (still the last
+unbuilt item from the original persisted plan, tracked in
+`memory/aibom-explorer-roadmap.md`); a full MCP-handshake-based tool
+schema hash (still blocked on live protocol introspection this scanner
+doesn't perform); a leading test suite (the reviewer's own observation
+that defects have so far trailed reports rather than the suite catching
+them first) -- a real, structural discipline question, not a one-release
+fix.
