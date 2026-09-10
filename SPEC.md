@@ -2806,3 +2806,106 @@ socket opened, `--probe-mcp` doesn't exist yet. A description-only rug
 pull is still genuinely undetectable after this release; `mcp_tool_not_pinned`
 firing on every tool, unconditionally, is this release's own honest
 acknowledgment of exactly that gap, not a claim it's closed.
+
+## 31. Tool definition pinning, stage 2 of 3: live probing over HTTP transports (v0.12.0)
+
+The first release in this project that talks to a real, live network
+endpoint as part of an opt-in `scan` step (not a separate command like
+`scan-vulns` -- `--probe-mcp` is a flag on `scan` itself, since its output
+still belongs in the one document, not a second file). Closes the
+description/schema half of §30's own named gap for HTTP-transport MCP
+servers only; stdio (subprocess spawning) stays deferred to 0.13.0 per
+the original three-way split.
+
+**The real wire protocol, confirmed before writing any code.** Fetched
+and read the official MCP specification (2025-06-18, the current version)
+directly rather than assuming a shape -- the actual behavior needed was
+`initialize` -> `notifications/initialized` -> `tools/list`, and the first
+step is genuinely mandatory: a server is free to reject `tools/list`
+outright if the handshake never happened. `probe.py` implements exactly
+that sequence, nothing skipped. Legacy SSE-framed transport is a
+different wire framing than Streamable HTTP and is explicitly out of
+scope here too, alongside stdio -- guessing at it would be exactly the
+kind of unconfirmed protocol shape this project has refused to ship
+throughout its history.
+
+**Opt-in, mandatory timeout, never fatal.** `--probe-mcp` requires
+`--probe-timeout` explicitly -- no default silently chosen, since a live
+network call with no bound could hang a scan indefinitely. Every failure
+(timeout, connection refused, malformed response, a refused cross-host
+redirect) is recorded as `harness-aibom:probeStatus=failed` plus
+`probeError` on the server itself and a root-level warning -- never fails
+the `scan` command, same "missing pieces are visible, never fatal"
+discipline `scan-vulns` (vex.py, v0.9.1) already established.
+`--probe-mcp` cannot be combined with `--verify-deterministic`: a live
+probe can legitimately answer differently between two calls with nothing
+on disk having changed at all, which would make that check's own
+PASS/FAIL meaningless rather than just noisy.
+
+**Auth is deliberately never sent.** This project has never read a
+credential *value* anywhere, only env var/field *names* (§3, and
+`collectors/mcp.py`'s own `_CREDENTIAL_ENV_PATTERN`) -- there is no real
+credential value on hand to send even if this module wanted to. An
+authenticated server simply answers 401/403, which surfaces as an
+ordinary probe failure, never a reason to go looking for a credential
+this project has deliberately never collected. This is a real, named
+deviation from an earlier draft of this feature's own spec ("probe with
+the recorded auth") -- the recorded auth was only ever ranked/redacted
+evidence, never an actual usable value, so there was nothing to send.
+
+**Never follows a cross-host redirect.** A custom
+`urllib.request.HTTPRedirectHandler` refuses any redirect whose target
+host differs from the configured endpoint's own host -- a configured MCP
+endpoint silently redirecting this probe somewhere else entirely is a
+real, security-relevant thing to refuse, not an edge case to ignore.
+Same-host redirects (path-only, or a scheme change on the same host) are
+still followed normally.
+
+**`definitionScope="probed"` and the widened `definitionSha256`.** A
+successful probe recomputes `definitionSha256` over
+`{"name", "description", "inputSchema"}` -- the exact same
+`canonical_json_sha256()` recipe from §30, never changed, only ever given
+more real data to cover, so a document produced before and after a probe
+stays comparable on the same axis rather than switching hash families.
+New properties: `descriptionSha256` (plain sha256 of the description
+text), `schemaSha256` (`canonical_json_sha256` of `inputSchema`, omitted
+when the server provides none), `descriptionLength`, and
+`hasImperativeLanguage`.
+
+**`hasImperativeLanguage`**, a fixed, explainable keyword match (never a
+model judgment call) against a real, documented MCP attack shape: a
+malicious or compromised server can embed prompt-injection text directly
+in its own `tools/list` response, since that response is read by the
+*model*, not just displayed to a human choosing a tool. Deliberately
+narrow and literal -- false negatives (cleverly-worded injection text this
+list misses) are expected and accepted; this is one honest signal, not a
+detector. Only ever computed against a real, live-fetched description
+(name-only static config never carries a description at all, so there is
+nothing for that earlier stage to false-positive on).
+
+**`mcp_tool_description_imperative` (security.py, severity medium).**
+Fires for any `probed` tool with `hasImperativeLanguage=True`.
+
+**Ground truth over static config, honestly.** A live tool the static
+config never declared `tools:` for at all is added as a brand-new `tool`
+child, `definitionScope="probed"` from the start -- the entire point of a
+live probe is ground truth, and a config's own `tools` list can be stale,
+incomplete, or simply absent (`corp-docs` in the Hermes fixture has one;
+`local-time` has none). A statically-declared tool the live server no
+longer lists is left untouched, still `name-only` -- its absence from one
+live response is not proof it was removed, only that this particular
+probe didn't see it.
+
+**`report.py`**: the MCP server card now shows a `probed (N tool(s)
+live)` or `probe failed` pill next to the existing transport/TLS/auth
+facts, so a reader can tell "this is what the config says" apart from
+"this is what the live server actually answered just now" at a glance --
+`_render_tool_pinning_summary()`'s own coverage counts (§30) already pick
+up `probed` tools with no changes needed there, since it was written
+generically against `definitionScope` from the start.
+
+**Deliberately not attempted here**: stdio transport probing (0.13.0,
+needs subprocess/process-group management this release intentionally
+keeps out of scope); legacy SSE-framed transport; sending any credential
+(see above); `tools/call` (this is read-only discovery, never invocation
+-- calling a tool has side effects this scanner has no business causing).

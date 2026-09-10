@@ -68,6 +68,40 @@ def test_scan_verify_deterministic_fails_on_a_genuinely_flaky_collector(capsys):
     assert "FAIL [hermes]" in capsys.readouterr().err
 
 
+def test_scan_probe_mcp_requires_probe_timeout(capsys):
+    capsys.readouterr()
+    exit_code = main(["scan", "--runtime", "hermes", "--home", str(HERMES_HOME), "--probe-mcp"])
+    assert exit_code == 1
+    assert "--probe-timeout" in capsys.readouterr().err
+
+
+def test_scan_probe_mcp_cannot_combine_with_verify_deterministic(capsys):
+    # A live probe can legitimately answer differently between two calls
+    # even when nothing on disk changed -- combining the two would make
+    # --verify-deterministic's own PASS/FAIL meaningless.
+    capsys.readouterr()
+    exit_code = main([
+        "scan", "--runtime", "hermes", "--home", str(HERMES_HOME),
+        "--probe-mcp", "--probe-timeout", "5", "--verify-deterministic",
+    ])
+    assert exit_code == 1
+    assert "--verify-deterministic" in capsys.readouterr().err
+
+
+def test_scan_probe_mcp_against_an_unreachable_configured_server_warns_not_fails(capsys):
+    # The fixture's own configured MCP server endpoint isn't a real,
+    # reachable server in CI -- confirms a failed live probe is still a
+    # warning, never a fatal `scan` error, same discipline as every other
+    # missing-piece case in this project.
+    capsys.readouterr()
+    exit_code = main([
+        "scan", "--runtime", "hermes", "--home", str(HERMES_HOME),
+        "--probe-mcp", "--probe-timeout", "1",
+    ])
+    assert exit_code == 0
+    assert "warning[hermes]: MCP probe failed" in capsys.readouterr().err
+
+
 def test_validate_accepts_its_own_scan_output(tmp_path):
     out = tmp_path / "aibom.json"
     main(["scan", "--runtime", "openclaw", "--home", str(OPENCLAW_HOME), "--output", str(out)])

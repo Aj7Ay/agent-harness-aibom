@@ -7,4 +7,4 @@ loads, the MCP servers and hooks it can reach, and the secrets surface
 around all of that. See SPEC.md at the repo root for the full data model.
 """
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"

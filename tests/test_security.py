@@ -181,6 +181,36 @@ def test_mcp_server_without_auth_is_flagged():
     assert "mcp_no_auth" in rules
 
 
+def test_probed_tool_with_imperative_description_is_flagged():
+    doc = _doc()
+    server = Component(component_class="mcp_server", name="srv")
+    doc.add(server, "uses")
+    tool = Component(component_class="tool", name="srv/search")
+    tool.set("server", "srv")
+    tool.set("definitionScope", "probed")
+    tool.set("hasImperativeLanguage", True)
+    doc.add_child(tool, server, "uses")
+    bom = to_cyclonedx(doc)
+
+    rules = {o["rule"] for o in compute_risk_observations(bom)}
+    assert "mcp_tool_description_imperative" in rules
+
+
+def test_probed_tool_without_imperative_description_is_not_flagged():
+    doc = _doc()
+    server = Component(component_class="mcp_server", name="srv")
+    doc.add(server, "uses")
+    tool = Component(component_class="tool", name="srv/search")
+    tool.set("server", "srv")
+    tool.set("definitionScope", "probed")
+    tool.set("hasImperativeLanguage", False)
+    doc.add_child(tool, server, "uses")
+    bom = to_cyclonedx(doc)
+
+    rules = {o["rule"] for o in compute_risk_observations(bom)}
+    assert "mcp_tool_description_imperative" not in rules
+
+
 def test_unpinned_mcp_launcher_package_is_flagged():
     doc = _doc()
     dep = Component(component_class="dependency", name="some-pkg")  # no .version

@@ -298,6 +298,30 @@ def compute_risk_observations(bom: dict) -> list[dict]:
             "components": [e.get("bom-ref") for e in unpinned_tools],
         })
 
+    # v0.12.0: a live-probed tool description (definitionScope ==
+    # "probed") that itself reads like an instruction directed at the
+    # MODEL rather than a description directed at a human choosing which
+    # tool to call -- a real, documented MCP attack shape (a malicious or
+    # compromised server embeds prompt-injection text in its own
+    # tools/list response, since that response is read by the model, not
+    # just displayed to a user). Only ever fires against a real, live-
+    # fetched description (`probe.py`'s `_has_imperative_language()`) --
+    # a statically-declared config never carries a description at all
+    # yet, so there is nothing here for the name-only stage to false-
+    # positive on.
+    imperative_tools = [
+        e for e in tools
+        if _properties(e).get("harness-aibom:hasImperativeLanguage") == "True"
+    ]
+    if imperative_tools:
+        observations.append({
+            "rule": "mcp_tool_description_imperative",
+            "severity": "medium",
+            "summary": f"{len(imperative_tools)} live-probed tool description(s) contain imperative, "
+                       "model-directed language (e.g. 'always'/'ignore'/'do not tell') -- possible prompt injection",
+            "components": [e.get("bom-ref") for e in imperative_tools],
+        })
+
     observations.sort(key=lambda o: _SEVERITY_RANK.get(o["severity"], 99))
     return observations
 

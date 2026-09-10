@@ -1420,6 +1420,23 @@ def _render_mcp_security(bom: dict, services: list[dict]) -> str:
         else:
             auth_pill = ""
 
+        # v0.12.0: whether this server was actually live-probed (real
+        # initialize -> tools/list handshake, HTTP transport only -- see
+        # probe.py) shown right next to the static transport/tls/auth
+        # facts above, so a reader can tell "this is what the config
+        # says" apart from "this is what the live server actually
+        # answered just now" at a glance, same distinction
+        # `transportConfidence` already draws for `transport` itself.
+        probe_status = props.get("harness-aibom:probeStatus")
+        if probe_status == "succeeded":
+            probed_count = props.get("harness-aibom:probedToolCount", "0")
+            probe_pill = f"<span class='status-pill ok'>probed ({_esc(probed_count)} tool(s) live)</span>"
+        elif probe_status == "failed":
+            probe_error = props.get("harness-aibom:probeError", "unknown error")
+            probe_pill = f"<span class='status-pill bad' title='{_esc(probe_error)}'>probe failed</span>"
+        else:
+            probe_pill = ""
+
         tools_html = ""
         server_tools = props.get("harness-aibom:toolCount")
         if server_tools:
@@ -1431,7 +1448,7 @@ def _render_mcp_security(bom: dict, services: list[dict]) -> str:
         cards.append(
             "<div class='mcp-card'>"
             f"<div class='mcp-card-header'>{_class_dot('mcp_server')}<strong>{_esc(server.get('name', ''))}</strong> "
-            f"<span class='badge'>{_esc(transport)}</span> {tls_pill} {auth_pill}</div>"
+            f"<span class='badge'>{_esc(transport)}</span> {tls_pill} {auth_pill} {probe_pill}</div>"
             f"{tools_html}{purl_html}"
             "</div>"
         )

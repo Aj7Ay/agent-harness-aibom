@@ -16,6 +16,7 @@ from .cyclonedx import current_hostname, to_cyclonedx
 from .diff import diff_documents, diff_documents_with_properties
 from .model import HarnessDocument
 from .policy_yaml import PolicyFileError, evaluate_policy_rules, load_policy_rules
+from .probe import apply_mcp_probing
 from .report import render_diff_report, render_html
 from .security import compute_risk_observations, diff_risk_observations
 from .sign import CosignNotFound, sign_blob, verify_blob
@@ -54,6 +55,25 @@ def _run_scan(args: argparse.Namespace) -> int:
     else:
         active = [_make_collector(COLLECTORS[args.runtime], home, args)]
 
+    # v0.12.0: --probe-mcp talks to a real, live network endpoint --
+    # deliberately incompatible with --verify-deterministic, which
+    # exists specifically to prove two scans of *unchanged* state are
+    # byte-identical. A live probe can legitimately answer differently
+    # between two calls (a server restart, a tool added moments apart,
+    # ordinary network flakiness) with nothing on disk having changed at
+    # all -- letting the two run together would make --verify-
+    # deterministic's own PASS/FAIL meaningless, not just noisy.
+    if args.probe_mcp and args.verify_deterministic:
+        print(
+            "error: --probe-mcp and --verify-deterministic cannot be combined -- a live probe can "
+            "legitimately differ between two calls even when nothing on disk changed",
+            file=sys.stderr,
+        )
+        return 1
+    if args.probe_mcp and args.probe_timeout is None:
+        print("error: --probe-mcp requires --probe-timeout", file=sys.stderr)
+        return 1
+
     if args.verify_deterministic:
         return _run_verify_deterministic(active)
 
@@ -64,6 +84,8 @@ def _run_scan(args: argparse.Namespace) -> int:
             hostname=current_hostname(),
         )
         collector.collect(doc)
+        if args.probe_mcp:
+            apply_mcp_probing(doc, args.probe_timeout)
         for w in doc.warnings:
             print(f"warning[{collector.runtime_kind}]: {w}", file=sys.stderr)
 
@@ -671,6 +693,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run the scan twice and confirm --deterministic output is actually byte-identical both times "
         "-- prints PASS/FAIL instead of writing output, exit 1 on FAIL",
+    )
+    scan.add_argument(
+        "--probe-mcp",
+        action="store_true",
+        help="v0.12.0: live-probe every configured HTTP-transport MCP server (real initialize -> "
+        "tools/list handshake, no subprocess/stdio, never follows a redirect to a different host) and "
+        "pin each tool's real definitionScope=probed hash instead of the static, name-only one -- opt-in, "
+        "requires network and --probe-timeout; a probe failure is a warning, never fatal",
+    )
+    scan.add_argument(
+        "--probe-timeout",
+        type=float,
+        default=None,
+        help="seconds to wait per HTTP request when --probe-mcp is set (required together with it)",
     )
     scan.set_defaults(func=_run_scan)
 
