@@ -4,6 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/agent-harness-aibom.svg)](https://pypi.org/project/agent-harness-aibom/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+![AIBOM](docs/banner-aibom.png)
 **An AI Bill of Materials (AIBOM) generator, security analyzer, and
 CI gate for AI agent harnesses.**
 
