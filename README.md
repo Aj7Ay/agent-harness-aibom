@@ -3,6 +3,7 @@
 [![CI](https://github.com/Aj7Ay/agent-harness-aibom/actions/workflows/ci.yml/badge.svg)](https://github.com/Aj7Ay/agent-harness-aibom/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/agent-harness-aibom.svg)](https://pypi.org/project/agent-harness-aibom/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![M8ven Verified](https://m8ven.ai/badge/mcp/aj7ay/agent-harness-aibom?variant=verified)](https://m8ven.ai/mcp/aj7ay/agent-harness-aibom)
 
 ![AIBOM](docs/banner-aibom.png)
 **An AI Bill of Materials (AIBOM) generator, security analyzer, and
